@@ -4,9 +4,11 @@ from datetime import datetime
 from typing import Optional, Dict, Any
 from PIL import Image
 from PIL.ExifTags import TAGS, GPSTAGS
+import json
 
 from .base import BaseStage
-from ..database.models import Photo, Metadata
+from ..database.models import Photo, Metadata, ProcessingStatus
+from ..utils.exif import ExifExtractor
 
 logger = logging.getLogger(__name__)
 
@@ -14,53 +16,219 @@ logger = logging.getLogger(__name__)
 class MetadataStage(BaseStage):
     """Stage 2: Extract and store photo metadata."""
     
-    def process_photo(self, photo: Photo, file_path: Path) -> None:
-        """Extract metadata from a photo."""
-        existing_metadata = self.repository.get_metadata(photo.id)
-        if existing_metadata:
-            logger.debug(f"Metadata already exists for {photo.id}, updating")
-        
-        metadata = self._extract_metadata(file_path, photo.id)
-        
-        if existing_metadata:
-            self._update_metadata(existing_metadata, metadata)
-        else:
-            self.repository.create_metadata(metadata)
-        
-        logger.debug(f"Metadata extracted for {photo.id}")
+    STAGE_NAME = 'metadata'
     
-    def _extract_metadata(self, file_path: Path, photo_id: str) -> Metadata:
-        """Extract metadata from image file."""
-        metadata = Metadata(
-            photo_id=photo_id,
-            captured_at=None,
-            latitude=None,
-            longitude=None,
-            created_at=datetime.now(),
-            extra={}
+    def process_photo(self, photo: Photo, file_path: Path) -> Dict[str, Any]:
+        """Extract metadata from a photo."""
+        logger.info(f"Extracting metadata from: {file_path}")
+        
+        # Update processing status
+        self.repository.update_processing_status(
+            ProcessingStatus(
+                photo_id=photo.id,
+                stage=self.STAGE_NAME,
+                status='processing',
+                processed_at=datetime.now(),
+                error_message=None
+            )
         )
         
         try:
-            with Image.open(file_path) as img:
-                exif_data = img._getexif()
-                
-                if exif_data:
-                    metadata = self._parse_exif(exif_data, metadata)
-                
-                metadata.extra['width'] = img.width
-                metadata.extra['height'] = img.height
-                metadata.extra['format'] = img.format
-                metadata.extra['mode'] = img.mode
-                
+            # Extract all metadata using ExifExtractor
+            all_metadata = ExifExtractor.extract_all_metadata(file_path)
+            
+            # Extract specific fields
+            captured_at = ExifExtractor.extract_datetime(file_path)
+            gps_coords = ExifExtractor.extract_gps_coordinates(file_path)
+            
+            # Parse additional metadata
+            parsed_metadata = self._parse_metadata(all_metadata)
+            
+            # Create metadata record
+            metadata = Metadata(
+                photo_id=photo.id,
+                captured_at=captured_at or datetime.fromtimestamp(file_path.stat().st_mtime),
+                latitude=gps_coords[0] if gps_coords else None,
+                longitude=gps_coords[1] if gps_coords else None,
+                created_at=datetime.now(),
+                extra=parsed_metadata
+            )
+            
+            # Check if metadata exists (for updates)
+            existing_metadata = self.repository.get_metadata(photo.id)
+            if existing_metadata:
+                logger.debug(f"Metadata already exists for {photo.id}, updating")
+                metadata.created_at = existing_metadata.created_at
+                self._update_metadata(metadata)
+            else:
+                self.repository.create_metadata(metadata)
+            
+            # Update processing status
+            self.repository.update_processing_status(
+                ProcessingStatus(
+                    photo_id=photo.id,
+                    stage=self.STAGE_NAME,
+                    status='completed',
+                    processed_at=datetime.now(),
+                    error_message=None
+                )
+            )
+            
+            result = {
+                'success': True,
+                'photo_id': photo.id,
+                'captured_at': captured_at.isoformat() if captured_at else None,
+                'has_location': gps_coords is not None,
+                'metadata_fields': len(parsed_metadata),
+                'camera_info': self._extract_camera_info(parsed_metadata)
+            }
+            
+            logger.info(f"Successfully extracted metadata for {file_path}")
+            logger.debug(f"Metadata extracted for {photo.id}")
+            return result
+            
         except Exception as e:
-            logger.warning(f"Failed to extract metadata from {file_path}: {e}")
-        
-        if not metadata.captured_at:
-            stat = file_path.stat()
-            metadata.captured_at = datetime.fromtimestamp(stat.st_mtime)
-        
-        return metadata
+            logger.error(f"Failed to extract metadata from {file_path}: {e}")
+            
+            # Update processing status
+            self.repository.update_processing_status(
+                ProcessingStatus(
+                    photo_id=photo.id,
+                    stage=self.STAGE_NAME,
+                    status='failed',
+                    processed_at=datetime.now(),
+                    error_message=str(e)
+                )
+            )
+            
+            return {
+                'success': False,
+                'photo_id': photo.id,
+                'error': str(e)
+            }
     
+    def _parse_metadata(self, raw_metadata: Dict[str, Any]) -> Dict[str, Any]:
+        """
+        Parse and structure metadata for storage.
+        
+        Args:
+            raw_metadata: Raw metadata from extractor
+            
+        Returns:
+            Structured metadata dict
+        """
+        parsed = {}
+        
+        # Basic image properties
+        if 'size' in raw_metadata:
+            parsed['dimensions'] = raw_metadata['size']
+            parsed['width'] = raw_metadata['size'].get('width')
+            parsed['height'] = raw_metadata['size'].get('height')
+        
+        if 'format' in raw_metadata:
+            parsed['format'] = raw_metadata['format']
+        
+        if 'mode' in raw_metadata:
+            parsed['color_mode'] = raw_metadata['mode']
+        
+        # EXIF data
+        if 'exif' in raw_metadata:
+            exif = raw_metadata['exif']
+            
+            # Camera information
+            camera_fields = {
+                'Make': 'camera_make',
+                'Model': 'camera_model',
+                'LensModel': 'lens_model',
+                'Software': 'software'
+            }
+            
+            for exif_key, parsed_key in camera_fields.items():
+                if exif_key in exif:
+                    parsed[parsed_key] = str(exif[exif_key])
+            
+            # Shooting parameters
+            shooting_fields = {
+                'ExposureTime': 'exposure_time',
+                'FNumber': 'f_number',
+                'ISO': 'iso',
+                'ISOSpeedRatings': 'iso',  # Alternative ISO field
+                'FocalLength': 'focal_length',
+                'Flash': 'flash',
+                'WhiteBalance': 'white_balance',
+                'ExposureMode': 'exposure_mode',
+                'ExposureProgram': 'exposure_program',
+                'MeteringMode': 'metering_mode'
+            }
+            
+            for exif_key, parsed_key in shooting_fields.items():
+                if exif_key in exif:
+                    value = exif[exif_key]
+                    # Convert tuples to values
+                    if isinstance(value, tuple) and len(value) == 2:
+                        value = value[0] / value[1] if value[1] != 0 else value[0]
+                    parsed[parsed_key] = value
+            
+            # Image orientation
+            if 'Orientation' in exif:
+                parsed['orientation'] = exif['Orientation']
+            
+            # Copyright and artist
+            if 'Copyright' in exif:
+                parsed['copyright'] = exif['Copyright']
+            if 'Artist' in exif:
+                parsed['artist'] = exif['Artist']
+            
+            # Store complete EXIF for reference
+            parsed['exif_full'] = exif
+        
+        # Additional info
+        if 'info' in raw_metadata:
+            parsed['additional_info'] = raw_metadata['info']
+        
+        return parsed
+    
+    def _extract_camera_info(self, metadata: Dict[str, Any]) -> Dict[str, Any]:
+        """Extract camera information from metadata."""
+        camera_info = {}
+        
+        if 'camera_make' in metadata:
+            camera_info['make'] = metadata['camera_make']
+        
+        if 'camera_model' in metadata:
+            camera_info['model'] = metadata['camera_model']
+        
+        if 'lens_model' in metadata:
+            camera_info['lens'] = metadata['lens_model']
+        
+        if 'iso' in metadata:
+            camera_info['iso'] = metadata['iso']
+        
+        if 'f_number' in metadata:
+            camera_info['aperture'] = f"f/{metadata['f_number']}"
+        
+        if 'exposure_time' in metadata:
+            exp = metadata['exposure_time']
+            if isinstance(exp, (int, float)):
+                if exp < 1:
+                    camera_info['shutter'] = f"1/{int(1/exp)}s"
+                else:
+                    camera_info['shutter'] = f"{exp}s"
+        
+        return camera_info
+    
+    def _update_metadata(self, metadata: Metadata) -> None:
+        """Update existing metadata record."""
+        # This would need to be implemented in the repository
+        # For now, delete and recreate
+        with self.repository.db.transaction() as conn:
+            conn.execute(
+                "DELETE FROM metadata WHERE photo_id = ?",
+                (metadata.photo_id,)
+            )
+        self.repository.create_metadata(metadata)
+    
+    # Keeping old methods for backwards compatibility
     def _parse_exif(self, exif_data: dict, metadata: Metadata) -> Metadata:
         """Parse EXIF data into metadata."""
         for tag_id, value in exif_data.items():
@@ -132,14 +300,3 @@ class MetadataStage(BaseStage):
             if value.denominator != 0:
                 return float(value.numerator) / float(value.denominator)
         return float(value)
-    
-    def _update_metadata(self, existing: Metadata, new: Metadata) -> None:
-        """Update existing metadata with new values."""
-        if new.captured_at:
-            existing.captured_at = new.captured_at
-        if new.latitude is not None:
-            existing.latitude = new.latitude
-        if new.longitude is not None:
-            existing.longitude = new.longitude
-        
-        existing.extra.update(new.extra)

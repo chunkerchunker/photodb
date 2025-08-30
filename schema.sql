@@ -1,32 +1,36 @@
-CREATE TABLE photo(
-  id uuid PRIMARY KEY,
-  filename text NOT NULL, -- path to original file
-  created_at timestamp DEFAULT CURRENT_TIMESTMP,
+-- Photos table: Core photo records
+CREATE TABLE IF NOT EXISTS photos (
+    id TEXT PRIMARY KEY,  -- UUID
+    filename TEXT NOT NULL UNIQUE,  -- Relative path from INGEST_PATH
+    normalized_path TEXT NOT NULL,  -- Path to normalized image in IMG_PATH
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
-CREATE UNIQUE INDEX idx_photo_filename ON photo(filename);
-
-CREATE TABLE metadata(
-  photo_id uuid PRIMARY KEY REFERENCES photo(id),
-  captured_at timestamp,
-  lat real, -- latitude for location info (Spatialite)
-  lon real -- longitude for location info (Spatialite)
-  extra jsonb -- additional exif/tiff/ifd data
+-- Metadata table: Extracted photo metadata
+CREATE TABLE IF NOT EXISTS metadata (
+    photo_id TEXT PRIMARY KEY,
+    captured_at TIMESTAMP,  -- When photo was taken
+    latitude REAL,
+    longitude REAL,
+    extra JSON,  -- All EXIF/TIFF/IFD metadata as JSON
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (photo_id) REFERENCES photos(id) ON DELETE CASCADE
 );
 
--- Person (identified later through clustering)
-CREATE TABLE person(
-  id uuid PRIMARY KEY,
-  name text -- user-assigned ("Dad", "Alice")
+-- Processing status table: Track processing stages
+CREATE TABLE IF NOT EXISTS processing_status (
+    photo_id TEXT NOT NULL,
+    stage TEXT NOT NULL,  -- 'normalize', 'metadata', etc.
+    status TEXT NOT NULL,  -- 'pending', 'processing', 'completed', 'failed'
+    processed_at TIMESTAMP,
+    error_message TEXT,
+    PRIMARY KEY (photo_id, stage),
+    FOREIGN KEY (photo_id) REFERENCES photos(id) ON DELETE CASCADE
 );
 
--- Faces detected in photos
-CREATE TABLE faces(
-  face_id uuid PRIMARY KEY,
-  photo_id uuid REFERENCES photos(id),
-  person_id uuid REFERENCES people(id), -- nullable until labeled
-  bbox jsonb, -- bounding box {x,y,w,h}
-  confidence float,
-  created_at timestamp DEFAULT CURRENT_TIMESTMP
-);
-
+-- Indexes for performance
+CREATE INDEX IF NOT EXISTS idx_photos_filename ON photos(filename);
+CREATE INDEX IF NOT EXISTS idx_metadata_captured_at ON metadata(captured_at);
+CREATE INDEX IF NOT EXISTS idx_metadata_location ON metadata(latitude, longitude);
+CREATE INDEX IF NOT EXISTS idx_processing_status ON processing_status(status, stage);

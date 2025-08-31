@@ -4,6 +4,7 @@ from datetime import datetime
 from typing import Optional, Dict, Any
 from PIL import Image
 from PIL.ExifTags import TAGS, GPSTAGS
+from PIL.ExifTags import IFD
 import json
 
 from .base import BaseStage
@@ -44,6 +45,9 @@ class MetadataStage(BaseStage):
             # Parse additional metadata
             parsed_metadata = self._parse_metadata(all_metadata)
             
+            # Ensure metadata is JSON serializable
+            serializable_metadata = self._make_json_serializable(parsed_metadata)
+            
             # Create metadata record
             metadata = Metadata(
                 photo_id=photo.id,
@@ -51,7 +55,7 @@ class MetadataStage(BaseStage):
                 latitude=gps_coords[0] if gps_coords else None,
                 longitude=gps_coords[1] if gps_coords else None,
                 created_at=datetime.now(),
-                extra=parsed_metadata
+                extra=serializable_metadata
             )
             
             # Check if metadata exists (for updates)
@@ -187,6 +191,31 @@ class MetadataStage(BaseStage):
             parsed['additional_info'] = raw_metadata['info']
         
         return parsed
+    
+    def _make_json_serializable(self, obj: Any) -> Any:
+        """
+        Convert objects to JSON serializable types.
+        Handles PIL IFDRational, tuples, and other non-serializable types.
+        """
+        if obj is None:
+            return None
+        elif isinstance(obj, dict):
+            return {key: self._make_json_serializable(value) for key, value in obj.items()}
+        elif isinstance(obj, (list, tuple)):
+            return [self._make_json_serializable(item) for item in obj]
+        elif hasattr(obj, 'numerator') and hasattr(obj, 'denominator'):
+            # Handle PIL IFDRational objects
+            if obj.denominator != 0:
+                return float(obj.numerator) / float(obj.denominator)
+            else:
+                return float(obj.numerator)
+        elif isinstance(obj, (int, float, str, bool)):
+            return obj
+        elif isinstance(obj, datetime):
+            return obj.isoformat()
+        else:
+            # Convert unknown types to string
+            return str(obj)
     
     def _extract_camera_info(self, metadata: Dict[str, Any]) -> Dict[str, Any]:
         """Extract camera information from metadata."""

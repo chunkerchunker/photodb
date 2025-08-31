@@ -27,6 +27,8 @@ load_dotenv()
               help='Number of parallel workers (default: 1)')
 @click.option('--config', type=click.Path(exists=True), 
               help='Path to configuration file')
+@click.option('--max-photos', type=int, 
+              help='Maximum number of photos to process (excluding skipped ones)')
 def main(
     path: str,
     force: bool,
@@ -36,7 +38,8 @@ def main(
     verbose: bool,
     dry_run: bool,
     parallel: int,
-    config: Optional[str]
+    config: Optional[str],
+    max_photos: Optional[int]
 ):
     """
     Process photos from PATH (file or directory).
@@ -79,7 +82,8 @@ def main(
             config=config_data,
             force=force,
             dry_run=dry_run,
-            parallel=parallel
+            parallel=parallel,
+            max_photos=max_photos
         )
         
         if input_path.is_file():

@@ -24,12 +24,13 @@ class ProcessingResult:
 class PhotoProcessor:
     def __init__(self, repository, config: dict, 
                  force: bool = False, dry_run: bool = False, 
-                 parallel: int = 1):
+                 parallel: int = 1, max_photos: Optional[int] = None):
         self.repository = repository
         self.config = config
         self.force = force
         self.dry_run = dry_run
         self.parallel = max(1, parallel)
+        self.max_photos = max_photos
         
         # Semaphore to limit concurrent file operations (prevents "too many open files")
         # Allow at most 50 concurrent file operations regardless of thread count
@@ -184,6 +185,11 @@ class PhotoProcessor:
         result = ProcessingResult(total_files=len(files))
         
         for i, file_path in enumerate(files, 1):
+            # Check if we've hit the max_photos limit
+            if self.max_photos is not None and result.processed >= self.max_photos:
+                logger.info(f"Reached maximum photo limit ({self.max_photos}), stopping processing")
+                break
+                
             logger.info(f"Processing {i}/{len(files)}: {file_path.name}")
             file_result = self.process_file(file_path, stage)
             
@@ -231,6 +237,16 @@ class PhotoProcessor:
                     result.skipped += file_result.skipped
                     result.failed += file_result.failed
                     result.failed_files.extend(file_result.failed_files)
+                    
+                    # Check if we've hit the max_photos limit after each completed task
+                    if self.max_photos is not None and result.processed >= self.max_photos:
+                        logger.info(f"Reached maximum photo limit ({self.max_photos}), stopping processing")
+                        # Cancel remaining futures
+                        for remaining_future in futures:
+                            if not remaining_future.done():
+                                remaining_future.cancel()
+                        break
+                        
                 except Exception as e:
                     logger.error(f"Parallel processing error for {file_path}: {e}")
                     result.failed += 1
@@ -294,6 +310,16 @@ class PhotoProcessor:
                     result.skipped += file_result.skipped
                     result.failed += file_result.failed
                     result.failed_files.extend(file_result.failed_files)
+                    
+                    # Check if we've hit the max_photos limit after each completed task
+                    if self.max_photos is not None and result.processed >= self.max_photos:
+                        logger.info(f"Reached maximum photo limit ({self.max_photos}), stopping processing")
+                        # Cancel remaining futures
+                        for remaining_future in futures:
+                            if not remaining_future.done():
+                                remaining_future.cancel()
+                        break
+                        
                 except Exception as e:
                     logger.error(f"Streaming parallel processing error for {file_path}: {e}")
                     result.failed += 1

@@ -1,11 +1,10 @@
 import asyncio
 import time
-from typing import List, Dict, Any, Optional
+from typing import List, Dict, Any
 import logging
 from datetime import datetime
 
 from .database.pg_repository import PostgresPhotoRepository
-from .database.models import BatchJob
 
 logger = logging.getLogger(__name__)
 

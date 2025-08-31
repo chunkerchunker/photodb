@@ -6,9 +6,14 @@ from pathlib import Path
 from typing import Optional, Dict, Any, List
 import logging
 
+import instructor
+from anthropic import Anthropic
+from anthropic.types import MessageParam
+
 from .base import BaseStage
 from ..database.models import Photo, LLMAnalysis
 from ..database.pg_repository import PostgresPhotoRepository
+from ..models.photo_analysis import PhotoAnalysisResponse
 
 logger = logging.getLogger(__name__)
 
@@ -26,10 +31,26 @@ class EnrichStage(BaseStage):
         self.api_key = config.get('LLM_API_KEY') or os.getenv('ANTHROPIC_API_KEY')
         self.batch_size = int(config.get('BATCH_SIZE', 100))
         
-        # For now, we'll skip the API key requirement to allow testing without it
+        # Initialize Instructor client and load system prompt
         self.api_available = self.api_key is not None
-        if not self.api_available:
+        if self.api_available:
+            self.client = instructor.from_anthropic(Anthropic(api_key=self.api_key))
+            self.system_prompt = self._load_system_prompt()
+        else:
             logger.warning("No LLM API key found - will skip LLM analysis")
+            self.client = None
+            self.system_prompt = None
+    
+    def _load_system_prompt(self) -> str:
+        """Load the system prompt from file."""
+        # Navigate to project root from src/photodb/stages/enrich.py
+        system_prompt_file = Path(__file__).parent.parent.parent.parent / "prompts" / "system_prompt.md"
+        try:
+            with open(system_prompt_file, 'r', encoding='utf-8') as f:
+                return f.read().strip()
+        except Exception as e:
+            logger.warning(f"Could not load system prompt: {e}. Using fallback.")
+            return "You are an expert photo archivist and computer-vision analyst. Extract factual, verifiable metadata from images with precision and transparency about uncertainty."
     
     def should_process(self, file_path: Path, force: bool = False) -> bool:
         """Check if a file should be processed for LLM analysis."""
@@ -45,7 +66,10 @@ class EnrichStage(BaseStage):
                 not self.repository.has_llm_analysis(photo.id))
     
     def process_photo(self, photo: Photo, file_path: Path) -> bool:
-        """Process individual photo for LLM analysis (synchronous fallback)."""
+        """Process individual photo for LLM analysis (synchronous fallback).
+        
+        Note: file_path parameter not used - we use the normalized image path instead.
+        """
         try:
             start_time = time.time()
             
@@ -120,7 +144,7 @@ class EnrichStage(BaseStage):
         try:
             logger.info(f"Processing batch of {len(photos)} photos")
             
-            # Try to use Anthropic batch API if available, otherwise fall back to grouped processing
+            # Try to use Anthropic batch API with structured response support
             try:
                 return self._process_batch_with_api(photos)
             except (AttributeError, ImportError):
@@ -132,7 +156,15 @@ class EnrichStage(BaseStage):
             return None
     
     def _process_batch_with_api(self, photos: List[Photo]) -> Optional[str]:
-        """Process batch using Anthropic's batch API (if available)."""
+        """Process batch using Anthropic's batch API with structured response support.
+        
+        This method now supports structured responses by:
+        1. Including system prompt and structured output instructions
+        2. Processing batch results with Pydantic model validation
+        3. Providing the same PhotoAnalysisResponse objects as individual processing
+        
+        The Anthropic batch API supports all Messages API parameters including system prompts.
+        """
         from anthropic import Anthropic
         client = Anthropic(api_key=self.api_key)
         
@@ -200,7 +232,11 @@ class EnrichStage(BaseStage):
         return batch.id
     
     def _process_batch_grouped(self, photos: List[Photo]) -> Optional[str]:
-        """Process photos as a grouped batch using individual API calls."""
+        """Process photos as a grouped batch using individual structured API calls.
+        
+        This method processes photos individually but tracks them as a batch.
+        Each photo gets structured analysis using Instructor + Pydantic models.
+        """
         logger.info(f"Using grouped individual processing for {len(photos)} photos")
         
         batch_id = f"grouped_batch_{int(time.time())}_{len(photos)}"
@@ -232,11 +268,11 @@ class EnrichStage(BaseStage):
                 metadata = self.repository.get_metadata(photo.id)
                 exif_context = self._build_exif_context(metadata) if metadata else ""
                 
-                # Analyze photo
+                # Analyze photo using structured format
                 analysis_result = self._analyze_single_photo(normalized_path, exif_context)
                 
                 if analysis_result:
-                    # Extract key fields and save
+                    # Extract key fields from structured analysis
                     extracted_fields = self._extract_key_fields(analysis_result)
                     
                     llm_analysis = LLMAnalysis.create(
@@ -272,7 +308,6 @@ class EnrichStage(BaseStage):
     def _create_batch_input_file(self, client, requests: List[Dict[str, Any]]) -> str:
         """Create input file for batch processing."""
         import tempfile
-        import json
         
         # Create temporary file with batch requests
         with tempfile.NamedTemporaryFile(mode='w', suffix='.jsonl', delete=False) as f:
@@ -305,7 +340,8 @@ class EnrichStage(BaseStage):
             "url": "/v1/messages",
             "body": {
                 "model": self.model_name,
-                "max_tokens": 2000,
+                "max_tokens": 4000,  # Increased for structured responses
+                "system": self.system_prompt or "You are an expert photo analyst.",
                 "messages": [
                     {
                         "role": "user",
@@ -457,9 +493,16 @@ class EnrichStage(BaseStage):
                                         break
                             
                             if analysis_text:
-                                # Parse analysis result
+                                # Parse analysis result with structured validation
                                 try:
-                                    analysis_data = json.loads(analysis_text)
+                                    # First parse as JSON
+                                    analysis_json = json.loads(analysis_text)
+                                    
+                                    # Validate with Pydantic model for structured output
+                                    structured_response = PhotoAnalysisResponse.model_validate(analysis_json)
+                                    analysis_data = structured_response.model_dump()
+                                    
+                                    # Extract key fields from structured data
                                     extracted_fields = self._extract_key_fields(analysis_data)
                                     
                                     # Create and save LLM analysis
@@ -474,14 +517,17 @@ class EnrichStage(BaseStage):
                                     
                                     self.repository.create_llm_analysis(llm_analysis)
                                     processed_count += 1
+                                    logger.debug(f"Processed structured batch result for photo {photo_id}")
                                     
-                                except json.JSONDecodeError:
-                                    # Save as plain text if not JSON
+                                except (json.JSONDecodeError, ValueError) as e:
+                                    logger.warning(f"Failed to parse structured response for {photo_id}: {e}")
+                                    # Save as fallback analysis if structured parsing fails
                                     llm_analysis = LLMAnalysis.create(
                                         photo_id=photo_id,
                                         model_name=self.model_name,
-                                        analysis={"description": analysis_text, "confidence": 0.8},
-                                        batch_id=batch.id
+                                        analysis={"description": analysis_text, "confidence": 0.8, "parsing_error": str(e)},
+                                        batch_id=batch.id,
+                                        error_message=f"Structured parsing failed: {e}"
                                     )
                                     self.repository.create_llm_analysis(llm_analysis)
                                     processed_count += 1
@@ -516,84 +562,86 @@ class EnrichStage(BaseStage):
             return 0
     
     def _analyze_single_photo(self, image_path: Path, exif_context: str) -> Optional[Dict[str, Any]]:
-        """Analyze a single photo using direct API call."""
+        """Analyze a single photo using Instructor for structured output."""
         try:
-            from anthropic import Anthropic
-            
-            client = Anthropic(api_key=self.api_key)
-            
+            if not self.client:
+                return None
+                
             # Read and encode image
             with open(image_path, "rb") as image_file:
                 image_data = base64.b64encode(image_file.read()).decode()
             
-            # Build prompt
+            # Build prompt with structured output request
             prompt = self._build_analysis_prompt(exif_context)
             
-            # Call Claude API
-            response = client.messages.create(
-                model=self.model_name,
-                max_tokens=2000,
-                messages=[
+            # Create user message
+            user_message: MessageParam = {  # type: ignore
+                "role": "user",
+                "content": [
                     {
-                        "role": "user",
-                        "content": [
-                            {
-                                "type": "image",
-                                "source": {
-                                    "type": "base64",
-                                    "media_type": "image/png",
-                                    "data": image_data
-                                }
-                            },
-                            {"type": "text", "text": prompt}
-                        ]
+                        "type": "image",
+                        "source": {
+                            "type": "base64",
+                            "media_type": "image/png",
+                            "data": image_data
+                        }
+                    },
+                    {
+                        "type": "text", 
+                        "text": prompt
                     }
                 ]
+            }
+
+            # Use Instructor to get structured response
+            # Note: type ignore due to Instructor's mixed OpenAI/Anthropic type hints
+            response = self.client.messages.create(  # type: ignore
+                model=self.model_name,
+                max_tokens=4000,
+                response_model=PhotoAnalysisResponse,
+                system=self.system_prompt,  # Use system parameter instead of message
+                messages=[user_message]  # type: ignore
             )
             
-            # Parse response
-            if response and response.content:
-                # Handle different types of content blocks
-                result_text = ""
-                for content_block in response.content:
-                    # Only process text content blocks
-                    if hasattr(content_block, 'type') and content_block.type == 'text':
-                        result_text += content_block.text
-                
-                try:
-                    return json.loads(result_text)
-                except json.JSONDecodeError:
-                    # If not valid JSON, wrap in analysis object
-                    return {"description": result_text, "confidence": 0.8}
-            
-            return None
+            # Convert Pydantic model to dict for database storage
+            return response.model_dump() if response else None
             
         except Exception as e:
-            logger.error(f"Direct LLM analysis failed: {e}")
+            logger.error(f"Structured LLM analysis failed: {e}")
             return None
     
     
     def _build_analysis_prompt(self, exif_context: str) -> str:
-        """Build the analysis prompt for LLM."""
-        base_prompt = """Analyze this photo and provide a comprehensive description in JSON format. Include:
-
-1. **scene_description**: A detailed description of what's happening in the photo
-2. **objects**: Array of all identifiable objects, people, animals, etc.
-3. **people_count**: Number of people visible (integer)
-4. **location_type**: Type of location (indoor, outdoor, urban, nature, etc.)
-5. **emotional_tone**: Overall emotional feeling (happy, sad, neutral, excited, calm, etc.)
-6. **activities**: What activities or actions are taking place
-7. **time_context**: Apparent time of day or lighting conditions
-8. **composition**: Notable photographic composition elements
-9. **colors**: Dominant colors in the image
-10. **confidence**: Overall confidence in the analysis (0.0-1.0)
-
-Return only valid JSON with these fields."""
+        """Build the analysis prompt using separate user prompt template."""
         
-        if exif_context:
-            base_prompt += f"\n\nAdditional context from EXIF data:\n{exif_context}"
-        
-        return base_prompt
+        # Load user prompt template
+        # Navigate to project root from src/photodb/stages/enrich.py
+        user_template_file = Path(__file__).parent.parent.parent.parent / "prompts" / "user_prompt_template.md"
+        try:
+            with open(user_template_file, 'r', encoding='utf-8') as f:
+                user_template = f.read().strip()
+                
+                # Replace EXIF context placeholder
+                if exif_context:
+                    exif_section = f"EXIF data available:\n{exif_context}"
+                else:
+                    exif_section = "No EXIF data available."
+                
+                user_prompt = user_template.replace("{EXIF_CONTEXT}", exif_section)
+                return user_prompt
+                
+        except Exception as e:
+            logger.warning(f"Could not load prompt template: {e}. Using fallback.")
+            
+            # Fallback prompt if template loading fails
+            fallback_prompt = """Extract metadata from this image focusing on: people, activities, events, location cues, time/season cues, objects, text, and scene details.
+
+Return structured data following the PhotoAnalysisResponse schema."""
+            
+            if exif_context:
+                fallback_prompt += f"\n\nEXIF context:\n{exif_context}"
+                
+            return fallback_prompt
     
     def _build_exif_context(self, metadata) -> str:
         """Build context string from EXIF metadata."""
@@ -625,27 +673,51 @@ Return only valid JSON with these fields."""
         return "\n".join(context_parts)
     
     def _extract_key_fields(self, analysis: Dict[str, Any]) -> Dict[str, Any]:
-        """Extract key fields from analysis for database indexing."""
+        """Extract key fields from structured analysis for database indexing."""
         extracted = {}
         
-        if 'scene_description' in analysis:
-            extracted['description'] = analysis['scene_description']
-        elif 'description' in analysis:
-            extracted['description'] = analysis['description']
+        # Extract description from scene info
+        if 'scene' in analysis:
+            scene = analysis['scene']
+            if 'short_caption' in scene:
+                extracted['description'] = scene['short_caption']
+            elif 'long_description' in scene:
+                extracted['description'] = scene['long_description']
         
-        if 'objects' in analysis:
-            extracted['objects'] = analysis['objects']
+        # Extract objects list
+        if 'objects' in analysis and 'items' in analysis['objects']:
+            extracted['objects'] = [item['label'] for item in analysis['objects']['items']]
         
-        if 'people_count' in analysis:
-            extracted['people_count'] = analysis['people_count']
+        # Extract people count
+        if 'people' in analysis and 'count' in analysis['people']:
+            extracted['people_count'] = analysis['people']['count']
         
-        if 'location_type' in analysis:
-            extracted['location_description'] = analysis['location_type']
+        # Extract location information
+        if 'location' in analysis:
+            location = analysis['location']
+            if 'environment' in location:
+                extracted['location_description'] = location['environment']
+            # Add hypotheses if available
+            if 'hypotheses' in location and location['hypotheses']:
+                best_location = max(location['hypotheses'], key=lambda x: x.get('confidence', 0))
+                if best_location['confidence'] > 0.5:
+                    extracted['location_description'] = f"{location['environment']} - {best_location['value']}"
         
-        if 'emotional_tone' in analysis:
-            extracted['emotional_tone'] = analysis['emotional_tone']
+        # Extract activities/emotional context
+        if 'activities' in analysis:
+            activities = analysis['activities']
+            if 'event_hypotheses' in activities and activities['event_hypotheses']:
+                best_event = max(activities['event_hypotheses'], key=lambda x: x.get('confidence', 0))
+                if best_event['confidence'] > 0.5:
+                    extracted['emotional_tone'] = best_event['type']
         
-        if 'confidence' in analysis:
-            extracted['confidence_score'] = float(analysis['confidence'])
+        # Extract overall confidence - use aesthetic score or a derived confidence
+        confidence_score = 0.5  # default
+        if 'image' in analysis and 'technical' in analysis['image']:
+            tech = analysis['image']['technical']
+            if 'quality' in tech and 'aesthetic_score' in tech['quality']:
+                confidence_score = tech['quality']['aesthetic_score']
+        
+        extracted['confidence_score'] = confidence_score
         
         return extracted

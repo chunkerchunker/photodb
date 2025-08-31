@@ -1,5 +1,4 @@
 import psycopg2
-from psycopg2 import pool
 import os
 from pathlib import Path
 from contextlib import contextmanager

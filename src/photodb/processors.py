@@ -10,8 +10,6 @@ from .database.pg_connection import PostgresConnectionPool
 from .stages.normalize import NormalizeStage
 from .stages.metadata import MetadataStage
 from .stages.enrich import EnrichStage
-from .database.models import Photo
-from .async_batch_monitor import AsyncBatchMonitor, run_async_batch_processing
 
 logger = logging.getLogger(__name__)
 

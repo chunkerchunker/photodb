@@ -1,6 +1,5 @@
 import os
 import base64
-import json
 import time
 from pathlib import Path
 from typing import Optional, Dict, Any, List
@@ -280,30 +279,39 @@ class EnrichStage(BaseStage):
                     custom_id = result.custom_id or "unknown"
 
                     # Extract photo ID from custom_id (format: "photo_{photo_id}")
+                    photo_id = None
                     if custom_id.startswith("photo_"):
                         photo_id = custom_id[6:]  # Remove "photo_" prefix
 
-                        # Get structured response from Instructor result
-                        analysis_data = result.result.model_dump() if result.result else {}
+                    # Get structured response from Instructor result
+                    analysis_data = result.result.model_dump() if result.result else {}
 
-                        # Extract key fields from structured data
-                        extracted_fields = self._extract_key_fields(analysis_data)
+                    # If no photo_id from custom_id, try to get it from structured response
+                    if not photo_id and result.result:
+                        photo_id = result.result.image.id
 
-                        # Create and save LLM analysis
-                        llm_analysis = LLMAnalysis.create(
-                            photo_id=photo_id,
-                            model_name=self.model_name,
-                            analysis=analysis_data,
-                            batch_id=batch_id,
-                            model_version=(
-                                self.model_name.split("-")[-1] if "-" in self.model_name else None
-                            ),
-                            **extracted_fields,
-                        )
+                    if not photo_id:
+                        logger.error(f"Instructor result not matched to photo for batch {batch_id}")
+                        continue
 
-                        self.repository.create_llm_analysis(llm_analysis)
-                        processed_count += 1
-                        logger.debug(f"Processed Instructor batch result for photo {photo_id}")
+                    # Extract key fields from structured data
+                    extracted_fields = self._extract_key_fields(analysis_data)
+
+                    # Create and save LLM analysis
+                    llm_analysis = LLMAnalysis.create(
+                        photo_id=photo_id,
+                        model_name=self.model_name,
+                        analysis=analysis_data,
+                        batch_id=batch_id,
+                        model_version=(
+                            self.model_name.split("-")[-1] if "-" in self.model_name else None
+                        ),
+                        **extracted_fields,
+                    )
+
+                    self.repository.create_llm_analysis(llm_analysis)
+                    processed_count += 1
+                    logger.debug(f"Processed Instructor batch result for photo {photo_id}")
 
                 except Exception as e:
                     logger.error(f"Error processing successful batch result for {custom_id}: {e}")
@@ -344,128 +352,6 @@ class EnrichStage(BaseStage):
             logger.error(f"Error processing Instructor batch results: {e}")
             return 0
 
-    def _process_batch_results(self, batch) -> int:
-        """Process completed batch results and save to database."""
-        try:
-            from anthropic import Anthropic
-            import json
-
-            client = Anthropic(api_key=self.api_key)
-
-            processed_count = 0
-
-            # Get results using Message Batches API results() method
-            result_stream = client.messages.batches.results(batch.id)
-
-            # Process each result
-            for entry in result_stream:
-                custom_id = "unknown"
-                try:
-                    custom_id = entry.custom_id
-
-                    # Extract photo ID from custom_id (format: "photo_{photo_id}")
-                    if custom_id.startswith("photo_"):
-                        photo_id = custom_id[6:]  # Remove "photo_" prefix
-
-                        # Check if the request was successful
-                        if entry.result.type == "succeeded":
-                            # Get the message response
-                            message_response = entry.result.message
-                            analysis_text = None
-
-                            if message_response.content:
-                                # Get text content from the message
-                                for content_block in message_response.content:
-                                    # Check if this is a text content block
-                                    if (
-                                        hasattr(content_block, "type")
-                                        and content_block.type == "text"
-                                    ):
-                                        analysis_text = content_block.text
-                                        break
-
-                            if analysis_text:
-                                # Parse analysis result with structured validation
-                                try:
-                                    # Parse JSON, handling potential markdown wrapper
-                                    analysis_json = self._parse_json_with_fallback(analysis_text)
-
-                                    # Validate with Pydantic model for structured output
-                                    structured_response = PhotoAnalysisResponse.model_validate(
-                                        analysis_json
-                                    )
-                                    analysis_data = structured_response.model_dump()
-
-                                    # Extract key fields from structured data
-                                    extracted_fields = self._extract_key_fields(analysis_data)
-
-                                    # Create and save LLM analysis
-                                    llm_analysis = LLMAnalysis.create(
-                                        photo_id=photo_id,
-                                        model_name=self.model_name,
-                                        analysis=analysis_data,
-                                        batch_id=batch.id,
-                                        model_version=(
-                                            self.model_name.split("-")[-1]
-                                            if "-" in self.model_name
-                                            else None
-                                        ),
-                                        **extracted_fields,
-                                    )
-
-                                    self.repository.create_llm_analysis(llm_analysis)
-                                    processed_count += 1
-                                    logger.debug(
-                                        f"Processed structured batch result for photo {photo_id}"
-                                    )
-
-                                except (json.JSONDecodeError, ValueError) as e:
-                                    logger.warning(
-                                        f"Failed to parse structured response for {photo_id}: {e}"
-                                    )
-                                    # Save as fallback analysis if structured parsing fails
-                                    llm_analysis = LLMAnalysis.create(
-                                        photo_id=photo_id,
-                                        model_name=self.model_name,
-                                        analysis={
-                                            "description": analysis_text,
-                                            "confidence": 0.8,
-                                            "parsing_error": str(e),
-                                        },
-                                        batch_id=batch.id,
-                                        error_message=f"Structured parsing failed: {e}",
-                                    )
-                                    self.repository.create_llm_analysis(llm_analysis)
-                                    processed_count += 1
-                        else:
-                            # Handle error response based on result type
-                            error_msg = f"Batch processing failed: {entry.result.type}"
-                            if entry.result.type == "errored" and hasattr(entry.result, "error"):
-                                error_msg = f"API error: {entry.result.error}"
-                            elif entry.result.type == "canceled":
-                                error_msg = "Request was canceled"
-                            elif entry.result.type == "expired":
-                                error_msg = "Request expired"
-
-                            error_analysis = LLMAnalysis.create(
-                                photo_id=photo_id,
-                                model_name=self.model_name,
-                                analysis={},
-                                batch_id=batch.id,
-                                error_message=error_msg,
-                            )
-                            self.repository.create_llm_analysis(error_analysis)
-
-                except Exception as e:
-                    logger.error(f"Error processing batch result for {custom_id}: {e}")
-                    continue
-
-            logger.info(f"Processed {processed_count} results from batch {batch.id}")
-            return processed_count
-
-        except Exception as e:
-            logger.error(f"Error processing batch results: {e}")
-            return 0
 
     def _create_message_content(self, image_path: Path, exif_context: str) -> List[Dict[str, Any]]:
         """Create message content for photo analysis.
@@ -588,32 +474,6 @@ Return structured data following the PhotoAnalysisResponse schema."""
 
         return "\n".join(context_parts)
 
-    def _parse_json_with_fallback(self, text: str) -> Dict[str, Any]:
-        """Parse JSON text, handling potential markdown code block wrapper.
-
-        Args:
-            text: Raw text that may contain JSON, possibly wrapped in ```json ... ```
-
-        Returns:
-            Parsed JSON as dictionary
-
-        Raises:
-            json.JSONDecodeError: If parsing fails even after unwrapping attempt
-        """
-        try:
-            # Try direct JSON parsing first
-            return json.loads(text)
-        except json.JSONDecodeError:
-            # Check if wrapped in ```json ... ``` markers
-            if "```json" in text and "```" in text:
-                import re
-
-                json_match = re.search(r"```json\s*(.*?)\s*```", text, re.DOTALL)
-                if json_match:
-                    cleaned_text = json_match.group(1).strip()
-                    return json.loads(cleaned_text)
-            # Re-raise the original error if no markdown wrapper found
-            raise
 
     def _extract_key_fields(self, analysis: Dict[str, Any]) -> Dict[str, Any]:
         """Extract key fields from structured analysis for database indexing."""

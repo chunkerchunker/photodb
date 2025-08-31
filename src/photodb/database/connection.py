@@ -24,7 +24,7 @@ class Connection:
 
     def _init_database(self):
         """Initialize database with schema."""
-        schema_path = Path(__file__).parent.parent.parent.parent / "schema_postgres.sql"
+        schema_path = Path(__file__).parent.parent.parent.parent / "schema.sql"
 
         if not schema_path.exists():
             raise FileNotFoundError(f"Schema file not found at: {schema_path}")
@@ -86,7 +86,7 @@ class ConnectionPool:
 
     def _init_database(self):
         """Initialize database with schema."""
-        schema_path = Path(__file__).parent.parent.parent.parent / "schema_postgres.sql"
+        schema_path = Path(__file__).parent.parent.parent.parent / "schema.sql"
 
         if not schema_path.exists():
             logger.warning(f"Schema file not found at: {schema_path}, skipping initialization")

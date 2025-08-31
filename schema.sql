@@ -62,6 +62,13 @@ CREATE TABLE IF NOT EXISTS llm_analysis (
     -- Processing metadata
     confidence_score DECIMAL(3,2), -- Overall confidence 0.00-1.00
     processing_duration_ms INTEGER,
+    
+    -- Token usage tracking (per photo)
+    input_tokens INTEGER,
+    output_tokens INTEGER,
+    cache_creation_tokens INTEGER,
+    cache_read_tokens INTEGER,
+    
     error_message TEXT, -- If processing failed
     
     FOREIGN KEY (photo_id) REFERENCES photos(id) ON DELETE CASCADE
@@ -78,6 +85,21 @@ CREATE TABLE IF NOT EXISTS batch_jobs (
     processed_count INTEGER DEFAULT 0,
     failed_count INTEGER DEFAULT 0,
     photo_ids TEXT[] NOT NULL, -- Array of photo IDs in the batch
+    
+    -- Token usage tracking
+    total_input_tokens INTEGER DEFAULT 0,
+    total_output_tokens INTEGER DEFAULT 0,
+    total_cache_creation_tokens INTEGER DEFAULT 0,
+    total_cache_read_tokens INTEGER DEFAULT 0,
+    
+    -- Cost tracking (in USD cents for precision)
+    estimated_cost_cents INTEGER DEFAULT 0,
+    actual_cost_cents INTEGER DEFAULT 0,
+    
+    -- Additional metadata
+    model_name VARCHAR(100),
+    batch_discount_applied BOOLEAN DEFAULT TRUE, -- Batch API gives 50% discount
+    
     error_message TEXT
 );
 

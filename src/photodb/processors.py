@@ -46,16 +46,35 @@ class PhotoProcessor:
             
             stages_to_run = self._get_stages(stage)
             
+            # Check if any stages need processing
+            needs_processing = False
+            for stage_name in stages_to_run:
+                stage_obj = self.stages[stage_name]
+                if stage_obj.should_process(file_path, self.force):
+                    needs_processing = True
+                    break
+            
+            if not needs_processing:
+                logger.debug(f"Skipping {file_path} (all stages already processed)")
+                result.skipped = 1
+                return result
+            
+            # Process stages that need processing
+            stages_processed = 0
             for stage_name in stages_to_run:
                 stage_obj = self.stages[stage_name]
                 
                 if stage_obj.should_process(file_path, self.force):
                     logger.debug(f"Running {stage_name} on {file_path}")
                     stage_obj.process(file_path)
+                    stages_processed += 1
                 else:
                     logger.debug(f"Skipping {stage_name} for {file_path} (already processed)")
             
-            result.processed = 1
+            if stages_processed > 0:
+                result.processed = 1
+            else:
+                result.skipped = 1
             
         except Exception as e:
             logger.error(f"Failed to process {file_path}: {e}")

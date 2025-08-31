@@ -45,7 +45,7 @@ class PhotoProcessor:
         # Create connection pool for parallel processing
         if parallel > 1:
             # Limit to 50 connections to stay well under PostgreSQL's default limit of 100
-            connection_string = config.get('database_url', 'postgresql://localhost/photodb')
+            connection_string = config.get('DATABASE_URL', 'postgresql://localhost/photodb')
             max_connections = min(parallel, 50)
             self.connection_pool = PostgresConnectionPool(
                 connection_string=connection_string,
@@ -340,5 +340,31 @@ class PhotoProcessor:
                     result.failed_files.append((str(file_path), str(e)))
         
         result.success = result.failed == 0
+        return result
+
+    def _process_directory_batch_mode(self, directory: Path, stage: str, 
+                                     recursive: bool, pattern: str) -> ProcessingResult:
+        """Process directory in batch mode for improved performance."""
+        files = self._find_files(directory, recursive, pattern)
+        
+        # Apply max_photos limit if specified
+        if self.max_photos is not None and len(files) > self.max_photos:
+            logger.info(f"Limiting to {self.max_photos} photos (found {len(files)})")
+            files = files[:self.max_photos]
+        
+        result = ProcessingResult(total_files=len(files))
+        
+        if not files:
+            logger.warning(f"No matching files found in {directory}")
+            return result
+        
+        logger.info(f"Found {len(files)} files to process in batch mode")
+        
+        # Use parallel processing if configured
+        if self.parallel > 1:
+            result = self._process_parallel(files, stage)
+        else:
+            result = self._process_sequential(files, stage)
+        
         return result
 

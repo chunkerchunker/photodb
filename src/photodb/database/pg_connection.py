@@ -1,4 +1,5 @@
 import psycopg2
+from psycopg2 import pool
 import os
 from pathlib import Path
 from contextlib import contextmanager
@@ -77,7 +78,7 @@ class PostgresConnectionPool:
         
         # PostgreSQL can handle many more connections than SQLite
         # Typical PostgreSQL can handle 100-200 connections easily
-        self.pool = psycopg2.pool.ThreadedConnectionPool(
+        self.pool = pool.ThreadedConnectionPool(
             min_conn,
             max_conn,
             self.connection_string
@@ -128,7 +129,7 @@ class PostgresConnectionPool:
                     return
                 else:
                     raise Exception("Failed to get connection from pool")
-            except psycopg2.pool.PoolError as e:
+            except pool.PoolError as e:
                 if attempt < max_retries - 1:
                     logger.debug(f"Connection pool exhausted, waiting... (attempt {attempt + 1}/{max_retries})")
                     import time

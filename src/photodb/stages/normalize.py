@@ -16,7 +16,7 @@ class NormalizeStage(BaseStage):
     
     def __init__(self, repository, config):
         super().__init__(repository, config)
-        self.output_dir = Path(config.get('img_path', './photos/processed'))
+        self.output_dir = Path(config.get('IMG_PATH', './photos/processed'))
     
     def process_photo(self, photo: Photo, file_path: Path) -> bool:
         """Normalize a photo to PNG format.

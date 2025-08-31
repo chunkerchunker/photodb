@@ -140,19 +140,17 @@ class PhotoProcessor:
                          recursive: bool = True, 
                          pattern: str = '*') -> ProcessingResult:
         """Process all matching files in a directory."""
-        files = self._find_files(directory, recursive, pattern)
-        
-        result = ProcessingResult(total_files=len(files))
-        
-        if not files:
-            logger.warning(f"No matching files found in {directory}")
-            return result
-        
-        logger.info(f"Found {len(files)} files to process")
-        
         if self.parallel > 1:
-            result = self._process_parallel(files, stage)
+            result = self._process_streaming_parallel(directory, recursive, pattern, stage)
         else:
+            files = self._find_files(directory, recursive, pattern)
+            result = ProcessingResult(total_files=len(files))
+            
+            if not files:
+                logger.warning(f"No matching files found in {directory}")
+                return result
+            
+            logger.info(f"Found {len(files)} files to process")
             result = self._process_sequential(files, stage)
         
         return result
@@ -235,6 +233,69 @@ class PhotoProcessor:
                     result.failed_files.extend(file_result.failed_files)
                 except Exception as e:
                     logger.error(f"Parallel processing error for {file_path}: {e}")
+                    result.failed += 1
+                    result.failed_files.append((str(file_path), str(e)))
+        
+        result.success = result.failed == 0
+        return result
+
+    def _process_streaming_parallel(self, directory: Path, recursive: bool, 
+                                   pattern: str, stage: str) -> ProcessingResult:
+        """Process files as they are discovered using streaming parallel approach."""
+        result = ProcessingResult()
+        supported_extensions = {'.jpg', '.jpeg', '.png', '.heic', '.heif', 
+                              '.bmp', '.tiff', '.webp'}
+        
+        def process_with_pooled_repo(file_path: Path) -> ProcessingResult:
+            """Process file with a repository using the connection pool."""
+            if self.connection_pool:
+                # Create a temporary repository using the PostgreSQL connection pool
+                pooled_repo = PostgresPhotoRepository(self.connection_pool)
+                
+                # Create stages with the pooled repository
+                pooled_stages = {
+                    'normalize': NormalizeStage(pooled_repo, self.config),
+                    'metadata': MetadataStage(pooled_repo, self.config)
+                }
+                
+                # Process with pooled stages
+                return self._process_single_file(file_path, stage, pooled_stages)
+            else:
+                return self.process_file(file_path, stage)
+        
+        # Use ThreadPoolExecutor for parallel processing
+        with ThreadPoolExecutor(max_workers=self.parallel) as executor:
+            futures = {}
+            
+            # Stream files and submit them for processing as they're found
+            if recursive:
+                file_iter = directory.rglob(pattern)
+            else:
+                file_iter = directory.glob(pattern)
+            
+            for file_path in file_iter:
+                if file_path.is_file() and file_path.suffix.lower() in supported_extensions:
+                    result.total_files += 1
+                    future = executor.submit(process_with_pooled_repo, file_path)
+                    futures[future] = file_path
+            
+            if result.total_files == 0:
+                logger.warning(f"No matching files found in {directory}")
+                return result
+            
+            logger.info(f"Found {result.total_files} files to process (streaming)")
+            
+            # Process completed futures as they finish
+            for future in as_completed(futures):
+                file_path = futures[future]
+                try:
+                    file_result = future.result()
+                    result.processed += file_result.processed
+                    result.skipped += file_result.skipped
+                    result.failed += file_result.failed
+                    result.failed_files.extend(file_result.failed_files)
+                except Exception as e:
+                    logger.error(f"Streaming parallel processing error for {file_path}: {e}")
                     result.failed += 1
                     result.failed_files.append((str(file_path), str(e)))
         

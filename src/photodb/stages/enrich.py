@@ -139,16 +139,6 @@ class EnrichStage(BaseStage):
             logger.warning("Cannot process batch - no API key available")
             return None
 
-        try:
-            logger.info(f"Processing batch of {len(photos)} photos")
-
-            return self._process_batch_with_api(photos)
-
-        except Exception as e:
-            logger.error(f"Batch processing failed: {e}")
-            return None
-
-    def _process_batch_with_api(self, photos: List[Photo]) -> Optional[str]:
         """Process batch using Anthropic's batch API with structured response support.
 
         This method now supports structured responses by:
@@ -220,10 +210,8 @@ class EnrichStage(BaseStage):
         self, custom_id: str, image_path: Path, exif_context: str
     ) -> Dict[str, Any]:
         """Create a batch request for a single photo."""
-        with open(image_path, "rb") as image_file:
-            image_data = base64.b64encode(image_file.read()).decode()
-
-        prompt = self._build_analysis_prompt(exif_context)
+        # Create message content using shared method
+        content = self._create_message_content(image_path, exif_context)
 
         return {
             "custom_id": custom_id,
@@ -236,17 +224,7 @@ class EnrichStage(BaseStage):
                 "messages": [
                     {
                         "role": "user",
-                        "content": [
-                            {
-                                "type": "image",
-                                "source": {
-                                    "type": "base64",
-                                    "media_type": "image/png",
-                                    "data": image_data,
-                                },
-                            },
-                            {"type": "text", "text": prompt},
-                        ],
+                        "content": content,
                     }
                 ],
             },
@@ -435,6 +413,30 @@ class EnrichStage(BaseStage):
             logger.error(f"Error processing batch results: {e}")
             return 0
 
+    def _create_message_content(self, image_path: Path, exif_context: str) -> List[Dict[str, Any]]:
+        """Create message content for photo analysis.
+        
+        Shared by both single photo analysis and batch processing.
+        """
+        # Read and encode image
+        with open(image_path, "rb") as image_file:
+            image_data = base64.b64encode(image_file.read()).decode()
+        
+        # Build prompt
+        prompt = self._build_analysis_prompt(exif_context)
+        
+        return [
+            {
+                "type": "image",
+                "source": {
+                    "type": "base64",
+                    "media_type": "image/png",
+                    "data": image_data,
+                },
+            },
+            {"type": "text", "text": prompt},
+        ]
+
     def _analyze_single_photo(
         self, image_path: Path, exif_context: str
     ) -> Optional[Dict[str, Any]]:
@@ -443,23 +445,13 @@ class EnrichStage(BaseStage):
             if not self.client:
                 return None
 
-            # Read and encode image
-            with open(image_path, "rb") as image_file:
-                image_data = base64.b64encode(image_file.read()).decode()
-
-            # Build prompt with structured output request
-            prompt = self._build_analysis_prompt(exif_context)
+            # Create message content using shared method
+            content = self._create_message_content(image_path, exif_context)
 
             # Create user message
             user_message: MessageParam = {  # type: ignore
                 "role": "user",
-                "content": [
-                    {
-                        "type": "image",
-                        "source": {"type": "base64", "media_type": "image/png", "data": image_data},
-                    },
-                    {"type": "text", "text": prompt},
-                ],
+                "content": content,
             }
 
             # Use Instructor to get structured response

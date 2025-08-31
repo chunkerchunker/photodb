@@ -54,7 +54,7 @@ Extract all available EXIF/TIFF/IFD metadata from the ingest photo and create a 
 
 This stage sends the normalized photo and complete exif data to an LLM for advanced metadata extraction using the prompt info in [analyze_photo.md](../prompts/analyze_photo.md).
 
-The <https://github.com/agamm/batchata> library should be used to take advantage of LLM provider batch processing.
+Take advantage of LLM provider batch processing.
 
 The LLM provider and model should be configured in the .env file, defaulted to Anthropic Claude Sonnet 4 (claude-sonnet-4-20250514).
 

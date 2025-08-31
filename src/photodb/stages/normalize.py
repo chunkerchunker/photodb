@@ -1,7 +1,5 @@
 from pathlib import Path
 import logging
-from typing import Tuple
-from PIL import Image
 import pillow_heif
 
 from .base import BaseStage

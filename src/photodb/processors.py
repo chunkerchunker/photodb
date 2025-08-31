@@ -9,6 +9,9 @@ from .database.pg_repository import PostgresPhotoRepository
 from .database.pg_connection import PostgresConnectionPool
 from .stages.normalize import NormalizeStage
 from .stages.metadata import MetadataStage
+from .stages.enrich import EnrichStage
+from .database.models import Photo
+from .async_batch_monitor import AsyncBatchMonitor, run_async_batch_processing
 
 logger = logging.getLogger(__name__)
 
@@ -24,13 +27,18 @@ class ProcessingResult:
 class PhotoProcessor:
     def __init__(self, repository, config: dict, 
                  force: bool = False, dry_run: bool = False, 
-                 parallel: int = 1, max_photos: Optional[int] = None):
+                 parallel: int = 1, max_photos: Optional[int] = None,
+                 batch_mode: bool = False, batch_size: int = 100,
+                 async_batch: bool = True):
         self.repository = repository
         self.config = config
         self.force = force
         self.dry_run = dry_run
         self.parallel = max(1, parallel)
         self.max_photos = max_photos
+        self.batch_mode = batch_mode
+        self.batch_size = batch_size
+        self.async_batch = async_batch
         
         # Semaphore to limit concurrent file operations (prevents "too many open files")
         # Allow at most 50 concurrent file operations regardless of thread count
@@ -51,7 +59,8 @@ class PhotoProcessor:
         
         self.stages = {
             'normalize': NormalizeStage(repository, config),
-            'metadata': MetadataStage(repository, config)
+            'metadata': MetadataStage(repository, config),
+            'enrich': EnrichStage(repository, config)
         }
     
     def _process_single_file(self, file_path: Path, stage: str, stages_dict: dict) -> ProcessingResult:
@@ -141,6 +150,11 @@ class PhotoProcessor:
                          recursive: bool = True, 
                          pattern: str = '*') -> ProcessingResult:
         """Process all matching files in a directory."""
+        # Check if we should use batch processing for enrich stage
+        if self.batch_mode and (stage == 'enrich' or stage == 'all'):
+            return self._process_directory_batch_mode(directory, stage, recursive, pattern)
+        
+        # Use existing processing logic
         if self.parallel > 1:
             result = self._process_streaming_parallel(directory, recursive, pattern, stage)
         else:
@@ -177,7 +191,7 @@ class PhotoProcessor:
     def _get_stages(self, stage: str) -> List[str]:
         """Get list of stages to run."""
         if stage == 'all':
-            return ['normalize', 'metadata']
+            return ['normalize', 'metadata', 'enrich']
         return [stage]
     
     def _process_sequential(self, files: List[Path], stage: str) -> ProcessingResult:
@@ -214,7 +228,8 @@ class PhotoProcessor:
                 # Create stages with the pooled repository
                 pooled_stages = {
                     'normalize': NormalizeStage(pooled_repo, self.config),
-                    'metadata': MetadataStage(pooled_repo, self.config)
+                    'metadata': MetadataStage(pooled_repo, self.config),
+                    'enrich': EnrichStage(pooled_repo, self.config)
                 }
                 
                 # Process with pooled stages
@@ -271,7 +286,8 @@ class PhotoProcessor:
                 # Create stages with the pooled repository
                 pooled_stages = {
                     'normalize': NormalizeStage(pooled_repo, self.config),
-                    'metadata': MetadataStage(pooled_repo, self.config)
+                    'metadata': MetadataStage(pooled_repo, self.config),
+                    'enrich': EnrichStage(pooled_repo, self.config)
                 }
                 
                 # Process with pooled stages

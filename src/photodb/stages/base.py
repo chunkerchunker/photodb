@@ -4,7 +4,6 @@ from typing import Optional
 import logging
 from datetime import datetime
 
-from ..database.pg_repository import PostgresPhotoRepository
 from ..database.models import Photo, ProcessingStatus
 
 logger = logging.getLogger(__name__)

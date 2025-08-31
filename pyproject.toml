@@ -2,7 +2,7 @@
 name = "photodb"
 version = "0.1.0"
 description = "Personal photo indexing pipeline"
-requires-python = ">=3.11"
+requires-python = ">=3.12"
 dependencies = [
     "pillow>=10.0.0",
     "pillow-heif>=0.13.0",
@@ -10,6 +10,7 @@ dependencies = [
     "python-dotenv>=1.0.0",
     "exif>=1.6.0",
     "psycopg2-binary>=2.9.10",
+    "anthropic>=0.64.0",
 ]
 
 [project.optional-dependencies]

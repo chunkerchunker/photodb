@@ -1,8 +1,7 @@
-from typing import Dict, List, Any
+from typing import Dict, Any
 from collections import Counter
 import logging
 
-from ..database.pg_repository import PostgresPhotoRepository
 
 logger = logging.getLogger(__name__)
 

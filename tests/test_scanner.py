@@ -1,11 +1,11 @@
 import pytest
 from pathlib import Path
-from unittest.mock import Mock, MagicMock, patch
+from unittest.mock import Mock
 import tempfile
 import shutil
 from PIL import Image
 
-from photodb.scanner import FileScanner, ScanResult
+from photodb.scanner import FileScanner
 from photodb.database.repository import PhotoRepository
 
 

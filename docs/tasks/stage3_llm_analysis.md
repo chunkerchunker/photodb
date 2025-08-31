@@ -12,12 +12,15 @@ Stage 3 processes normalized photos through LLM analysis to extract advanced met
 ## Processing Logic
 
 ### Prerequisites
+
 - Photo must exist in `photos` table (Stage 1 complete)
 - Normalized image file must exist at `IMG_PATH/{photo_id}.png`
 - EXIF metadata should be available (Stage 2 preferred but not required)
 
 ### Skip Conditions
+
 A photo is skipped if:
+
 - Already has a row in `llm_analysis` table (unless `--force` flag is used)
 - Normalized image file is missing
 - Photo record doesn't exist in database
@@ -27,7 +30,7 @@ A photo is skipped if:
 1. **Batch Preparation**
    - Collect all eligible photos for processing
    - Prepare batch requests with image data and EXIF context
-   - Submit to LLM provider's batch API using batchata library
+   - Submit to LLM provider's batch API
 
 2. **Batch Monitoring**
    - Track batch job status
@@ -87,7 +90,7 @@ CREATE TABLE llm_analysis (
    - Creates batch request payload
 
 2. **Batch Submission**
-   - Submit batch to LLM provider via batchata
+   - Submit batch to LLM provider
    - Store batch job ID and photo mapping
    - Return immediately (non-blocking)
 
@@ -135,6 +138,7 @@ CREATE TABLE batch_jobs (
 ## Configuration
 
 Environment variables:
+
 - `LLM_PROVIDER`: Provider name (default: "anthropic")
 - `LLM_MODEL`: Model identifier (default: "claude-sonnet-4-20250514")
 - `LLM_API_KEY`: Provider API key

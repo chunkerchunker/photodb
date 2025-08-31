@@ -5,7 +5,7 @@ import logging
 from psycopg2.extras import RealDictCursor
 
 from .pg_connection import PostgresConnectionPool
-from .models import Photo, Metadata, ProcessingStatus
+from .models import Photo, Metadata, ProcessingStatus, LLMAnalysis, BatchJob
 
 logger = logging.getLogger(__name__)
 
@@ -179,3 +179,130 @@ class PostgresPhotoRepository:
                 rows = cursor.fetchall()
                 
                 return {row['status']: row['count'] for row in rows}
+    
+    # LLM Analysis methods
+    
+    def create_llm_analysis(self, analysis: LLMAnalysis) -> None:
+        """Insert or update LLM analysis record."""
+        with self.pool.transaction() as conn:
+            with conn.cursor() as cursor:
+                cursor.execute(
+                    """INSERT INTO llm_analysis 
+                       (id, photo_id, model_name, model_version, processed_at, batch_id,
+                        analysis, description, objects, people_count, location_description,
+                        emotional_tone, confidence_score, processing_duration_ms, error_message)
+                       VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                       ON CONFLICT (photo_id) 
+                       DO UPDATE SET 
+                           model_name = EXCLUDED.model_name,
+                           model_version = EXCLUDED.model_version,
+                           processed_at = EXCLUDED.processed_at,
+                           batch_id = EXCLUDED.batch_id,
+                           analysis = EXCLUDED.analysis,
+                           description = EXCLUDED.description,
+                           objects = EXCLUDED.objects,
+                           people_count = EXCLUDED.people_count,
+                           location_description = EXCLUDED.location_description,
+                           emotional_tone = EXCLUDED.emotional_tone,
+                           confidence_score = EXCLUDED.confidence_score,
+                           processing_duration_ms = EXCLUDED.processing_duration_ms,
+                           error_message = EXCLUDED.error_message""",
+                    (analysis.id, analysis.photo_id, analysis.model_name, analysis.model_version,
+                     analysis.processed_at, analysis.batch_id, json.dumps(analysis.analysis),
+                     analysis.description, analysis.objects, analysis.people_count,
+                     analysis.location_description, analysis.emotional_tone,
+                     analysis.confidence_score, analysis.processing_duration_ms, analysis.error_message)
+                )
+    
+    def get_llm_analysis(self, photo_id: str) -> Optional[LLMAnalysis]:
+        """Get LLM analysis for a photo."""
+        with self.pool.get_connection() as conn:
+            with conn.cursor(cursor_factory=RealDictCursor) as cursor:
+                cursor.execute(
+                    "SELECT * FROM llm_analysis WHERE photo_id = %s", (photo_id,)
+                )
+                row = cursor.fetchone()
+                
+                if row:
+                    # Convert objects array back to Python list if needed
+                    if row.get('objects') is None:
+                        row['objects'] = []
+                    return LLMAnalysis(**row)
+                return None
+    
+    def has_llm_analysis(self, photo_id: str) -> bool:
+        """Check if a photo has LLM analysis."""
+        analysis = self.get_llm_analysis(photo_id)
+        return analysis is not None and analysis.error_message is None
+    
+    def get_photos_for_llm_analysis(self, limit: int = 100) -> List[Photo]:
+        """Get photos that need LLM analysis (have normalized image but no analysis)."""
+        with self.pool.get_connection() as conn:
+            with conn.cursor(cursor_factory=RealDictCursor) as cursor:
+                cursor.execute(
+                    """SELECT p.* FROM photos p
+                       WHERE p.normalized_path != ''
+                       AND NOT EXISTS (
+                           SELECT 1 FROM llm_analysis la 
+                           WHERE la.photo_id = p.id AND la.error_message IS NULL
+                       )
+                       LIMIT %s""",
+                    (limit,)
+                )
+                rows = cursor.fetchall()
+                
+                return [Photo(**row) for row in rows]
+    
+    # Batch Job methods
+    
+    def create_batch_job(self, batch_job: BatchJob) -> None:
+        """Create a new batch job record."""
+        with self.pool.transaction() as conn:
+            with conn.cursor() as cursor:
+                cursor.execute(
+                    """INSERT INTO batch_jobs 
+                       (id, provider_batch_id, status, submitted_at, completed_at,
+                        photo_count, processed_count, failed_count, error_message)
+                       VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)""",
+                    (batch_job.id, batch_job.provider_batch_id, batch_job.status,
+                     batch_job.submitted_at, batch_job.completed_at, batch_job.photo_count,
+                     batch_job.processed_count, batch_job.failed_count, batch_job.error_message)
+                )
+    
+    def get_batch_job_by_provider_id(self, provider_batch_id: str) -> Optional[BatchJob]:
+        """Get batch job by provider batch ID."""
+        with self.pool.get_connection() as conn:
+            with conn.cursor(cursor_factory=RealDictCursor) as cursor:
+                cursor.execute(
+                    "SELECT * FROM batch_jobs WHERE provider_batch_id = %s", (provider_batch_id,)
+                )
+                row = cursor.fetchone()
+                
+                if row:
+                    return BatchJob(**row)
+                return None
+    
+    def update_batch_job(self, batch_job: BatchJob) -> None:
+        """Update batch job status and counts."""
+        with self.pool.transaction() as conn:
+            with conn.cursor() as cursor:
+                cursor.execute(
+                    """UPDATE batch_jobs 
+                       SET status = %s, completed_at = %s, processed_count = %s,
+                           failed_count = %s, error_message = %s
+                       WHERE id = %s""",
+                    (batch_job.status, batch_job.completed_at, batch_job.processed_count,
+                     batch_job.failed_count, batch_job.error_message, batch_job.id)
+                )
+    
+    def get_active_batch_jobs(self) -> List[BatchJob]:
+        """Get all batch jobs that are still processing."""
+        with self.pool.get_connection() as conn:
+            with conn.cursor(cursor_factory=RealDictCursor) as cursor:
+                cursor.execute(
+                    """SELECT * FROM batch_jobs 
+                       WHERE status IN ('submitted', 'processing')
+                       ORDER BY submitted_at""")
+                rows = cursor.fetchall()
+                
+                return [BatchJob(**row) for row in rows]

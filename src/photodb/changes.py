@@ -4,7 +4,6 @@ import logging
 import hashlib
 from datetime import datetime
 
-from .database.pg_repository import PostgresPhotoRepository
 
 logger = logging.getLogger(__name__)
 

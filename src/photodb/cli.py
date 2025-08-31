@@ -9,14 +9,15 @@ from dotenv import load_dotenv
 from .database.pg_connection import PostgresConnectionPool
 from .database.pg_repository import PostgresPhotoRepository
 from .processors import PhotoProcessor
+from .batch_tracker import BatchTracker
 from .utils.logging import setup_logging
 
 load_dotenv()
 
 @click.command()
-@click.argument('path', type=click.Path(exists=True))
+@click.argument('path', type=click.Path(exists=True), required=False)
 @click.option('--force', is_flag=True, help='Force reprocessing of already processed photos')
-@click.option('--stage', type=click.Choice(['all', 'normalize', 'metadata']), 
+@click.option('--stage', type=click.Choice(['all', 'normalize', 'metadata', 'enrich']), 
               default='all', help='Specific stage to run')
 @click.option('--recursive/--no-recursive', default=True, 
               help='Process directories recursively')
@@ -29,8 +30,18 @@ load_dotenv()
               help='Path to configuration file')
 @click.option('--max-photos', type=int, 
               help='Maximum number of photos to process (excluding skipped ones)')
+@click.option('--check-batches', is_flag=True, 
+              help='Check status of running LLM analysis batches')
+@click.option('--retry-failed', is_flag=True, 
+              help='Retry failed LLM analysis (use with --stage enrich)')
+@click.option('--batch-size', type=int, default=100,
+              help='Number of photos per batch for LLM processing (default: 100)')
+@click.option('--no-batch', is_flag=True,
+              help='Disable batch processing for enrich stage')
+@click.option('--no-async', is_flag=True,
+              help='Disable async batch monitoring (use synchronous processing)')
 def main(
-    path: str,
+    path: Optional[str],
     force: bool,
     stage: str,
     recursive: bool,
@@ -39,7 +50,12 @@ def main(
     dry_run: bool,
     parallel: int,
     config: Optional[str],
-    max_photos: Optional[int]
+    max_photos: Optional[int],
+    check_batches: bool,
+    retry_failed: bool,
+    batch_size: int,
+    no_batch: bool,
+    no_async: bool
 ):
     """
     Process photos from PATH (file or directory).
@@ -60,12 +76,6 @@ def main(
     try:
         config_data = load_configuration(config)
         
-        input_path = resolve_path(path, config_data['ingest_path'])
-        
-        if not input_path.exists():
-            logger.error(f"Path does not exist: {input_path}")
-            sys.exit(1)
-        
         # Create PostgreSQL connection pool
         # Limit connections to avoid exceeding PostgreSQL's max_connections (typically 100)
         max_connections = min(parallel, 50)  # Use at most 50 connections
@@ -77,13 +87,53 @@ def main(
         logger.info(f"Created connection pool with max {max_connections} connections for {parallel} workers")
         repository = PostgresPhotoRepository(connection_pool)
         
+        # Handle batch checking mode
+        if check_batches:
+            batch_tracker = BatchTracker(repository, config_data)
+            results = batch_tracker.check_all_batches()
+            
+            logger.info("Batch Status Summary:")
+            logger.info(f"  Total batches: {results.get('total_batches', 0)}")
+            logger.info(f"  Processing: {results.get('processing', 0)}")
+            logger.info(f"  Completed: {results.get('completed', 0)}")
+            logger.info(f"  Failed: {results.get('failed', 0)}")
+            
+            # Clean up stale batches
+            cleaned = batch_tracker.cleanup_stale_batches()
+            if cleaned > 0:
+                logger.info(f"Cleaned up {cleaned} stale batches")
+            
+            sys.exit(0)
+        
+        if not path:
+            logger.error("PATH argument is required when not using --check-batches")
+            sys.exit(1)
+        
+        input_path = resolve_path(path, config_data['ingest_path'])
+        
+        if not input_path.exists():
+            logger.error(f"Path does not exist: {input_path}")
+            sys.exit(1)
+        
+        # Determine batch mode settings
+        use_batch_mode = (not no_batch and 
+                         (stage == 'enrich' or (stage == 'all' and not dry_run)))
+        
+        if use_batch_mode:
+            logger.info(f"Using batch mode with batch size: {batch_size}")
+        elif stage == 'enrich':
+            logger.info("Batch mode disabled for enrich stage")
+        
         processor = PhotoProcessor(
             repository=repository,
             config=config_data,
-            force=force,
+            force=force or retry_failed,
             dry_run=dry_run,
             parallel=parallel,
-            max_photos=max_photos
+            max_photos=max_photos,
+            batch_mode=use_batch_mode,
+            batch_size=batch_size,
+            async_batch=not no_async
         )
         
         if input_path.is_file():
@@ -117,6 +167,12 @@ def load_configuration(config_path: Optional[str]) -> dict:
         'img_path': os.getenv('IMG_PATH', './photos/processed'),
         'log_level': os.getenv('LOG_LEVEL', 'INFO'),
         'log_file': os.getenv('LOG_FILE', './logs/photodb.log'),
+        # LLM Configuration
+        'LLM_PROVIDER': os.getenv('LLM_PROVIDER', 'anthropic'),
+        'LLM_MODEL': os.getenv('LLM_MODEL', 'claude-sonnet-4-20250514'),
+        'LLM_API_KEY': os.getenv('LLM_API_KEY') or os.getenv('ANTHROPIC_API_KEY'),
+        'BATCH_SIZE': int(os.getenv('BATCH_SIZE', '100')),
+        'BATCH_CHECK_INTERVAL': int(os.getenv('BATCH_CHECK_INTERVAL', '300')),
     }
     
     if config_path:

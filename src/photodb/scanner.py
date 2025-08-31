@@ -4,7 +4,6 @@ from dataclasses import dataclass
 import logging
 import os
 
-from .database.pg_repository import PostgresPhotoRepository
 from .utils.image import ImageHandler
 from .utils.validation import ImageValidator
 

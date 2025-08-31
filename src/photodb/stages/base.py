@@ -4,7 +4,7 @@ from typing import Optional
 import logging
 from datetime import datetime
 
-from ..database.repository import PhotoRepository
+from ..database.pg_repository import PostgresPhotoRepository
 from ..database.models import Photo, ProcessingStatus
 
 logger = logging.getLogger(__name__)
@@ -13,7 +13,7 @@ logger = logging.getLogger(__name__)
 class BaseStage(ABC):
     """Base class for all processing stages."""
     
-    def __init__(self, repository: PhotoRepository, config: dict):
+    def __init__(self, repository, config: dict):
         self.repository = repository
         self.config = config
         self.stage_name = self.__class__.__name__.replace('Stage', '').lower()
@@ -42,12 +42,17 @@ class BaseStage(ABC):
         """Process a file through this stage."""
         photo = None
         try:
+            # Quick DB operation: get or create photo
             photo = self._get_or_create_photo(file_path)
             
+            # Quick DB write: mark as processing
             self._update_status(photo.id, 'processing')
             
+            # Do the heavy lifting OUTSIDE of any transaction
+            # This is where image processing happens - no DB locks held!
             success = self.process_photo(photo, file_path)
             
+            # Quick DB write: update final status
             if success:
                 self._update_status(photo.id, 'completed')
                 logger.info(f"Successfully processed {file_path} through {self.stage_name}")

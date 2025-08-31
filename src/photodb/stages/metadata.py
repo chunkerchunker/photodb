@@ -202,13 +202,8 @@ class MetadataStage(BaseStage):
     
     def _update_metadata(self, metadata: Metadata) -> None:
         """Update existing metadata record."""
-        # This would need to be implemented in the repository
-        # For now, delete and recreate
-        with self.repository.db.transaction() as conn:
-            conn.execute(
-                "DELETE FROM metadata WHERE photo_id = ?",
-                (metadata.photo_id,)
-            )
+        # PostgreSQL repository handles updates automatically with ON CONFLICT
+        # Just create/update the metadata - the repository will handle it
         self.repository.create_metadata(metadata)
     
     # Keeping old methods for backwards compatibility

@@ -38,12 +38,15 @@ class ImageHandler:
     def open_image(cls, file_path: Path) -> Image.Image:
         """
         Open an image file with proper format handling.
+        
+        IMPORTANT: The returned image MUST be closed after use to prevent file handle leaks!
+        Use image.close() or a context manager.
 
         Args:
             file_path: Path to the image file
 
         Returns:
-            PIL Image object
+            PIL Image object (caller must close it!)
 
         Raises:
             ValueError: If format is not supported
@@ -57,9 +60,13 @@ class ImageHandler:
             Image.MAX_IMAGE_PIXELS = cls.MAX_PIXELS
 
             image = Image.open(file_path)
+            
+            # Load image data immediately to allow closing the file
+            image.load()
 
             # Check for decompression bomb (redundant but explicit)
             if image.width * image.height > cls.MAX_PIXELS:
+                image.close()
                 raise ValueError(f"Image too large: {image.width}x{image.height}")
 
             # Convert RGBA to RGB if needed (for JPEG compatibility)
@@ -67,11 +74,17 @@ class ImageHandler:
                 # Create white background
                 background = Image.new("RGB", image.size, (255, 255, 255))
                 if image.mode == "P":
-                    image = image.convert("RGBA")
+                    converted = image.convert("RGBA")
+                    image.close()
+                    image = converted
                 background.paste(image, mask=image.split()[-1] if "A" in image.mode else None)
+                if image != background:
+                    image.close()
                 image = background
             elif image.mode not in ("RGB", "L"):
-                image = image.convert("RGB")
+                converted = image.convert("RGB")
+                image.close()
+                image = converted
 
             return image
 

@@ -4,7 +4,7 @@ import logging
 import hashlib
 from datetime import datetime
 
-from .database.repository import PhotoRepository
+from .database.pg_repository import PostgresPhotoRepository
 
 logger = logging.getLogger(__name__)
 
@@ -12,7 +12,7 @@ logger = logging.getLogger(__name__)
 class ChangeDetector:
     """Detects changes in photos that may require reprocessing."""
 
-    def __init__(self, repository: PhotoRepository):
+    def __init__(self, repository):
         self.repository = repository
 
     def detect_modified_files(

@@ -26,6 +26,7 @@ class NormalizeStage(BaseStage):
         Returns:
             bool: True if processing was successful, False otherwise
         """
+        image = None
         try:
             self.output_dir.mkdir(parents=True, exist_ok=True)
             
@@ -48,15 +49,19 @@ class NormalizeStage(BaseStage):
             else:
                 logger.debug("No resize needed")
             
-            # Save as PNG using ImageHandler
+            # Save as PNG using ImageHandler (this is the slow part!)
             ImageHandler.save_as_png(image, output_path, optimize=True)
+            logger.debug(f"Normalized photo saved to {output_path}")
             
+            # Only update DB after image processing is complete
             photo.normalized_path = str(output_path)
             self.repository.update_photo(photo)
-            
-            logger.debug(f"Normalized photo saved to {output_path}")
             return True
             
         except Exception as e:
             logger.error(f"Failed to normalize photo {file_path}: {e}")
             return False
+        finally:
+            # CRITICAL: Always close the image to free file handles
+            if image:
+                image.close()

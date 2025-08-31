@@ -6,8 +6,8 @@ from typing import Optional
 import os
 from dotenv import load_dotenv
 
-from .database.connection import DatabaseConnection
-from .database.repository import PhotoRepository
+from .database.pg_connection import PostgresConnectionPool
+from .database.pg_repository import PostgresPhotoRepository
 from .processors import PhotoProcessor
 from .utils.logging import setup_logging
 
@@ -63,8 +63,16 @@ def main(
             logger.error(f"Path does not exist: {input_path}")
             sys.exit(1)
         
-        db_connection = DatabaseConnection(config_data['db_path'])
-        repository = PhotoRepository(db_connection)
+        # Create PostgreSQL connection pool
+        # Limit connections to avoid exceeding PostgreSQL's max_connections (typically 100)
+        max_connections = min(parallel, 50)  # Use at most 50 connections
+        connection_pool = PostgresConnectionPool(
+            connection_string=config_data.get('database_url'),
+            min_conn=2,
+            max_conn=max_connections
+        )
+        logger.info(f"Created connection pool with max {max_connections} connections for {parallel} workers")
+        repository = PostgresPhotoRepository(connection_pool)
         
         processor = PhotoProcessor(
             repository=repository,
@@ -100,7 +108,7 @@ def main(
 def load_configuration(config_path: Optional[str]) -> dict:
     """Load configuration from environment and optional config file."""
     config = {
-        'db_path': os.getenv('DB_PATH', './data/photos.db'),
+        'database_url': os.getenv('DATABASE_URL', 'postgresql://localhost/photodb'),
         'ingest_path': os.getenv('INGEST_PATH', './photos/raw'),
         'img_path': os.getenv('IMG_PATH', './photos/processed'),
         'log_level': os.getenv('LOG_LEVEL', 'INFO'),

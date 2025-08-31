@@ -13,7 +13,7 @@ CREATE TABLE IF NOT EXISTS metadata (
     captured_at TIMESTAMP,  -- When photo was taken
     latitude REAL,
     longitude REAL,
-    extra JSON,  -- All EXIF/TIFF/IFD metadata as JSON
+    extra JSONB,  -- All EXIF/TIFF/IFD metadata as JSONB (PostgreSQL native JSON)
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     FOREIGN KEY (photo_id) REFERENCES photos(id) ON DELETE CASCADE
 );
@@ -34,3 +34,6 @@ CREATE INDEX IF NOT EXISTS idx_photos_filename ON photos(filename);
 CREATE INDEX IF NOT EXISTS idx_metadata_captured_at ON metadata(captured_at);
 CREATE INDEX IF NOT EXISTS idx_metadata_location ON metadata(latitude, longitude);
 CREATE INDEX IF NOT EXISTS idx_processing_status ON processing_status(status, stage);
+
+-- PostgreSQL-specific: GIN index for JSONB search
+CREATE INDEX IF NOT EXISTS idx_metadata_extra ON metadata USING GIN (extra);

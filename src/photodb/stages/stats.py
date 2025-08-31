@@ -2,14 +2,14 @@ from typing import Dict, List, Any
 from collections import Counter
 import logging
 
-from ..database.repository import PhotoRepository
+from ..database.pg_repository import PostgresPhotoRepository
 
 logger = logging.getLogger(__name__)
 
 class MetadataStatistics:
     """Generate statistics from metadata."""
     
-    def __init__(self, repository: PhotoRepository):
+    def __init__(self, repository):
         self.repository = repository
     
     def generate_statistics(self) -> Dict[str, Any]:

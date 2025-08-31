@@ -163,13 +163,16 @@ class MetadataStage(BaseStage):
                 return float(obj.numerator) / float(obj.denominator)
             else:
                 return float(obj.numerator)
-        elif isinstance(obj, (int, float, str, bool)):
+        elif isinstance(obj, str):
+            # Remove null bytes that PostgreSQL can't handle
+            return obj.replace('\x00', '')
+        elif isinstance(obj, (int, float, bool)):
             return obj
         elif isinstance(obj, datetime):
             return obj.isoformat()
         else:
-            # Convert unknown types to string
-            return str(obj)
+            # Convert unknown types to string and remove null bytes
+            return str(obj).replace('\x00', '')
     
     def _extract_camera_info(self, metadata: Dict[str, Any]) -> Dict[str, Any]:
         """Extract camera information from metadata."""

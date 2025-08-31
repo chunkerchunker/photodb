@@ -3,6 +3,7 @@ from typing import Optional, Tuple, Dict, Any
 from PIL import Image
 from pillow_heif import register_heif_opener
 import logging
+import os
 
 # Register HEIF opener with Pillow
 register_heif_opener()
@@ -133,6 +134,9 @@ class ImageHandler:
         closest_ratio = None
         closest_diff = float("inf")
 
+        # Get resize scale from environment variable
+        resize_scale = float(os.getenv("RESIZE_SCALE", "1.0"))
+
         aspect_ratios = {
             "1:1": (1.0, (1092, 1092)),
             "3:4": (0.75, (951, 1268)),
@@ -153,6 +157,8 @@ class ImageHandler:
 
         if closest_ratio:
             max_width, max_height = closest_ratio
+            max_width = int(max_width * resize_scale)
+            max_height = int(max_height * resize_scale)
 
             # Check if resize is needed
             if width <= max_width and height <= max_height:

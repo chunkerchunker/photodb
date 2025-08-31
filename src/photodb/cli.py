@@ -221,6 +221,7 @@ def load_configuration(config_path: Optional[str]) -> dict:
         "LLM_API_KEY": os.getenv("LLM_API_KEY") or os.getenv("ANTHROPIC_API_KEY"),
         "BATCH_SIZE": int(os.getenv("BATCH_SIZE", "100")),
         "BATCH_CHECK_INTERVAL": int(os.getenv("BATCH_CHECK_INTERVAL", "300")),
+        "RESIZE_SCALE": float(os.getenv("RESIZE_SCALE", "1.0")),
     }
 
     if config_path:

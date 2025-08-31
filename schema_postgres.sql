@@ -77,6 +77,7 @@ CREATE TABLE IF NOT EXISTS batch_jobs (
     photo_count INTEGER NOT NULL,
     processed_count INTEGER DEFAULT 0,
     failed_count INTEGER DEFAULT 0,
+    photo_ids TEXT[] NOT NULL, -- Array of photo IDs in the batch
     error_message TEXT
 );
 

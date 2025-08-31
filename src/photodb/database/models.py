@@ -156,10 +156,11 @@ class BatchJob:
     photo_count: int
     processed_count: int
     failed_count: int
+    photo_ids: List[str]
     error_message: Optional[str]
 
     @classmethod
-    def create(cls, provider_batch_id: str, photo_count: int) -> "BatchJob":
+    def create(cls, provider_batch_id: str, photo_ids: List[str]) -> "BatchJob":
         """Create new batch job record."""
         return cls(
             id=str(uuid.uuid4()),
@@ -167,9 +168,10 @@ class BatchJob:
             status="submitted",
             submitted_at=datetime.now(),
             completed_at=None,
-            photo_count=photo_count,
+            photo_count=len(photo_ids),
             processed_count=0,
             failed_count=0,
+            photo_ids=photo_ids,
             error_message=None,
         )
 
@@ -183,5 +185,6 @@ class BatchJob:
             "photo_count": self.photo_count,
             "processed_count": self.processed_count,
             "failed_count": self.failed_count,
+            "photo_ids": self.photo_ids,
             "error_message": self.error_message,
         }

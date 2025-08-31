@@ -193,7 +193,7 @@ class EnrichStage(BaseStage):
             # Create batch job record
             from ..database.models import BatchJob
 
-            batch_job = BatchJob.create(provider_batch_id=batch_id, photo_count=len(photo_ids))
+            batch_job = BatchJob.create(provider_batch_id=batch_id, photo_ids=photo_ids)
             batch_job.status = "submitted"
             self.repository.create_batch_job(batch_job)
 
@@ -213,7 +213,7 @@ class EnrichStage(BaseStage):
 
         try:
             # Get batch status using Instructor's batch processor
-            status = self.batch_processor.get_batch_status(batch_id)
+            status = self.batch_processor.get_batch_status(batch_id)["status"]
 
             # Update our database record
             batch_job = self.repository.get_batch_job_by_provider_id(batch_id)
@@ -221,19 +221,21 @@ class EnrichStage(BaseStage):
                 # Map status to our internal status
                 if status in ["in_progress", "validating", "finalizing"]:
                     batch_job.status = "processing"
-                elif status == "completed":
+                elif status in ["completed", "ended", "JOB_STATE_SUCCEEDED"]:
                     batch_job.status = "completed"
                 elif status in ["failed", "expired", "cancelled"]:
                     batch_job.status = "failed"
 
-                if status in ["completed", "failed", "expired", "cancelled"]:
+                if batch_job.status in ["completed", "failed"]:
                     from datetime import datetime
 
                     batch_job.completed_at = datetime.now()
 
                     # Process results if batch is completed
-                    if status == "completed":
-                        processed_count = self._process_instructor_batch_results(batch_id)
+                    if batch_job.status == "completed":
+                        processed_count = self._process_instructor_batch_results(
+                            batch_id, batch_job.photo_ids
+                        )
                         batch_job.processed_count = processed_count
                         batch_job.failed_count = batch_job.photo_count - processed_count
 
@@ -241,7 +243,7 @@ class EnrichStage(BaseStage):
 
             return {
                 "batch_id": batch_id,
-                "status": status,
+                "status": batch_job.status if batch_job else "processing",
                 "photo_count": batch_job.photo_count if batch_job else 0,
                 "processed_count": batch_job.processed_count if batch_job else 0,
                 "failed_count": batch_job.failed_count if batch_job else 0,
@@ -257,7 +259,7 @@ class EnrichStage(BaseStage):
             logger.error(f"Error monitoring Instructor batch {batch_id}: {e}")
             return None
 
-    def _process_instructor_batch_results(self, batch_id: str) -> int:
+    def _process_instructor_batch_results(self, batch_id: str, photo_ids: List[str]) -> int:
         """Process completed Instructor batch results and save to database."""
         try:
             if not self.batch_processor:
@@ -272,27 +274,23 @@ class EnrichStage(BaseStage):
 
             processed_count = 0
 
-            # Process successful results
-            for result in successful_results:
+            # Process successful results - use array indexing to match photo_ids
+            for i, result in enumerate(successful_results):
                 custom_id = "unknown"
                 try:
-                    custom_id = result.custom_id or "unknown"
+                    custom_id = result.custom_id
 
-                    # Extract photo ID from custom_id (format: "photo_{photo_id}")
-                    photo_id = None
-                    if custom_id.startswith("photo_"):
-                        photo_id = custom_id[6:]  # Remove "photo_" prefix
+                    # Get photo_id from the array using the result index
+                    if i >= len(photo_ids):
+                        logger.error(
+                            f"Instructor result index {i} exceeds photo_ids length {len(photo_ids)} for batch {batch_id}"
+                        )
+                        continue
+
+                    photo_id = photo_ids[i]
 
                     # Get structured response from Instructor result
                     analysis_data = result.result.model_dump() if result.result else {}
-
-                    # If no photo_id from custom_id, try to get it from structured response
-                    if not photo_id and result.result:
-                        photo_id = result.result.image.id
-
-                    if not photo_id:
-                        logger.error(f"Instructor result not matched to photo for batch {batch_id}")
-                        continue
 
                     # Extract key fields from structured data
                     extracted_fields = self._extract_key_fields(analysis_data)
@@ -317,27 +315,32 @@ class EnrichStage(BaseStage):
                     logger.error(f"Error processing successful batch result for {custom_id}: {e}")
                     continue
 
-            # Process error results
-            for result in error_results:
+            # Process error results - use array indexing to match photo_ids
+            for i, result in enumerate(error_results):
                 custom_id = "unknown"
                 try:
                     custom_id = result.custom_id or "unknown"
 
-                    # Extract photo ID from custom_id (format: "photo_{photo_id}")
-                    if custom_id.startswith("photo_"):
-                        photo_id = custom_id[6:]  # Remove "photo_" prefix
-
-                        # Handle error response
-                        error_msg = f"Batch processing failed: {getattr(result, 'error_message', 'Unknown error')}"
-
-                        error_analysis = LLMAnalysis.create(
-                            photo_id=photo_id,
-                            model_name=self.model_name,
-                            analysis={},
-                            batch_id=batch_id,
-                            error_message=error_msg,
+                    # Get photo_id from the array using the result index
+                    if i >= len(photo_ids):
+                        logger.error(
+                            f"Instructor error result index {i} exceeds photo_ids length {len(photo_ids)} for batch {batch_id}"
                         )
-                        self.repository.create_llm_analysis(error_analysis)
+                        continue
+
+                    photo_id = photo_ids[i]
+
+                    # Handle error response
+                    error_msg = f"Batch processing failed: {getattr(result, 'error_message', 'Unknown error')}"
+
+                    error_analysis = LLMAnalysis.create(
+                        photo_id=photo_id,
+                        model_name=self.model_name,
+                        analysis={},
+                        batch_id=batch_id,
+                        error_message=error_msg,
+                    )
+                    self.repository.create_llm_analysis(error_analysis)
 
                 except Exception as e:
                     logger.error(f"Error processing error batch result for {custom_id}: {e}")
@@ -351,7 +354,6 @@ class EnrichStage(BaseStage):
         except Exception as e:
             logger.error(f"Error processing Instructor batch results: {e}")
             return 0
-
 
     def _create_message_content(self, image_path: Path, exif_context: str) -> List[Dict[str, Any]]:
         """Create message content for photo analysis.
@@ -473,7 +475,6 @@ Return structured data following the PhotoAnalysisResponse schema."""
                 context_parts.extend(camera_info)
 
         return "\n".join(context_parts)
-
 
     def _extract_key_fields(self, analysis: Dict[str, Any]) -> Dict[str, Any]:
         """Extract key fields from structured analysis for database indexing."""

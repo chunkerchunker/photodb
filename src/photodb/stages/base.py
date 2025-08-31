@@ -4,6 +4,8 @@ from typing import Optional
 import logging
 from datetime import datetime
 
+from photodb.database.repository import PhotoRepository
+
 from ..database.models import Photo, ProcessingStatus
 
 logger = logging.getLogger(__name__)
@@ -12,7 +14,7 @@ logger = logging.getLogger(__name__)
 class BaseStage(ABC):
     """Base class for all processing stages."""
 
-    def __init__(self, repository, config: dict):
+    def __init__(self, repository: PhotoRepository, config: dict):
         self.repository = repository
         self.config = config
         self.stage_name = self.__class__.__name__.replace("Stage", "").lower()

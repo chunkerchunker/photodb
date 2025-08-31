@@ -282,8 +282,8 @@ class PhotoRepository:
                 cursor.execute(
                     """INSERT INTO batch_jobs 
                        (id, provider_batch_id, status, submitted_at, completed_at,
-                        photo_count, processed_count, failed_count, error_message)
-                       VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)""",
+                        photo_count, processed_count, failed_count, photo_ids, error_message)
+                       VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)""",
                     (
                         batch_job.id,
                         batch_job.provider_batch_id,
@@ -293,6 +293,7 @@ class PhotoRepository:
                         batch_job.photo_count,
                         batch_job.processed_count,
                         batch_job.failed_count,
+                        batch_job.photo_ids,
                         batch_job.error_message,
                     ),
                 )
@@ -307,7 +308,11 @@ class PhotoRepository:
                 row = cursor.fetchone()
 
                 if row:
-                    return BatchJob(**dict(row))  # type: ignore[arg-type]
+                    # PostgreSQL returns arrays as lists already
+                    row_dict = dict(row)
+                    if row_dict.get("photo_ids") is None:
+                        row_dict["photo_ids"] = []
+                    return BatchJob(**row_dict)  # type: ignore[arg-type]
                 return None
 
     def update_batch_job(self, batch_job: BatchJob) -> None:
@@ -340,4 +345,11 @@ class PhotoRepository:
                 )
                 rows = cursor.fetchall()
 
-                return [BatchJob(**dict(row)) for row in rows]  # type: ignore[arg-type]
+                batch_jobs = []
+                for row in rows:
+                    row_dict = dict(row)
+                    # PostgreSQL returns arrays as lists already
+                    if row_dict.get("photo_ids") is None:
+                        row_dict["photo_ids"] = []
+                    batch_jobs.append(BatchJob(**row_dict))  # type: ignore[arg-type]
+                return batch_jobs

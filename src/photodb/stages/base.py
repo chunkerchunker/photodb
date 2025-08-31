@@ -19,8 +19,12 @@ class BaseStage(ABC):
         self.stage_name = self.__class__.__name__.replace('Stage', '').lower()
     
     @abstractmethod
-    def process_photo(self, photo: Photo, file_path: Path) -> None:
-        """Process a single photo. Must be implemented by subclasses."""
+    def process_photo(self, photo: Photo, file_path: Path) -> bool:
+        """Process a single photo. Must be implemented by subclasses.
+        
+        Returns:
+            bool: True if processing was successful, False otherwise
+        """
         pass
     
     def should_process(self, file_path: Path, force: bool = False) -> bool:
@@ -36,19 +40,24 @@ class BaseStage(ABC):
     
     def process(self, file_path: Path) -> None:
         """Process a file through this stage."""
+        photo = None
         try:
             photo = self._get_or_create_photo(file_path)
             
             self._update_status(photo.id, 'processing')
             
-            self.process_photo(photo, file_path)
+            success = self.process_photo(photo, file_path)
             
-            self._update_status(photo.id, 'completed')
-            logger.info(f"Successfully processed {file_path} through {self.stage_name}")
+            if success:
+                self._update_status(photo.id, 'completed')
+                logger.info(f"Successfully processed {file_path} through {self.stage_name}")
+            else:
+                self._update_status(photo.id, 'failed', "Processing failed")
+                logger.error(f"Processing failed for {file_path} through {self.stage_name}")
             
         except Exception as e:
             logger.error(f"Failed to process {file_path} through {self.stage_name}: {e}")
-            if 'photo' in locals():
+            if photo:
                 self._update_status(photo.id, 'failed', str(e))
             raise
     

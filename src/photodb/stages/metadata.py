@@ -1,14 +1,11 @@
 from pathlib import Path
 import logging
 from datetime import datetime
-from typing import Optional, Dict, Any
-from PIL import Image
+from typing import Dict, Any
 from PIL.ExifTags import TAGS, GPSTAGS
-from PIL.ExifTags import IFD
-import json
 
 from .base import BaseStage
-from ..database.models import Photo, Metadata, ProcessingStatus
+from ..database.models import Photo, Metadata
 from ..utils.exif import ExifExtractor
 
 logger = logging.getLogger(__name__)
@@ -19,20 +16,13 @@ class MetadataStage(BaseStage):
     
     STAGE_NAME = 'metadata'
     
-    def process_photo(self, photo: Photo, file_path: Path) -> Dict[str, Any]:
-        """Extract metadata from a photo."""
-        logger.info(f"Extracting metadata from: {file_path}")
+    def process_photo(self, photo: Photo, file_path: Path) -> bool:
+        """Extract metadata from a photo.
         
-        # Update processing status
-        self.repository.update_processing_status(
-            ProcessingStatus(
-                photo_id=photo.id,
-                stage=self.STAGE_NAME,
-                status='processing',
-                processed_at=datetime.now(),
-                error_message=None
-            )
-        )
+        Returns:
+            bool: True if processing was successful, False otherwise
+        """
+        logger.info(f"Extracting metadata from: {file_path}")
         
         try:
             # Extract all metadata using ExifExtractor
@@ -67,49 +57,13 @@ class MetadataStage(BaseStage):
             else:
                 self.repository.create_metadata(metadata)
             
-            # Update processing status
-            self.repository.update_processing_status(
-                ProcessingStatus(
-                    photo_id=photo.id,
-                    stage=self.STAGE_NAME,
-                    status='completed',
-                    processed_at=datetime.now(),
-                    error_message=None
-                )
-            )
-            
-            result = {
-                'success': True,
-                'photo_id': photo.id,
-                'captured_at': captured_at.isoformat() if captured_at else None,
-                'has_location': gps_coords is not None,
-                'metadata_fields': len(parsed_metadata),
-                'camera_info': self._extract_camera_info(parsed_metadata)
-            }
-            
             logger.info(f"Successfully extracted metadata for {file_path}")
             logger.debug(f"Metadata extracted for {photo.id}")
-            return result
+            return True
             
         except Exception as e:
             logger.error(f"Failed to extract metadata from {file_path}: {e}")
-            
-            # Update processing status
-            self.repository.update_processing_status(
-                ProcessingStatus(
-                    photo_id=photo.id,
-                    stage=self.STAGE_NAME,
-                    status='failed',
-                    processed_at=datetime.now(),
-                    error_message=str(e)
-                )
-            )
-            
-            return {
-                'success': False,
-                'photo_id': photo.id,
-                'error': str(e)
-            }
+            return False
     
     def _parse_metadata(self, raw_metadata: Dict[str, Any]) -> Dict[str, Any]:
         """

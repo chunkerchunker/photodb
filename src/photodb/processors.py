@@ -61,17 +61,42 @@ class PhotoProcessor:
             
             # Process stages that need processing
             stages_processed = 0
+            all_stages_succeeded = True
+            
             for stage_name in stages_to_run:
                 stage_obj = self.stages[stage_name]
                 
                 if stage_obj.should_process(file_path, self.force):
                     logger.debug(f"Running {stage_name} on {file_path}")
-                    stage_obj.process(file_path)
-                    stages_processed += 1
+                    try:
+                        stage_obj.process(file_path)
+                        
+                        # Check if the stage actually succeeded by looking at processing status
+                        photo = stage_obj.repository.get_photo_by_filename(str(file_path))
+                        if photo:
+                            stage_status = stage_obj.repository.get_processing_status(photo.id, stage_obj.stage_name)
+                            if stage_status and stage_status.status == 'failed':
+                                all_stages_succeeded = False
+                                error_msg = stage_status.error_message or "Stage processing failed"
+                                logger.error(f"Stage {stage_name} failed for {file_path}: {error_msg}")
+                            elif stage_status and stage_status.status == 'completed':
+                                stages_processed += 1
+                        else:
+                            all_stages_succeeded = False
+                            logger.error(f"Could not find photo record for {file_path} after processing")
+                        
+                    except Exception as e:
+                        all_stages_succeeded = False
+                        logger.error(f"Stage {stage_name} threw exception for {file_path}: {e}")
+                        raise  # Re-raise to be caught by outer exception handler
                 else:
                     logger.debug(f"Skipping {stage_name} for {file_path} (already processed)")
             
-            if stages_processed > 0:
+            if not all_stages_succeeded:
+                result.failed = 1
+                result.failed_files.append((str(file_path), "One or more stages failed"))
+                result.success = False
+            elif stages_processed > 0:
                 result.processed = 1
             else:
                 result.skipped = 1

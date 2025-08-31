@@ -1,0 +1,1 @@
+rsync -avz . mm2:~/dev/photodb --filter=':- .gitignore' --exclude .git

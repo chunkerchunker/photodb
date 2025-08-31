@@ -50,6 +50,14 @@ A photo has been processed by this stage if it has a corresponding row in the `m
 
 Extract all available EXIF/TIFF/IFD metadata from the ingest photo and create a corresponding `metadata` row.  All metadata is stored in the `extra` column.  Captured-at timestamp and location are also stored in their own columns.
 
+## Stage 3: Extract LLM-based metadata
+
+This stage sends the normalized photo and complete exif data to an LLM for advanced metadata extraction using the prompt info in [analyze_photo.md](../prompts/analyze_photo.md).
+
+The <https://github.com/agamm/batchata> library should be used to take advantage of LLM provider batch processing.
+
+The LLM provider and model should be configured in the .env file, defaulted to Anthropic Claude Sonnet 4 (claude-sonnet-4-20250514).
+
 ## Stage N
 
 More stages to be defined..

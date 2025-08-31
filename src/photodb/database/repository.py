@@ -4,14 +4,14 @@ import json
 import logging
 from psycopg2.extras import RealDictCursor
 
-from .pg_connection import PostgresConnectionPool
+from .connection import ConnectionPool
 from .models import Photo, Metadata, ProcessingStatus, LLMAnalysis, BatchJob
 
 logger = logging.getLogger(__name__)
 
 
-class PostgresPhotoRepository:
-    def __init__(self, connection_pool: PostgresConnectionPool):
+class PhotoRepository:
+    def __init__(self, connection_pool: ConnectionPool):
         self.pool = connection_pool
 
     def create_photo(self, photo: Photo) -> None:
@@ -38,7 +38,7 @@ class PostgresPhotoRepository:
                 row = cursor.fetchone()
 
                 if row:
-                    return Photo(**row)
+                    return Photo(**dict(row))  # type: ignore[arg-type]
                 return None
 
     def get_photo_by_id(self, photo_id: str) -> Optional[Photo]:
@@ -49,7 +49,7 @@ class PostgresPhotoRepository:
                 row = cursor.fetchone()
 
                 if row:
-                    return Photo(**row)
+                    return Photo(**dict(row))  # type: ignore[arg-type]
                 return None
 
     def update_photo(self, photo: Photo) -> None:
@@ -99,7 +99,7 @@ class PostgresPhotoRepository:
                     # PostgreSQL returns JSONB as dict already
                     if row["extra"] is None:
                         row["extra"] = {}
-                    return Metadata(**row)
+                    return Metadata(**dict(row))  # type: ignore[arg-type]
                 return None
 
     def update_processing_status(self, status: ProcessingStatus) -> None:
@@ -136,7 +136,7 @@ class PostgresPhotoRepository:
                 row = cursor.fetchone()
 
                 if row:
-                    return ProcessingStatus(**row)
+                    return ProcessingStatus(**dict(row))  # type: ignore[arg-type]
                 return None
 
     def has_been_processed(self, photo_id: str, stage: str) -> bool:
@@ -158,7 +158,7 @@ class PostgresPhotoRepository:
                 )
                 rows = cursor.fetchall()
 
-                return [Photo(**row) for row in rows]
+                return [Photo(**dict(row)) for row in rows]  # type: ignore[arg-type]
 
     def get_failed_photos(self, stage: str) -> List[Dict[str, Any]]:
         """Get photos that failed processing for a specific stage."""
@@ -247,7 +247,7 @@ class PostgresPhotoRepository:
                     # Convert objects array back to Python list if needed
                     if row.get("objects") is None:
                         row["objects"] = []
-                    return LLMAnalysis(**row)
+                    return LLMAnalysis(**dict(row))  # type: ignore[arg-type]
                 return None
 
     def has_llm_analysis(self, photo_id: str) -> bool:
@@ -271,7 +271,7 @@ class PostgresPhotoRepository:
                 )
                 rows = cursor.fetchall()
 
-                return [Photo(**row) for row in rows]
+                return [Photo(**dict(row)) for row in rows]  # type: ignore[arg-type]
 
     # Batch Job methods
 
@@ -307,7 +307,7 @@ class PostgresPhotoRepository:
                 row = cursor.fetchone()
 
                 if row:
-                    return BatchJob(**row)
+                    return BatchJob(**dict(row))  # type: ignore[arg-type]
                 return None
 
     def update_batch_job(self, batch_job: BatchJob) -> None:
@@ -340,4 +340,4 @@ class PostgresPhotoRepository:
                 )
                 rows = cursor.fetchall()
 
-                return [BatchJob(**row) for row in rows]
+                return [BatchJob(**dict(row)) for row in rows]  # type: ignore[arg-type]

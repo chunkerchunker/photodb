@@ -1,11 +1,14 @@
 from pathlib import Path
-from typing import List, Set, Optional, Generator
+from typing import List, Set, Optional, Generator, TYPE_CHECKING
 from dataclasses import dataclass
 import logging
 import os
 
 from .utils.image import ImageHandler
 from .utils.validation import ImageValidator
+
+if TYPE_CHECKING:
+    from .database.repository import PhotoRepository as PhotoRepository
 
 logger = logging.getLogger(__name__)
 
@@ -27,7 +30,7 @@ class ScanResult:
 class FileScanner:
     """Scans directories and identifies new photos to process."""
 
-    def __init__(self, repository: PhotoRepository, base_path: Optional[str] = None):
+    def __init__(self, repository: "PhotoRepository", base_path: Optional[str] = None):
         self.repository = repository
         self.base_path = Path(base_path or os.getenv("INGEST_PATH", "./photos/raw"))
 

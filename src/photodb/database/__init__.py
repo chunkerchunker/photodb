@@ -1,12 +1,12 @@
-from .pg_connection import PostgresConnectionPool, PostgresConnection
+from .connection import ConnectionPool, Connection
 from .models import Photo, Metadata, ProcessingStatus
-from .pg_repository import PostgresPhotoRepository
+from .repository import PhotoRepository
 
 __all__ = [
-    "PostgresConnectionPool",
-    "PostgresConnection",
+    "ConnectionPool",
+    "Connection",
     "Photo",
     "Metadata",
     "ProcessingStatus",
-    "PostgresPhotoRepository",
+    "PhotoRepository",
 ]

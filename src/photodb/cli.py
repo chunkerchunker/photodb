@@ -6,8 +6,8 @@ from typing import Optional
 import os
 from dotenv import load_dotenv
 
-from .database.pg_connection import PostgresConnectionPool
-from .database.pg_repository import PostgresPhotoRepository
+from .database.connection import ConnectionPool
+from .database.repository import PhotoRepository
 from .processors import PhotoProcessor
 from .async_batch_monitor import AsyncBatchMonitor
 from .stages.enrich import EnrichStage
@@ -87,13 +87,13 @@ def main(
         # Create PostgreSQL connection pool
         # Limit connections to avoid exceeding PostgreSQL's max_connections (typically 100)
         max_connections = min(parallel, 50)  # Use at most 50 connections
-        connection_pool = PostgresConnectionPool(
+        connection_pool = ConnectionPool(
             connection_string=config_data.get("DATABASE_URL"), min_conn=2, max_conn=max_connections
         )
         logger.info(
             f"Created connection pool with max {max_connections} connections for {parallel} workers"
         )
-        repository = PostgresPhotoRepository(connection_pool)
+        repository = PhotoRepository(connection_pool)
 
         # Handle batch checking mode
         if check_batches:
@@ -158,6 +158,8 @@ def main(
             logger.error("PATH argument is required when not using --check-batches")
             sys.exit(1)
 
+        # Type narrowing: path is guaranteed to be str after the check above
+        assert path is not None
         input_path = resolve_path(path, config_data["INGEST_PATH"])
 
         if not input_path.exists():

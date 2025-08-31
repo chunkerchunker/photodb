@@ -4,7 +4,7 @@ from typing import List, Dict, Any
 import logging
 from datetime import datetime
 
-from .database.pg_repository import PostgresPhotoRepository
+from .database.repository import PhotoRepository
 
 logger = logging.getLogger(__name__)
 
@@ -12,7 +12,7 @@ logger = logging.getLogger(__name__)
 class AsyncBatchMonitor:
     """Async monitor for batch processing jobs."""
 
-    def __init__(self, repository: PostgresPhotoRepository, config: dict):
+    def __init__(self, repository: PhotoRepository, config: dict):
         self.repository = repository
         self.check_interval = int(config.get("BATCH_CHECK_INTERVAL", 300))  # 5 minutes
         self.max_retries = 3

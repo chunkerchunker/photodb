@@ -77,10 +77,10 @@ uv run pytest --cov             # With coverage
 ### Linting, Formatting, Type Checking
 
 ```bash
-uvx ruff format              # Format code (line length: 100)
-uvx ruff check               # Lint code
-uvx ruff check --fix         # Auto-fix linting issues
-uvx ty check
+uv run ruff format              # Format code (line length: 100)
+uv run ruff check               # Lint code
+uv run ruff check --fix         # Auto-fix linting issues
+uv run pyright check            # Type check code
 ```
 
 ### Database Setup

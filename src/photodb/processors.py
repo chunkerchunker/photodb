@@ -5,8 +5,8 @@ import logging
 from concurrent.futures import ThreadPoolExecutor, as_completed
 import threading
 
-from .database.pg_repository import PostgresPhotoRepository
-from .database.pg_connection import PostgresConnectionPool
+from .database.repository import PhotoRepository
+from .database.connection import ConnectionPool
 from .stages.normalize import NormalizeStage
 from .stages.metadata import MetadataStage
 from .stages.enrich import EnrichStage
@@ -56,7 +56,7 @@ class PhotoProcessor:
             # Limit to 50 connections to stay well under PostgreSQL's default limit of 100
             connection_string = config.get("DATABASE_URL", "postgresql://localhost/photodb")
             max_connections = min(parallel, 50)
-            self.connection_pool = PostgresConnectionPool(
+            self.connection_pool = ConnectionPool(
                 connection_string=connection_string, min_conn=2, max_conn=max_connections
             )
         else:
@@ -233,7 +233,7 @@ class PhotoProcessor:
             """Process file with a repository using the connection pool."""
             if self.connection_pool:
                 # Create a temporary repository using the PostgreSQL connection pool
-                pooled_repo = PostgresPhotoRepository(self.connection_pool)
+                pooled_repo = PhotoRepository(self.connection_pool)
 
                 # Create stages with the pooled repository
                 pooled_stages = {
@@ -293,7 +293,7 @@ class PhotoProcessor:
             """Process file with a repository using the connection pool."""
             if self.connection_pool:
                 # Create a temporary repository using the PostgreSQL connection pool
-                pooled_repo = PostgresPhotoRepository(self.connection_pool)
+                pooled_repo = PhotoRepository(self.connection_pool)
 
                 # Create stages with the pooled repository
                 pooled_stages = {

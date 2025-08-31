@@ -3,13 +3,13 @@ from psycopg2 import pool
 import os
 from pathlib import Path
 from contextlib import contextmanager
-from typing import Optional, Generator
+from typing import Optional, Generator, Any
 import logging
 
 logger = logging.getLogger(__name__)
 
 
-class PostgresConnection:
+class Connection:
     def __init__(self, connection_string: Optional[str] = None):
         """Initialize PostgreSQL connection.
 
@@ -37,7 +37,7 @@ class PostgresConnection:
                 logger.info("Database initialized")
 
     @contextmanager
-    def get_connection(self) -> Generator[psycopg2.extensions.connection, None, None]:
+    def get_connection(self) -> Generator[Any, None, None]:
         """Get a database connection with proper cleanup."""
         conn = None
         try:
@@ -48,7 +48,7 @@ class PostgresConnection:
                 conn.close()
 
     @contextmanager
-    def transaction(self) -> Generator[psycopg2.extensions.connection, None, None]:
+    def transaction(self) -> Generator[Any, None, None]:
         """Execute operations within a transaction."""
         with self.get_connection() as conn:
             try:
@@ -60,7 +60,7 @@ class PostgresConnection:
                 raise
 
 
-class PostgresConnectionPool:
+class ConnectionPool:
     def __init__(
         self, connection_string: Optional[str] = None, min_conn: int = 2, max_conn: int = 100
     ):
@@ -100,7 +100,7 @@ class PostgresConnectionPool:
                 logger.info("Database schema initialized")
 
     @contextmanager
-    def get_connection(self) -> Generator[psycopg2.extensions.connection, None, None]:
+    def get_connection(self) -> Generator[Any, None, None]:
         """Get a connection from the pool with timeout and retry logic."""
         conn = None
         max_retries = 100
@@ -139,7 +139,7 @@ class PostgresConnectionPool:
                     raise Exception(f"Could not get connection after {max_retries} attempts: {e}")
 
     @contextmanager
-    def transaction(self) -> Generator[psycopg2.extensions.connection, None, None]:
+    def transaction(self) -> Generator[Any, None, None]:
         """Execute operations within a transaction using pooled connection."""
         with self.get_connection() as conn:
             try:

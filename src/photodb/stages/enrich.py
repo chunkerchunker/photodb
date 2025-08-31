@@ -12,7 +12,7 @@ from anthropic.types import MessageParam
 
 from .base import BaseStage
 from ..database.models import Photo, LLMAnalysis
-from ..database.pg_repository import PostgresPhotoRepository
+from ..database.repository import PhotoRepository
 from ..models.photo_analysis import PhotoAnalysisResponse
 
 logger = logging.getLogger(__name__)
@@ -21,7 +21,7 @@ logger = logging.getLogger(__name__)
 class EnrichStage(BaseStage):
     """Stage 3: LLM-based photo analysis for enriched metadata."""
 
-    def __init__(self, repository: PostgresPhotoRepository, config: dict):
+    def __init__(self, repository: PhotoRepository, config: dict):
         super().__init__(repository, config)
         self.stage_name = "enrich"
 
@@ -34,7 +34,11 @@ class EnrichStage(BaseStage):
         # Initialize Instructor client and load system prompt
         self.api_available = self.api_key is not None
         if self.api_available:
-            self.client = instructor.from_anthropic(Anthropic(api_key=self.api_key))
+            if hasattr(instructor, "from_anthropic"):
+                self.client = instructor.from_anthropic(Anthropic(api_key=self.api_key))
+            else:
+                # Fallback for older versions of instructor
+                self.client = instructor.patch(Anthropic(api_key=self.api_key))  # type: ignore[attr-defined]
             self.system_prompt = self._load_system_prompt()
         else:
             logger.warning("No LLM API key found - will skip LLM analysis")

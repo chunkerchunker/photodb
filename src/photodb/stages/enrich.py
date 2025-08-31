@@ -178,10 +178,12 @@ class EnrichStage(BaseStage):
 
         try:
             # Create batch file using Instructor's batch processor
-            batch_file_path = f"batch_requests_{int(time.time())}.jsonl"
+            batch_requests_dir = os.getenv("BATCH_REQUESTS_PATH", "./batch_requests")
+            Path(batch_requests_dir).mkdir(parents=True, exist_ok=True)
+            batch_file_path = Path(batch_requests_dir) / f"batch_requests_{int(time.time())}.jsonl"
             batch_file = self.batch_processor.create_batch_from_messages(
                 messages_list=messages_list,
-                file_path=batch_file_path,
+                file_path=str(batch_file_path),
                 max_tokens=4000,
                 temperature=0.1,
             )

@@ -30,6 +30,10 @@ Photos flow through stages sequentially but can be processed in parallel:
 
 Each stage tracks its processing status per photo, allowing for granular recovery and reprocessing.
 
+Each stage should be idempotent and support force reprocessing
+
+All paths should handle both absolute and relative configurations
+
 ## Development Commands
 
 ### Package Management
@@ -70,12 +74,13 @@ uv run pytest -v                # Verbose output
 uv run pytest --cov             # With coverage
 ```
 
-### Linting and Formatting
+### Linting, Formatting, Type Checking
 
 ```bash
-uv run black .                   # Format code (line length: 100)
-uv run ruff check               # Lint code
-uv run ruff check --fix         # Auto-fix linting issues
+uvx ruff format              # Format code (line length: 100)
+uvx ruff check               # Lint code
+uvx ruff check --fix         # Auto-fix linting issues
+uvx ty check
 ```
 
 ### Database Setup

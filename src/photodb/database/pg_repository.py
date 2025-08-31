@@ -13,7 +13,7 @@ logger = logging.getLogger(__name__)
 class PostgresPhotoRepository:
     def __init__(self, connection_pool: PostgresConnectionPool):
         self.pool = connection_pool
-    
+
     def create_photo(self, photo: Photo) -> None:
         """Insert a new photo record."""
         with self.pool.transaction() as conn:
@@ -21,36 +21,37 @@ class PostgresPhotoRepository:
                 cursor.execute(
                     """INSERT INTO photos (id, filename, normalized_path, created_at, updated_at)
                        VALUES (%s, %s, %s, %s, %s)""",
-                    (photo.id, photo.filename, photo.normalized_path, 
-                     photo.created_at, photo.updated_at)
+                    (
+                        photo.id,
+                        photo.filename,
+                        photo.normalized_path,
+                        photo.created_at,
+                        photo.updated_at,
+                    ),
                 )
-    
+
     def get_photo_by_filename(self, filename: str) -> Optional[Photo]:
         """Get photo by filename."""
         with self.pool.get_connection() as conn:
             with conn.cursor(cursor_factory=RealDictCursor) as cursor:
-                cursor.execute(
-                    "SELECT * FROM photos WHERE filename = %s", (filename,)
-                )
+                cursor.execute("SELECT * FROM photos WHERE filename = %s", (filename,))
                 row = cursor.fetchone()
-                
+
                 if row:
                     return Photo(**row)
                 return None
-    
+
     def get_photo_by_id(self, photo_id: str) -> Optional[Photo]:
         """Get photo by ID."""
         with self.pool.get_connection() as conn:
             with conn.cursor(cursor_factory=RealDictCursor) as cursor:
-                cursor.execute(
-                    "SELECT * FROM photos WHERE id = %s", (photo_id,)
-                )
+                cursor.execute("SELECT * FROM photos WHERE id = %s", (photo_id,))
                 row = cursor.fetchone()
-                
+
                 if row:
                     return Photo(**row)
                 return None
-    
+
     def update_photo(self, photo: Photo) -> None:
         """Update existing photo record."""
         photo.updated_at = datetime.now()
@@ -60,9 +61,9 @@ class PostgresPhotoRepository:
                     """UPDATE photos 
                        SET normalized_path = %s, updated_at = %s
                        WHERE id = %s""",
-                    (photo.normalized_path, photo.updated_at, photo.id)
+                    (photo.normalized_path, photo.updated_at, photo.id),
                 )
-    
+
     def create_metadata(self, metadata: Metadata) -> None:
         """Insert or update metadata record."""
         with self.pool.transaction() as conn:
@@ -77,26 +78,30 @@ class PostgresPhotoRepository:
                            latitude = EXCLUDED.latitude,
                            longitude = EXCLUDED.longitude,
                            extra = EXCLUDED.extra""",
-                    (metadata.photo_id, metadata.captured_at, metadata.latitude,
-                     metadata.longitude, json.dumps(metadata.extra), metadata.created_at)
+                    (
+                        metadata.photo_id,
+                        metadata.captured_at,
+                        metadata.latitude,
+                        metadata.longitude,
+                        json.dumps(metadata.extra),
+                        metadata.created_at,
+                    ),
                 )
-    
+
     def get_metadata(self, photo_id: str) -> Optional[Metadata]:
         """Get metadata for a photo."""
         with self.pool.get_connection() as conn:
             with conn.cursor(cursor_factory=RealDictCursor) as cursor:
-                cursor.execute(
-                    "SELECT * FROM metadata WHERE photo_id = %s", (photo_id,)
-                )
+                cursor.execute("SELECT * FROM metadata WHERE photo_id = %s", (photo_id,))
                 row = cursor.fetchone()
-                
+
                 if row:
                     # PostgreSQL returns JSONB as dict already
-                    if row['extra'] is None:
-                        row['extra'] = {}
+                    if row["extra"] is None:
+                        row["extra"] = {}
                     return Metadata(**row)
                 return None
-    
+
     def update_processing_status(self, status: ProcessingStatus) -> None:
         """Update processing status for a photo stage."""
         with self.pool.transaction() as conn:
@@ -110,10 +115,15 @@ class PostgresPhotoRepository:
                            status = EXCLUDED.status,
                            processed_at = EXCLUDED.processed_at,
                            error_message = EXCLUDED.error_message""",
-                    (status.photo_id, status.stage, status.status,
-                     status.processed_at, status.error_message)
+                    (
+                        status.photo_id,
+                        status.stage,
+                        status.status,
+                        status.processed_at,
+                        status.error_message,
+                    ),
                 )
-    
+
     def get_processing_status(self, photo_id: str, stage: str) -> Optional[ProcessingStatus]:
         """Get processing status for a specific stage."""
         with self.pool.get_connection() as conn:
@@ -121,19 +131,19 @@ class PostgresPhotoRepository:
                 cursor.execute(
                     """SELECT * FROM processing_status 
                        WHERE photo_id = %s AND stage = %s""",
-                    (photo_id, stage)
+                    (photo_id, stage),
                 )
                 row = cursor.fetchone()
-                
+
                 if row:
                     return ProcessingStatus(**row)
                 return None
-    
+
     def has_been_processed(self, photo_id: str, stage: str) -> bool:
         """Check if a photo has been processed for a specific stage."""
         status = self.get_processing_status(photo_id, stage)
-        return status is not None and status.status == 'completed'
-    
+        return status is not None and status.status == "completed"
+
     def get_unprocessed_photos(self, stage: str, limit: int = 100) -> List[Photo]:
         """Get photos that haven't been processed for a specific stage."""
         with self.pool.get_connection() as conn:
@@ -144,12 +154,12 @@ class PostgresPhotoRepository:
                        ON p.id = ps.photo_id AND ps.stage = %s
                        WHERE ps.status IS NULL OR ps.status != 'completed'
                        LIMIT %s""",
-                    (stage, limit)
+                    (stage, limit),
                 )
                 rows = cursor.fetchall()
-                
+
                 return [Photo(**row) for row in rows]
-    
+
     def get_failed_photos(self, stage: str) -> List[Dict[str, Any]]:
         """Get photos that failed processing for a specific stage."""
         with self.pool.get_connection() as conn:
@@ -159,12 +169,12 @@ class PostgresPhotoRepository:
                        FROM photos p
                        JOIN processing_status ps ON p.id = ps.photo_id
                        WHERE ps.stage = %s AND ps.status = 'failed'""",
-                    (stage,)
+                    (stage,),
                 )
                 rows = cursor.fetchall()
-                
+
                 return [dict(row) for row in rows]
-    
+
     def get_photo_count_by_status(self, stage: str) -> Dict[str, int]:
         """Get count of photos by processing status for a stage."""
         with self.pool.get_connection() as conn:
@@ -174,14 +184,14 @@ class PostgresPhotoRepository:
                        FROM processing_status
                        WHERE stage = %s
                        GROUP BY status""",
-                    (stage,)
+                    (stage,),
                 )
                 rows = cursor.fetchall()
-                
-                return {row['status']: row['count'] for row in rows}
-    
+
+                return {row["status"]: row["count"] for row in rows}
+
     # LLM Analysis methods
-    
+
     def create_llm_analysis(self, analysis: LLMAnalysis) -> None:
         """Insert or update LLM analysis record."""
         with self.pool.transaction() as conn:
@@ -207,34 +217,44 @@ class PostgresPhotoRepository:
                            confidence_score = EXCLUDED.confidence_score,
                            processing_duration_ms = EXCLUDED.processing_duration_ms,
                            error_message = EXCLUDED.error_message""",
-                    (analysis.id, analysis.photo_id, analysis.model_name, analysis.model_version,
-                     analysis.processed_at, analysis.batch_id, json.dumps(analysis.analysis),
-                     analysis.description, analysis.objects, analysis.people_count,
-                     analysis.location_description, analysis.emotional_tone,
-                     analysis.confidence_score, analysis.processing_duration_ms, analysis.error_message)
+                    (
+                        analysis.id,
+                        analysis.photo_id,
+                        analysis.model_name,
+                        analysis.model_version,
+                        analysis.processed_at,
+                        analysis.batch_id,
+                        json.dumps(analysis.analysis),
+                        analysis.description,
+                        analysis.objects,
+                        analysis.people_count,
+                        analysis.location_description,
+                        analysis.emotional_tone,
+                        analysis.confidence_score,
+                        analysis.processing_duration_ms,
+                        analysis.error_message,
+                    ),
                 )
-    
+
     def get_llm_analysis(self, photo_id: str) -> Optional[LLMAnalysis]:
         """Get LLM analysis for a photo."""
         with self.pool.get_connection() as conn:
             with conn.cursor(cursor_factory=RealDictCursor) as cursor:
-                cursor.execute(
-                    "SELECT * FROM llm_analysis WHERE photo_id = %s", (photo_id,)
-                )
+                cursor.execute("SELECT * FROM llm_analysis WHERE photo_id = %s", (photo_id,))
                 row = cursor.fetchone()
-                
+
                 if row:
                     # Convert objects array back to Python list if needed
-                    if row.get('objects') is None:
-                        row['objects'] = []
+                    if row.get("objects") is None:
+                        row["objects"] = []
                     return LLMAnalysis(**row)
                 return None
-    
+
     def has_llm_analysis(self, photo_id: str) -> bool:
         """Check if a photo has LLM analysis."""
         analysis = self.get_llm_analysis(photo_id)
         return analysis is not None and analysis.error_message is None
-    
+
     def get_photos_for_llm_analysis(self, limit: int = 100) -> List[Photo]:
         """Get photos that need LLM analysis (have normalized image but no analysis)."""
         with self.pool.get_connection() as conn:
@@ -247,14 +267,14 @@ class PostgresPhotoRepository:
                            WHERE la.photo_id = p.id AND la.error_message IS NULL
                        )
                        LIMIT %s""",
-                    (limit,)
+                    (limit,),
                 )
                 rows = cursor.fetchall()
-                
+
                 return [Photo(**row) for row in rows]
-    
+
     # Batch Job methods
-    
+
     def create_batch_job(self, batch_job: BatchJob) -> None:
         """Create a new batch job record."""
         with self.pool.transaction() as conn:
@@ -264,11 +284,19 @@ class PostgresPhotoRepository:
                        (id, provider_batch_id, status, submitted_at, completed_at,
                         photo_count, processed_count, failed_count, error_message)
                        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)""",
-                    (batch_job.id, batch_job.provider_batch_id, batch_job.status,
-                     batch_job.submitted_at, batch_job.completed_at, batch_job.photo_count,
-                     batch_job.processed_count, batch_job.failed_count, batch_job.error_message)
+                    (
+                        batch_job.id,
+                        batch_job.provider_batch_id,
+                        batch_job.status,
+                        batch_job.submitted_at,
+                        batch_job.completed_at,
+                        batch_job.photo_count,
+                        batch_job.processed_count,
+                        batch_job.failed_count,
+                        batch_job.error_message,
+                    ),
                 )
-    
+
     def get_batch_job_by_provider_id(self, provider_batch_id: str) -> Optional[BatchJob]:
         """Get batch job by provider batch ID."""
         with self.pool.get_connection() as conn:
@@ -277,11 +305,11 @@ class PostgresPhotoRepository:
                     "SELECT * FROM batch_jobs WHERE provider_batch_id = %s", (provider_batch_id,)
                 )
                 row = cursor.fetchone()
-                
+
                 if row:
                     return BatchJob(**row)
                 return None
-    
+
     def update_batch_job(self, batch_job: BatchJob) -> None:
         """Update batch job status and counts."""
         with self.pool.transaction() as conn:
@@ -291,10 +319,16 @@ class PostgresPhotoRepository:
                        SET status = %s, completed_at = %s, processed_count = %s,
                            failed_count = %s, error_message = %s
                        WHERE id = %s""",
-                    (batch_job.status, batch_job.completed_at, batch_job.processed_count,
-                     batch_job.failed_count, batch_job.error_message, batch_job.id)
+                    (
+                        batch_job.status,
+                        batch_job.completed_at,
+                        batch_job.processed_count,
+                        batch_job.failed_count,
+                        batch_job.error_message,
+                        batch_job.id,
+                    ),
                 )
-    
+
     def get_active_batch_jobs(self) -> List[BatchJob]:
         """Get all batch jobs that are still processing."""
         with self.pool.get_connection() as conn:
@@ -302,7 +336,8 @@ class PostgresPhotoRepository:
                 cursor.execute(
                     """SELECT * FROM batch_jobs 
                        WHERE status IN ('submitted', 'processing')
-                       ORDER BY submitted_at""")
+                       ORDER BY submitted_at"""
+                )
                 rows = cursor.fetchall()
-                
+
                 return [BatchJob(**row) for row in rows]

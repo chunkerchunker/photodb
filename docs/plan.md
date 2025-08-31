@@ -12,8 +12,6 @@ Environment variables are described in [.env](/.env).
 
 A `process_photos` CLI is the overall entry point to the pipeline.  The program takes as input either a directory path or a single image path.  Images may be of any standard format, including jpeg, png, and heic.  If the input is a directory path, then the program scans the directory structure for any new images (as described below) and processes them individually.  Ingest paths are relative to the `INGEST_PATH` env var.
 
-The database is stored as sqlite (at `DB_PATH` env var) using [schema.sql](/schema.sql).
-
 The following stages should be implemented as separate modules that can be called indepedently (allowing for reprocessing as needed).
 
 Generally, each stage has a way to detect if it has been run for the input photo.  Stages will skip reprocessing unless a `force` parameter is specified.

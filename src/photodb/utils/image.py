@@ -38,7 +38,7 @@ class ImageHandler:
     def open_image(cls, file_path: Path) -> Image.Image:
         """
         Open an image file with proper format handling.
-        
+
         IMPORTANT: The returned image MUST be closed after use to prevent file handle leaks!
         Use image.close() or a context manager.
 
@@ -60,7 +60,7 @@ class ImageHandler:
             Image.MAX_IMAGE_PIXELS = cls.MAX_PIXELS
 
             image = Image.open(file_path)
-            
+
             # Load image data immediately to allow closing the file
             image.load()
 

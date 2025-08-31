@@ -43,7 +43,9 @@ class ImageInfo(BaseModel):
 
 class SceneInfo(BaseModel):
     type: List[str] = Field(default_factory=list)
-    primary_subject: Literal["person", "people", "object", "place", "document", "unknown"] = "unknown"
+    primary_subject: Literal["person", "people", "object", "place", "document", "unknown"] = (
+        "unknown"
+    )
     short_caption: str
     long_description: str
 
@@ -66,7 +68,7 @@ class TimeInfo(BaseModel):
     from_exif: Optional[str] = None
     season: Literal["winter", "spring", "summer", "autumn", "unknown"] = "unknown"
     time_of_day_hypotheses: List[TimeHypothesis] = Field(default_factory=list)
-    date_estimate: DateEstimate = Field(default_factory=DateEstimate)
+    date_estimate: DateEstimate = Field(default_factory=lambda: DateEstimate(confidence=0))
 
 
 class LocationHypothesis(BaseModel):
@@ -104,7 +106,7 @@ class RoleHypothesis(BaseModel):
 
 
 class Face(BaseModel):
-    bbox: List[float] = Field(min_items=4, max_items=4)  # [x, y, w, h] normalized
+    bbox: List[float] = Field(min_length=4, max_length=4)  # [x, y, w, h] normalized
     age_range_years: AgeRange
     gender_presentation: GenderPresentation
     expression: Expression
@@ -141,7 +143,7 @@ class BrandHypothesis(BaseModel):
 
 class ObjectItem(BaseModel):
     label: str
-    bbox: List[float] = Field(min_items=4, max_items=4)  # [x, y, w, h] normalized
+    bbox: List[float] = Field(min_length=4, max_length=4)  # [x, y, w, h] normalized
     brand_hypotheses: List[BrandHypothesis] = Field(default_factory=list)
     significance: Literal["foreground", "background", "decor", "prop", "unknown"] = "unknown"
 
@@ -152,7 +154,7 @@ class ObjectsInfo(BaseModel):
 
 class TextLine(BaseModel):
     text: str
-    bbox: List[float] = Field(min_items=4, max_items=4)  # [x, y, w, h] normalized
+    bbox: List[float] = Field(min_length=4, max_length=4)  # [x, y, w, h] normalized
     lang: str = "en"
 
 
@@ -163,11 +165,18 @@ class TextInImage(BaseModel):
 
 class ColorsInfo(BaseModel):
     dominant_hex: List[str] = Field(default_factory=list)
-    palette_hex: List[str] = Field(default_factory=list, max_items=5)
+    palette_hex: List[str] = Field(default_factory=list, max_length=5)
 
 
 class CompositionInfo(BaseModel):
-    subject_focus: Literal["single-subject", "multi-subject", "environmental-portrait", "wide-scene", "macro", "unknown"] = "unknown"
+    subject_focus: Literal[
+        "single-subject",
+        "multi-subject",
+        "environmental-portrait",
+        "wide-scene",
+        "macro",
+        "unknown",
+    ] = "unknown"
     framing: List[str] = Field(default_factory=list)
     camera_view: Literal["eye-level", "high-angle", "low-angle", "overhead", "unknown"] = "unknown"
 
@@ -178,7 +187,7 @@ class AccessibilityInfo(BaseModel):
 
 
 class RegionCaption(BaseModel):
-    bbox: List[float] = Field(min_items=4, max_items=4)  # [x, y, w, h] normalized
+    bbox: List[float] = Field(min_length=4, max_length=4)  # [x, y, w, h] normalized
     caption: str
 
 
@@ -194,7 +203,7 @@ class DedupInfo(BaseModel):
 
 class PhotoAnalysisResponse(BaseModel):
     """Complete photo analysis response matching the schema from analyze_photo.md"""
-    
+
     image: ImageInfo
     scene: SceneInfo
     time: TimeInfo

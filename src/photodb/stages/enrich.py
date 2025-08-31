@@ -34,11 +34,7 @@ class EnrichStage(BaseStage):
         # Initialize Instructor client and load system prompt
         self.api_available = self.api_key is not None
         if self.api_available:
-            if hasattr(instructor, "from_anthropic"):
-                self.client = instructor.from_anthropic(Anthropic(api_key=self.api_key))
-            else:
-                # Fallback for older versions of instructor
-                self.client = instructor.patch(Anthropic(api_key=self.api_key))  # type: ignore[attr-defined]
+            self.client = instructor.from_anthropic(Anthropic(api_key=self.api_key))
             self.system_prompt = self._load_system_prompt()
         else:
             logger.warning("No LLM API key found - will skip LLM analysis")
@@ -146,14 +142,7 @@ class EnrichStage(BaseStage):
         try:
             logger.info(f"Processing batch of {len(photos)} photos")
 
-            # Try to use Anthropic batch API with structured response support
-            try:
-                return self._process_batch_with_api(photos)
-            except (AttributeError, ImportError):
-                logger.info(
-                    "Anthropic batch API not available, using grouped individual processing"
-                )
-                return self._process_batch_grouped(photos)
+            return self._process_batch_with_api(photos)
 
         except Exception as e:
             logger.error(f"Batch processing failed: {e}")
@@ -200,8 +189,6 @@ class EnrichStage(BaseStage):
             return None
 
         # Create and submit batch using Message Batches API
-        # Note: File upload is handled within _create_batch_input_file but not needed for Message Batches API
-
         # Convert our batch format to Message Batches API format
         batch_requests = []
         for request in requests:
@@ -228,105 +215,6 @@ class EnrichStage(BaseStage):
 
         logger.info(f"Anthropic batch submitted: {batch.id}")
         return batch.id
-
-    def _process_batch_grouped(self, photos: List[Photo]) -> Optional[str]:
-        """Process photos as a grouped batch using individual structured API calls.
-
-        This method processes photos individually but tracks them as a batch.
-        Each photo gets structured analysis using Instructor + Pydantic models.
-        """
-        logger.info(f"Using grouped individual processing for {len(photos)} photos")
-
-        batch_id = f"grouped_batch_{int(time.time())}_{len(photos)}"
-
-        # Create batch job record
-        from ..database.models import BatchJob
-
-        batch_job = BatchJob.create(provider_batch_id=batch_id, photo_count=len(photos))
-        self.repository.create_batch_job(batch_job)
-
-        # Process photos individually but track as a batch
-        processed_count = 0
-        failed_count = 0
-
-        for photo in photos:
-            try:
-                # Get normalized image path
-                img_path = self.config.get("IMG_PATH", "./photos/processed")
-                normalized_path = Path(img_path) / f"{photo.id}.png"
-
-                if not normalized_path.exists():
-                    logger.warning(f"Skipping {photo.id} - normalized image not found")
-                    failed_count += 1
-                    continue
-
-                # Get metadata context
-                metadata = self.repository.get_metadata(photo.id)
-                exif_context = self._build_exif_context(metadata) if metadata else ""
-
-                # Analyze photo using structured format
-                analysis_result = self._analyze_single_photo(normalized_path, exif_context)
-
-                if analysis_result:
-                    # Extract key fields from structured analysis
-                    extracted_fields = self._extract_key_fields(analysis_result)
-
-                    llm_analysis = LLMAnalysis.create(
-                        photo_id=photo.id,
-                        model_name=self.model_name,
-                        analysis=analysis_result,
-                        batch_id=batch_id,
-                        model_version=(
-                            self.model_name.split("-")[-1] if "-" in self.model_name else None
-                        ),
-                        **extracted_fields,
-                    )
-
-                    self.repository.create_llm_analysis(llm_analysis)
-                    processed_count += 1
-                else:
-                    failed_count += 1
-
-            except Exception as e:
-                logger.error(f"Error processing photo {photo.id} in batch: {e}")
-                failed_count += 1
-
-        # Update batch job status
-        from datetime import datetime
-
-        batch_job.status = "completed"
-        batch_job.completed_at = datetime.now()
-        batch_job.processed_count = processed_count
-        batch_job.failed_count = failed_count
-
-        self.repository.update_batch_job(batch_job)
-
-        logger.info(
-            f"Grouped batch {batch_id} completed: {processed_count} processed, {failed_count} failed"
-        )
-        return batch_id
-
-    def _create_batch_input_file(self, client, requests: List[Dict[str, Any]]) -> str:
-        """Create input file for batch processing."""
-        import tempfile
-
-        # Create temporary file with batch requests
-        with tempfile.NamedTemporaryFile(mode="w", suffix=".jsonl", delete=False) as f:
-            for request in requests:
-                f.write(json.dumps(request) + "\n")
-            temp_file_path = f.name
-
-        # Upload file to Anthropic using beta files API
-        from pathlib import Path
-
-        file_response = client.beta.files.upload(file=Path(temp_file_path))
-
-        # Clean up temp file
-        import os
-
-        os.unlink(temp_file_path)
-
-        return file_response.id
 
     def _create_batch_request(
         self, custom_id: str, image_path: Path, exif_context: str
@@ -364,40 +252,15 @@ class EnrichStage(BaseStage):
             },
         }
 
-    def _store_photo_mapping(self, batch_id: str, photo_mapping: Dict[str, Photo]):
-        """Store mapping of custom_id to photo for batch result processing."""
-        # Store in a temporary table or file for later retrieval
-        # For now, we can reconstruct this from the photo IDs in custom_id
-        logger.debug(f"Storing photo mapping for batch {batch_id}: {len(photo_mapping)} photos")
-        pass
-
     def monitor_batch(self, batch_id: str) -> Optional[dict]:
         """Monitor the status of a batch job."""
         if not self.api_available:
             return None
 
         try:
-            # Check if this is a real Anthropic batch or grouped batch
-            if batch_id.startswith("grouped_batch_"):
-                return self._monitor_grouped_batch(batch_id)
-            else:
-                return self._monitor_anthropic_batch(batch_id)
-
-        except Exception as e:
-            logger.error(f"Error monitoring batch {batch_id}: {e}")
-            return None
-
-    def _monitor_anthropic_batch(self, batch_id: str) -> Optional[dict]:
-        """Monitor real Anthropic batch API job."""
-        try:
             from anthropic import Anthropic
 
             client = Anthropic(api_key=self.api_key)
-
-            # Check if batch API is available
-            if not hasattr(client, "messages") or not hasattr(client.messages, "batches"):
-                logger.warning("Message Batches API not available, cannot monitor Anthropic batch")
-                return None
 
             # Get batch status from Anthropic
             batch = client.messages.batches.retrieve(batch_id)
@@ -448,22 +311,6 @@ class EnrichStage(BaseStage):
         except Exception as e:
             logger.error(f"Error monitoring Anthropic batch {batch_id}: {e}")
             return None
-
-    def _monitor_grouped_batch(self, batch_id: str) -> Optional[dict]:
-        """Monitor grouped batch (already completed in process_batch)."""
-        batch_job = self.repository.get_batch_job_by_provider_id(batch_id)
-        if not batch_job:
-            return None
-
-        return {
-            "batch_id": batch_id,
-            "status": batch_job.status,
-            "photo_count": batch_job.photo_count,
-            "processed_count": batch_job.processed_count,
-            "failed_count": batch_job.failed_count,
-            "submitted_at": batch_job.submitted_at.isoformat(),
-            "completed_at": batch_job.completed_at.isoformat() if batch_job.completed_at else None,
-        }
 
     def _process_batch_results(self, batch) -> int:
         """Process completed batch results and save to database."""

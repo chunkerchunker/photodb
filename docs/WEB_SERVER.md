@@ -4,16 +4,16 @@
 
 ```bash
 # Start the web server (default port 5000)
-uv run process-photos web
+uv run photodb-web
 
 # Start with custom port
-uv run process-photos web --port 8080
+uv run photodb-web --port 8080
 
 # Start in debug mode
-uv run process-photos web --debug
+uv run photodb-web --debug
 
 # Bind to all interfaces (for network access)
-uv run process-photos web --host 0.0.0.0
+uv run photodb-web --host 0.0.0.0
 ```
 
 ## Features

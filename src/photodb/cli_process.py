@@ -16,13 +16,7 @@ from .utils.logging import setup_logging
 load_dotenv()
 
 
-@click.group()
-def cli():
-    """PhotoDB - Personal photo indexing pipeline"""
-    pass
-
-
-@cli.command(name="process-photos")
+@click.command()
 @click.argument("path", type=click.Path(exists=True), required=False)
 @click.option("--force", is_flag=True, help="Force reprocessing of already processed photos")
 @click.option(
@@ -54,7 +48,7 @@ def cli():
 @click.option(
     "--no-async", is_flag=True, help="Disable async batch monitoring (use synchronous processing)"
 )
-def process_photos(
+def main(
     path: Optional[str],
     force: bool,
     stage: str,
@@ -270,26 +264,6 @@ def report_results(result, logger):
         logger.warning("Failed files:")
         for file, error in result.failed_files:
             logger.warning(f"  - {file}: {error}")
-
-
-@cli.command(name="web")
-@click.option("--port", default=5000, help="Port to run the web server on")
-@click.option("--host", default="127.0.0.1", help="Host to bind the web server to")
-@click.option("--debug/--no-debug", default=False, help="Run in debug mode")
-def web(port: int, host: str, debug: bool):
-    """Start the photo browsing web server."""
-    from .web import create_app
-    
-    logger = setup_logging(logging.INFO)
-    logger.info(f"Starting web server on {host}:{port}")
-    
-    app = create_app()
-    app.run(host=host, port=port, debug=debug)
-
-
-def main():
-    """Main entry point for the CLI."""
-    cli()
 
 
 if __name__ == "__main__":

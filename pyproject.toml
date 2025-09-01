@@ -25,7 +25,8 @@ dev = [
 ]
 
 [project.scripts]
-process-photos = "photodb.cli:main"
+process-photos = "photodb.cli_process:main"
+photodb-web = "photodb.cli_web:main"
 
 [build-system]
 requires = ["hatchling"]

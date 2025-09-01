@@ -93,8 +93,7 @@ class EnrichStage(BaseStage):
                 return True
 
             # Get normalized image path
-            img_path = self.config.get("IMG_PATH", "./photos/processed")
-            normalized_path = Path(img_path) / f"{photo.id}.png"
+            normalized_path = Path(photo.normalized_path)
 
             if not normalized_path.exists():
                 logger.error(f"Normalized image not found: {normalized_path}")
@@ -151,8 +150,7 @@ class EnrichStage(BaseStage):
         photo_ids = []
 
         for photo in photos:
-            img_path = self.config.get("IMG_PATH", "./photos/processed")
-            normalized_path = Path(img_path) / f"{photo.id}.png"
+            normalized_path = Path(photo.normalized_path)
 
             if not normalized_path.exists():
                 logger.warning(f"Skipping {photo.id} - normalized image not found")

@@ -1,6 +1,6 @@
 from pathlib import Path
 from typing import Optional, Tuple, Dict, Any
-from PIL import Image
+from PIL import Image, ImageOps, ExifTags
 from pillow_heif import register_heif_opener
 import logging
 import os
@@ -190,16 +190,63 @@ class ImageHandler:
         return resized
 
     @classmethod
-    def save_as_png(cls, image: Image.Image, output_path: Path, optimize: bool = True) -> None:
+    def save_as_png(
+        cls,
+        image: Image.Image,
+        output_path: Path,
+        optimize: bool = True,
+        original_path: Optional[Path] = None,
+    ) -> None:
         """
-        Save image as PNG with optimization.
+        Save image as PNG with optimization and EXIF orientation correction.
 
         Args:
             image: PIL Image object
             output_path: Path to save PNG
             optimize: Whether to optimize file size
+            original_path: Path to original file for EXIF data (optional)
         """
         output_path.parent.mkdir(parents=True, exist_ok=True)
+
+        # Apply EXIF orientation if we have the original path
+        # Use the exact same approach as the working test script
+        if original_path:
+            try:
+                with Image.open(original_path) as original:
+                    # Apply EXIF orientation using PIL's built-in method (same as test script)
+                    corrected = ImageOps.exif_transpose(original)
+
+                    # If orientation was applied (different object returned), we need to apply the same to our image
+                    if corrected is not original:
+                        # The test script worked by applying exif_transpose directly
+                        # We need to determine what transformation to apply to our processed image
+
+                        # Check orientation tag to apply the same transformation
+                        exif = original.getexif()
+                        orientation = exif.get(0x0112) if exif else None
+
+                        if orientation and orientation != 1:
+                            original_image = image
+
+                            # Apply the same transformation that exif_transpose would do
+                            if orientation == 6:  # 90° CCW
+                                image = image.rotate(-90, expand=True)
+                            elif orientation == 8:  # 90° CW
+                                image = image.rotate(90, expand=True)
+                            elif orientation == 3:  # 180°
+                                image = image.rotate(180, expand=True)
+                            elif orientation == 2:  # Flip horizontal
+                                image = image.transpose(Image.Transpose.FLIP_LEFT_RIGHT)
+                            # Add other orientations as needed
+
+                            if image is not original_image:
+                                original_image.close()
+                                logger.debug(f"Applied EXIF orientation {orientation}")
+
+                    corrected.close()
+
+            except Exception as e:
+                logger.debug(f"Could not apply EXIF orientation at save time: {e}")
 
         save_kwargs = {"format": "PNG", "optimize": optimize}
 

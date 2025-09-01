@@ -31,7 +31,7 @@ class NormalizeStage(BaseStage):
             output_filename = f"{photo.id}.png"
             output_path = self.output_dir / output_filename
 
-            # Open image using ImageHandler
+            # Open image using ImageHandler (orientation applied at save time)
             image = ImageHandler.open_image(file_path)
             original_size = (image.width, image.height)
 
@@ -48,7 +48,7 @@ class NormalizeStage(BaseStage):
                 logger.debug("No resize needed")
 
             # Save as PNG using ImageHandler (this is the slow part!)
-            ImageHandler.save_as_png(image, output_path, optimize=True)
+            ImageHandler.save_as_png(image, output_path, optimize=True, original_path=file_path)
             logger.debug(f"Normalized photo saved to {output_path}")
 
             # Only update DB after image processing is complete

@@ -34,7 +34,7 @@ class MetadataStage(BaseStage):
 
             # Parse additional metadata from the already-serializable data
             parsed_metadata = self._parse_metadata(all_metadata)
-            
+
             # Ensure everything is JSON serializable (safety check)
             serializable_metadata = self._make_json_serializable(parsed_metadata)
 

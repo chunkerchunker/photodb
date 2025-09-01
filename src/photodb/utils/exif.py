@@ -4,7 +4,6 @@ from datetime import datetime
 import piexif
 from PIL import Image
 import logging
-import json
 
 logger = logging.getLogger(__name__)
 
@@ -32,13 +31,13 @@ class ExifExtractor:
             # Extract EXIF data using piexif
             try:
                 exif_dict = piexif.load(str(file_path))
-                
+
                 # Convert EXIF data to readable format
                 metadata["exif"] = cls._parse_exif_dict(exif_dict)
-                
+
                 # Store raw EXIF for reference (serializable version)
                 metadata["exif_raw"] = cls._make_serializable(exif_dict)
-                
+
             except Exception as e:
                 logger.debug(f"Could not load EXIF data with piexif: {e}")
                 # Fall back to PIL's basic EXIF extraction
@@ -63,19 +62,19 @@ class ExifExtractor:
         """
         try:
             exif_dict = piexif.load(str(file_path))
-            
+
             # Try different datetime tags in order of preference
             datetime_fields = [
                 ("Exif", piexif.ExifIFD.DateTimeOriginal),
                 ("Exif", piexif.ExifIFD.DateTimeDigitized),
                 ("0th", piexif.ImageIFD.DateTime),
             ]
-            
+
             for ifd, tag in datetime_fields:
                 if ifd in exif_dict and tag in exif_dict[ifd]:
                     date_str = exif_dict[ifd][tag]
                     if isinstance(date_str, bytes):
-                        date_str = date_str.decode('utf-8')
+                        date_str = date_str.decode("utf-8")
                     try:
                         # EXIF datetime format: "YYYY:MM:DD HH:MM:SS"
                         return datetime.strptime(date_str, "%Y:%m:%d %H:%M:%S")
@@ -97,37 +96,39 @@ class ExifExtractor:
         """
         try:
             exif_dict = piexif.load(str(file_path))
-            
+
             if "GPS" not in exif_dict or not exif_dict["GPS"]:
                 return None
-            
+
             gps_data = exif_dict["GPS"]
-            
+
             # Check for required GPS fields
-            if (piexif.GPSIFD.GPSLatitude not in gps_data or 
-                piexif.GPSIFD.GPSLongitude not in gps_data):
+            if (
+                piexif.GPSIFD.GPSLatitude not in gps_data
+                or piexif.GPSIFD.GPSLongitude not in gps_data
+            ):
                 return None
-            
+
             # Extract and convert coordinates
             lat = cls._convert_to_degrees(gps_data[piexif.GPSIFD.GPSLatitude])
             lon = cls._convert_to_degrees(gps_data[piexif.GPSIFD.GPSLongitude])
-            
+
             if lat is None or lon is None:
                 return None
-            
+
             # Apply hemisphere
-            lat_ref = gps_data.get(piexif.GPSIFD.GPSLatitudeRef, b'N')
+            lat_ref = gps_data.get(piexif.GPSIFD.GPSLatitudeRef, b"N")
             if isinstance(lat_ref, bytes):
-                lat_ref = lat_ref.decode('utf-8')
-            if lat_ref == 'S':
+                lat_ref = lat_ref.decode("utf-8")
+            if lat_ref == "S":
                 lat = -lat
-                
-            lon_ref = gps_data.get(piexif.GPSIFD.GPSLongitudeRef, b'E')
+
+            lon_ref = gps_data.get(piexif.GPSIFD.GPSLongitudeRef, b"E")
             if isinstance(lon_ref, bytes):
-                lon_ref = lon_ref.decode('utf-8')
-            if lon_ref == 'W':
+                lon_ref = lon_ref.decode("utf-8")
+            if lon_ref == "W":
                 lon = -lon
-            
+
             return (lat, lon)
 
         except Exception as e:
@@ -139,32 +140,32 @@ class ExifExtractor:
     def _parse_exif_dict(cls, exif_dict: dict) -> Dict[str, Any]:
         """Parse piexif dictionary into readable format."""
         parsed = {}
-        
+
         # Parse each IFD (Image File Directory)
         ifd_names = {
             "0th": "Image",
             "Exif": "Exif",
             "GPS": "GPS",
             "1st": "Thumbnail",
-            "Interop": "Interoperability"
+            "Interop": "Interoperability",
         }
-        
+
         for ifd_key, ifd_name in ifd_names.items():
             if ifd_key in exif_dict and exif_dict[ifd_key]:
                 ifd_data = {}
                 for tag, value in exif_dict[ifd_key].items():
                     # Get human-readable tag name
                     tag_name = cls._get_tag_name(ifd_key, tag)
-                    
+
                     # Convert value to readable format
                     readable_value = cls._convert_value(value)
-                    
+
                     if tag_name and readable_value is not None:
                         ifd_data[tag_name] = readable_value
-                
+
                 if ifd_data:
                     parsed[ifd_name] = ifd_data
-        
+
         return parsed
 
     @classmethod
@@ -191,7 +192,7 @@ class ExifExtractor:
         if isinstance(value, bytes):
             try:
                 # Try to decode as UTF-8
-                return value.decode('utf-8').rstrip('\x00')
+                return value.decode("utf-8").rstrip("\x00")
             except:
                 # Return as hex string if not decodable
                 return value.hex()
@@ -215,14 +216,14 @@ class ExifExtractor:
         """Convert GPS coordinates to degrees."""
         if not value or len(value) != 3:
             return None
-        
+
         try:
             # GPS coordinates in EXIF are stored as:
             # ((degrees_num, degrees_den), (minutes_num, minutes_den), (seconds_num, seconds_den))
             degrees = value[0][0] / value[0][1] if value[0][1] != 0 else 0
             minutes = value[1][0] / value[1][1] if value[1][1] != 0 else 0
             seconds = value[2][0] / value[2][1] if value[2][1] != 0 else 0
-            
+
             return degrees + (minutes / 60.0) + (seconds / 3600.0)
         except (TypeError, IndexError, ZeroDivisionError) as e:
             logger.error(f"Error converting GPS coordinates: {e}")
@@ -232,7 +233,7 @@ class ExifExtractor:
     def _parse_pil_exif(cls, exifdata) -> Dict[str, Any]:
         """Parse PIL EXIF data as fallback."""
         from PIL.ExifTags import TAGS
-        
+
         parsed = {}
         for tag_id, value in exifdata.items():
             tag = TAGS.get(tag_id, tag_id)
@@ -250,7 +251,7 @@ class ExifExtractor:
             return [cls._make_serializable(item) for item in obj]
         elif isinstance(obj, bytes):
             try:
-                return obj.decode('utf-8').rstrip('\x00')
+                return obj.decode("utf-8").rstrip("\x00")
             except:
                 return obj.hex()
         elif isinstance(obj, (int, float, bool, str)):

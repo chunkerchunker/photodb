@@ -1,6 +1,6 @@
 from pathlib import Path
 from typing import Optional, Tuple, Dict, Any
-from PIL import Image, ImageOps, ExifTags
+from PIL import Image, ImageOps
 from pillow_heif import register_heif_opener
 import logging
 import os

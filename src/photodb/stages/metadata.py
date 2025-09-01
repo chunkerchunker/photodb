@@ -25,12 +25,15 @@ class MetadataStage(BaseStage):
         logger.info(f"Extracting metadata from: {file_path}")
 
         try:
-            # Extract all metadata using ExifExtractor (already serializable with piexif)
-            all_metadata = ExifExtractor.extract_all_metadata(file_path)
+            # Create ExifExtractor instance - loads EXIF data once for efficiency
+            extractor = ExifExtractor(file_path)
+            
+            # Extract all metadata using the instance (already serializable with piexif)
+            all_metadata = extractor.extract_all_metadata()
 
-            # Extract specific fields
-            captured_at = ExifExtractor.extract_datetime(file_path)
-            gps_coords = ExifExtractor.extract_gps_coordinates(file_path)
+            # Extract specific fields using the same instance
+            captured_at = extractor.extract_datetime()
+            gps_coords = extractor.extract_gps_coordinates()
 
             # Parse additional metadata from the already-serializable data
             parsed_metadata = self._parse_metadata(all_metadata)

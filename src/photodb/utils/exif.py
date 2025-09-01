@@ -4,6 +4,10 @@ from datetime import datetime
 import piexif
 from PIL import Image
 import logging
+from pillow_heif import register_heif_opener
+import pillow_heif
+
+register_heif_opener()
 
 logger = logging.getLogger(__name__)
 
@@ -11,58 +15,85 @@ logger = logging.getLogger(__name__)
 class ExifExtractor:
     """Extract and parse EXIF metadata from images using piexif."""
 
-    @classmethod
-    def extract_all_metadata(cls, file_path: Path) -> Dict[str, Any]:
+    def __init__(self, file_path: Path):
+        """Initialize with image path and load EXIF data once."""
+        self.file_path = file_path
+        self.img_info = {}
+        self.exif_dict = None
+        self.error = None
+
+        # Load all metadata once
+        self._load_metadata()
+
+    def _load_metadata(self):
+        """Load image info and EXIF data once during initialization."""
+        try:
+            # Get basic image info and EXIF data
+            with Image.open(self.file_path) as img:
+                self.img_info = {
+                    "format": img.format,
+                    "mode": img.mode,
+                    "size": {"width": img.width, "height": img.height},
+                }
+
+                # Get EXIF data for piexif
+                exif_data = self._get_exif_data_for_piexif(img, self.file_path)
+
+            # Load EXIF data using piexif when available
+            if exif_data:
+                try:
+                    self.exif_dict = piexif.load(exif_data)
+                except Exception as e:
+                    logger.debug(f"Could not load EXIF data with piexif: {e}")
+                    # Fall back to PIL's basic EXIF extraction
+                    with Image.open(self.file_path) as img:
+                        exifdata = img.getexif()
+                        if exifdata:
+                            self.exif_dict = self._convert_pil_exif_to_piexif_format(exifdata)
+            else:
+                # Fall back to PIL's EXIF extraction for unsupported formats
+                with Image.open(self.file_path) as img:
+                    exifdata = img.getexif()
+                    if exifdata:
+                        self.exif_dict = self._convert_pil_exif_to_piexif_format(exifdata)
+
+        except Exception as e:
+            logger.error(f"Failed to load metadata from {self.file_path}: {e}")
+            self.error = str(e)
+
+    def extract_all_metadata(self) -> Dict[str, Any]:
         """
         Extract all available EXIF/metadata from an image.
 
         Returns:
             Dictionary containing all metadata
         """
-        metadata = {}
+        metadata = self.img_info.copy()
 
-        try:
-            # Get basic image info
-            with Image.open(file_path) as img:
-                metadata["format"] = img.format
-                metadata["mode"] = img.mode
-                metadata["size"] = {"width": img.width, "height": img.height}
+        if self.error:
+            metadata["error"] = self.error
+            return metadata
 
-            # Extract EXIF data using piexif
-            try:
-                exif_dict = piexif.load(str(file_path))
+        if self.exif_dict:
+            # Convert EXIF data to readable format
+            metadata["exif"] = self._parse_exif_dict(self.exif_dict)
 
-                # Convert EXIF data to readable format
-                metadata["exif"] = cls._parse_exif_dict(exif_dict)
-
-                # Store raw EXIF for reference (serializable version)
-                metadata["exif_raw"] = cls._make_serializable(exif_dict)
-
-            except Exception as e:
-                logger.debug(f"Could not load EXIF data with piexif: {e}")
-                # Fall back to PIL's basic EXIF extraction
-                with Image.open(file_path) as img:
-                    exifdata = img.getexif()
-                    if exifdata:
-                        metadata["exif"] = cls._parse_pil_exif(exifdata)
-
-        except Exception as e:
-            logger.error(f"Failed to extract metadata from {file_path}: {e}")
-            metadata["error"] = str(e)
+            # Store raw EXIF for reference (serializable version)
+            metadata["exif_raw"] = self._make_serializable(self.exif_dict)
 
         return metadata
 
-    @classmethod
-    def extract_datetime(cls, file_path: Path) -> Optional[datetime]:
+    def extract_datetime(self) -> Optional[datetime]:
         """
         Extract capture datetime from EXIF data.
 
         Returns:
             Datetime when photo was taken, or None
         """
-        try:
-            exif_dict = piexif.load(str(file_path))
+        if not self.exif_dict:
+            return None
 
+        try:
             # Try different datetime tags in order of preference
             datetime_fields = [
                 ("Exif", piexif.ExifIFD.DateTimeOriginal),
@@ -71,8 +102,8 @@ class ExifExtractor:
             ]
 
             for ifd, tag in datetime_fields:
-                if ifd in exif_dict and tag in exif_dict[ifd]:
-                    date_str = exif_dict[ifd][tag]
+                if ifd in self.exif_dict and tag in self.exif_dict[ifd]:
+                    date_str = self.exif_dict[ifd][tag]
                     if isinstance(date_str, bytes):
                         date_str = date_str.decode("utf-8")
                     try:
@@ -82,25 +113,25 @@ class ExifExtractor:
                         logger.warning(f"Invalid datetime format: {date_str}")
 
         except Exception as e:
-            logger.error(f"Failed to extract datetime from {file_path}: {e}")
+            logger.error(f"Failed to extract datetime from {self.file_path}: {e}")
 
         return None
 
-    @classmethod
-    def extract_gps_coordinates(cls, file_path: Path) -> Optional[Tuple[float, float]]:
+    def extract_gps_coordinates(self) -> Optional[Tuple[float, float]]:
         """
         Extract GPS coordinates from EXIF data using piexif.
 
         Returns:
             Tuple of (latitude, longitude) or None
         """
-        try:
-            exif_dict = piexif.load(str(file_path))
+        if not self.exif_dict:
+            return None
 
-            if "GPS" not in exif_dict or not exif_dict["GPS"]:
+        try:
+            if "GPS" not in self.exif_dict or not self.exif_dict["GPS"]:
                 return None
 
-            gps_data = exif_dict["GPS"]
+            gps_data = self.exif_dict["GPS"]
 
             # Check for required GPS fields
             if (
@@ -110,8 +141,8 @@ class ExifExtractor:
                 return None
 
             # Extract and convert coordinates
-            lat = cls._convert_to_degrees(gps_data[piexif.GPSIFD.GPSLatitude])
-            lon = cls._convert_to_degrees(gps_data[piexif.GPSIFD.GPSLongitude])
+            lat = self._convert_to_degrees(gps_data[piexif.GPSIFD.GPSLatitude])
+            lon = self._convert_to_degrees(gps_data[piexif.GPSIFD.GPSLongitude])
 
             if lat is None or lon is None:
                 return None
@@ -132,12 +163,85 @@ class ExifExtractor:
             return (lat, lon)
 
         except Exception as e:
-            logger.error(f"Failed to extract GPS from {file_path}: {e}")
+            logger.error(f"Failed to extract GPS from {self.file_path}: {e}")
 
         return None
 
-    @classmethod
-    def _parse_exif_dict(cls, exif_dict: dict) -> Dict[str, Any]:
+    def _convert_pil_exif_to_piexif_format(self, pil_exif) -> Optional[dict]:
+        """Convert PIL EXIF data to a format similar to piexif structure."""
+        try:
+            # Create a basic structure similar to piexif
+            exif_dict = {"0th": {}, "Exif": {}, "GPS": {}, "1st": {}, "Interop": {}}
+
+            from PIL.ExifTags import TAGS, GPS
+
+            for tag_id, value in pil_exif.items():
+                tag_name = TAGS.get(tag_id, tag_id)
+
+                # Map common tags to piexif structure
+                if tag_name == "DateTime":
+                    exif_dict["0th"][piexif.ImageIFD.DateTime] = value
+                elif tag_name == "DateTimeOriginal":
+                    exif_dict["Exif"][piexif.ExifIFD.DateTimeOriginal] = value
+                elif tag_name == "DateTimeDigitized":
+                    exif_dict["Exif"][piexif.ExifIFD.DateTimeDigitized] = value
+                elif tag_name == "GPSInfo" and isinstance(value, dict):
+                    # Handle GPS data
+                    for gps_tag_id, gps_value in value.items():
+                        if gps_tag_id in GPS:
+                            gps_key = GPS[gps_tag_id]
+                            # Map common GPS tags
+                            if gps_key == "GPSLatitude":
+                                exif_dict["GPS"][piexif.GPSIFD.GPSLatitude] = gps_value
+                            elif gps_key == "GPSLongitude":
+                                exif_dict["GPS"][piexif.GPSIFD.GPSLongitude] = gps_value
+                            elif gps_key == "GPSLatitudeRef":
+                                exif_dict["GPS"][piexif.GPSIFD.GPSLatitudeRef] = gps_value
+                            elif gps_key == "GPSLongitudeRef":
+                                exif_dict["GPS"][piexif.GPSIFD.GPSLongitudeRef] = gps_value
+
+                # Store in Exif section for most other tags
+                if isinstance(tag_id, int) and tag_id not in [34853]:  # Skip GPSInfo
+                    exif_dict["Exif"][tag_id] = value
+
+            return exif_dict
+
+        except Exception as e:
+            logger.error(f"Failed to convert PIL EXIF to piexif format: {e}")
+            return None
+
+    def _get_exif_data_for_piexif(self, img: Image.Image, file_path: Path) -> Optional[bytes]:
+        """
+        Get EXIF data suitable for piexif.load().
+        For HEIF files, extract raw EXIF data using pyheif.
+        """
+        try:
+            # Check if format is supported by piexif
+            if img.format in ["JPEG", "TIFF"]:
+                # Read original file bytes for supported formats
+                with open(file_path, "rb") as f:
+                    return f.read()
+            elif img.format in ["HEIF", "HEIC"]:
+                # Extract raw EXIF data from HEIF using pillow-heif
+                logger.debug(f"Extracting EXIF from {img.format} using pillow-heif")
+                heif_file = pillow_heif.open_heif(file_path)
+                # Get EXIF data from the first image
+                exif_data = heif_file.info.get("exif")
+                if exif_data:
+                    return exif_data
+                return None
+            else:
+                # Unsupported format for piexif or pillow-heif not available
+                if img.format in ["HEIF", "HEIC"]:
+                    logger.debug("pillow-heif not available for HEIF EXIF extraction")
+                else:
+                    logger.debug(f"Format {img.format} not supported by piexif")
+                return None
+        except Exception as e:
+            logger.error(f"Failed to extract EXIF data for piexif: {e}")
+            return None
+
+    def _parse_exif_dict(self, exif_dict: dict) -> Dict[str, Any]:
         """Parse piexif dictionary into readable format."""
         parsed = {}
 
@@ -155,10 +259,10 @@ class ExifExtractor:
                 ifd_data = {}
                 for tag, value in exif_dict[ifd_key].items():
                     # Get human-readable tag name
-                    tag_name = cls._get_tag_name(ifd_key, tag)
+                    tag_name = self._get_tag_name(ifd_key, tag)
 
                     # Convert value to readable format
-                    readable_value = cls._convert_value(value)
+                    readable_value = self._convert_value(value)
 
                     if tag_name and readable_value is not None:
                         ifd_data[tag_name] = readable_value
@@ -168,8 +272,7 @@ class ExifExtractor:
 
         return parsed
 
-    @classmethod
-    def _get_tag_name(cls, ifd: str, tag: int) -> Optional[str]:
+    def _get_tag_name(self, ifd: str, tag: int) -> Optional[str]:
         """Get human-readable tag name from piexif."""
         try:
             if ifd == "0th":
@@ -182,18 +285,17 @@ class ExifExtractor:
                 return piexif.TAGS["Image"].get(tag, {}).get("name")
             elif ifd == "Interop":
                 return piexif.TAGS["Interop"].get(tag, {}).get("name")
-        except:
+        except (KeyError, AttributeError):
             pass
         return f"Tag_{tag}"
 
-    @classmethod
-    def _convert_value(cls, value: Any) -> Any:
+    def _convert_value(self, value: Any) -> Any:
         """Convert EXIF value to readable format."""
         if isinstance(value, bytes):
             try:
                 # Try to decode as UTF-8
                 return value.decode("utf-8").rstrip("\x00")
-            except:
+            except UnicodeDecodeError:
                 # Return as hex string if not decodable
                 return value.hex()
         elif isinstance(value, tuple) and len(value) == 2:
@@ -207,12 +309,11 @@ class ExifExtractor:
             return value[0]
         elif isinstance(value, (list, tuple)):
             # Convert each element
-            return [cls._convert_value(v) for v in value]
+            return [self._convert_value(v) for v in value]
         else:
             return value
 
-    @classmethod
-    def _convert_to_degrees(cls, value) -> Optional[float]:
+    def _convert_to_degrees(self, value) -> Optional[float]:
         """Convert GPS coordinates to degrees."""
         if not value or len(value) != 3:
             return None
@@ -229,32 +330,49 @@ class ExifExtractor:
             logger.error(f"Error converting GPS coordinates: {e}")
             return None
 
-    @classmethod
-    def _parse_pil_exif(cls, exifdata) -> Dict[str, Any]:
+    def _parse_pil_exif(self, exifdata) -> Dict[str, Any]:
         """Parse PIL EXIF data as fallback."""
         from PIL.ExifTags import TAGS
 
         parsed = {}
         for tag_id, value in exifdata.items():
             tag = TAGS.get(tag_id, tag_id)
-            parsed[str(tag)] = cls._convert_value(value)
+            parsed[str(tag)] = self._convert_value(value)
         return parsed
 
-    @classmethod
-    def _make_serializable(cls, obj: Any) -> Any:
+    def _make_serializable(self, obj: Any) -> Any:
         """Convert piexif data to JSON-serializable format."""
         if obj is None:
             return None
         elif isinstance(obj, dict):
-            return {str(k): cls._make_serializable(v) for k, v in obj.items()}
+            return {str(k): self._make_serializable(v) for k, v in obj.items()}
         elif isinstance(obj, (list, tuple)):
-            return [cls._make_serializable(item) for item in obj]
+            return [self._make_serializable(item) for item in obj]
         elif isinstance(obj, bytes):
             try:
                 return obj.decode("utf-8").rstrip("\x00")
-            except:
+            except UnicodeDecodeError:
                 return obj.hex()
         elif isinstance(obj, (int, float, bool, str)):
             return obj
         else:
             return str(obj)
+
+    # Class methods for backward compatibility
+    @classmethod
+    def extract_all_metadata_from_path(cls, file_path: Path) -> Dict[str, Any]:
+        """Extract all metadata from a file path (backward compatibility)."""
+        extractor = cls(file_path)
+        return extractor.extract_all_metadata()
+
+    @classmethod
+    def extract_datetime_from_path(cls, file_path: Path) -> Optional[datetime]:
+        """Extract datetime from a file path (backward compatibility)."""
+        extractor = cls(file_path)
+        return extractor.extract_datetime()
+
+    @classmethod
+    def extract_gps_coordinates_from_path(cls, file_path: Path) -> Optional[Tuple[float, float]]:
+        """Extract GPS coordinates from a file path (backward compatibility)."""
+        extractor = cls(file_path)
+        return extractor.extract_gps_coordinates()

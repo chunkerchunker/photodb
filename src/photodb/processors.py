@@ -236,10 +236,15 @@ class PhotoProcessor:
                 pooled_repo = PhotoRepository(self.connection_pool)
 
                 # Create stages with the pooled repository
+                stages = self._get_stages(stage)
                 pooled_stages = {
-                    "normalize": NormalizeStage(pooled_repo, self.config),
-                    "metadata": MetadataStage(pooled_repo, self.config),
-                    "enrich": EnrichStage(pooled_repo, self.config),
+                    "normalize": NormalizeStage(pooled_repo, self.config)
+                    if "normalize" in stages
+                    else None,
+                    "metadata": MetadataStage(pooled_repo, self.config)
+                    if "metadata" in stages
+                    else None,
+                    "enrich": EnrichStage(pooled_repo, self.config) if "enrich" in stages else None,
                 }
 
                 # Process with pooled stages
@@ -296,10 +301,15 @@ class PhotoProcessor:
                 pooled_repo = PhotoRepository(self.connection_pool)
 
                 # Create stages with the pooled repository
+                stages = self._get_stages(stage)
                 pooled_stages = {
-                    "normalize": NormalizeStage(pooled_repo, self.config),
-                    "metadata": MetadataStage(pooled_repo, self.config),
-                    "enrich": EnrichStage(pooled_repo, self.config),
+                    "normalize": NormalizeStage(pooled_repo, self.config)
+                    if "normalize" in stages
+                    else None,
+                    "metadata": MetadataStage(pooled_repo, self.config)
+                    if "metadata" in stages
+                    else None,
+                    "enrich": EnrichStage(pooled_repo, self.config) if "enrich" in stages else None,
                 }
 
                 # Process with pooled stages

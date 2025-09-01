@@ -1,0 +1,78 @@
+{% extends "base.html" %}
+
+{% block title %}PhotoDB - {{ month_name }} {{ year }}{% endblock %}
+
+{% block breadcrumb %}
+<nav aria-label="breadcrumb">
+    <ol class="breadcrumb container mt-3">
+        <li class="breadcrumb-item"><a href="/">Home</a></li>
+        <li class="breadcrumb-item"><a href="/year/{{ year }}">{{ year }}</a></li>
+        <li class="breadcrumb-item active" aria-current="page">{{ month_name }}</li>
+    </ol>
+</nav>
+{% endblock %}
+
+{% block content %}
+<div class="d-flex justify-content-between align-items-center mb-4">
+    <h1>{{ month_name }} {{ year }}</h1>
+    <span class="text-muted">{{ total_photos }} photo{{ 's' if total_photos != 1 else '' }}</span>
+</div>
+
+{% if photos %}
+<div class="photo-grid">
+    {% for photo in photos %}
+    <div class="photo-card" onclick="window.location.href='/photo/{{ photo.id }}'">
+        <img src="/api/image/{{ photo.id }}" 
+             alt="{{ photo.filename_only }}"
+             loading="lazy">
+        <div class="photo-info">
+            <div class="fw-bold text-truncate" title="{{ photo.filename_only }}">
+                {{ photo.filename_only }}
+            </div>
+            <div class="text-muted small">ID: {{ photo.id[:8] }}...</div>
+            {% if photo.short_description %}
+            <div class="text-muted small mt-1" title="{{ photo.description }}">
+                {{ photo.short_description }}
+            </div>
+            {% endif %}
+        </div>
+    </div>
+    {% endfor %}
+</div>
+
+{% if total_pages > 1 %}
+<nav aria-label="Page navigation" class="mt-4">
+    <ul class="pagination justify-content-center">
+        {% if page > 1 %}
+        <li class="page-item">
+            <a class="page-link" href="?page={{ page - 1 }}">Previous</a>
+        </li>
+        {% endif %}
+        
+        {% for p in range(1, total_pages + 1) %}
+            {% if p <= 3 or p > total_pages - 3 or (p > page - 2 and p < page + 2) %}
+            <li class="page-item {{ 'active' if p == page else '' }}">
+                <a class="page-link" href="?page={{ p }}">{{ p }}</a>
+            </li>
+            {% elif p == 4 or p == total_pages - 3 %}
+            <li class="page-item disabled">
+                <span class="page-link">...</span>
+            </li>
+            {% endif %}
+        {% endfor %}
+        
+        {% if page < total_pages %}
+        <li class="page-item">
+            <a class="page-link" href="?page={{ page + 1 }}">Next</a>
+        </li>
+        {% endif %}
+    </ul>
+</nav>
+{% endif %}
+
+{% else %}
+<div class="alert alert-info">
+    No photos found for {{ month_name }} {{ year }}.
+</div>
+{% endif %}
+{% endblock %}

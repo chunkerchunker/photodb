@@ -1,0 +1,125 @@
+{% extends "base.html" %}
+
+{% block title %}PhotoDB - {{ photo.filename_only }}{% endblock %}
+
+{% block breadcrumb %}
+<nav aria-label="breadcrumb">
+    <ol class="breadcrumb container mt-3">
+        <li class="breadcrumb-item"><a href="/">Home</a></li>
+        {% if photo.year %}
+        <li class="breadcrumb-item"><a href="/year/{{ photo.year }}">{{ photo.year }}</a></li>
+        <li class="breadcrumb-item"><a href="/year/{{ photo.year }}/month/{{ photo.month }}">{{ photo.month_name }}</a></li>
+        {% endif %}
+        <li class="breadcrumb-item active" aria-current="page">{{ photo.filename_only }}</li>
+    </ol>
+</nav>
+{% endblock %}
+
+{% block content %}
+<div class="row">
+    <div class="col-lg-7">
+        <img src="/api/image/{{ photo.id }}" 
+             alt="{{ photo.filename_only }}"
+             class="main-image mb-3">
+    </div>
+    
+    <div class="col-lg-5">
+        <div class="metadata-section">
+            <h5><i class="bi bi-info-circle"></i> Basic Information</h5>
+            <table class="table table-sm">
+                <tr>
+                    <th>Filename:</th>
+                    <td>{{ photo.filename_only }}</td>
+                </tr>
+                <tr>
+                    <th>Photo ID:</th>
+                    <td class="font-monospace small">{{ photo.id }}</td>
+                </tr>
+                <tr>
+                    <th>Original Path:</th>
+                    <td class="small text-break">{{ photo.filename }}</td>
+                </tr>
+                <tr>
+                    <th>Normalized Path:</th>
+                    <td class="small text-break">{{ photo.normalized_path }}</td>
+                </tr>
+                {% if photo.captured_at %}
+                <tr>
+                    <th>Captured:</th>
+                    <td>{{ photo.captured_at.strftime('%Y-%m-%d %H:%M:%S') }}</td>
+                </tr>
+                {% endif %}
+                {% if photo.photo_created_at %}
+                <tr>
+                    <th>Added to DB:</th>
+                    <td>{{ photo.photo_created_at.strftime('%Y-%m-%d %H:%M:%S') }}</td>
+                </tr>
+                {% endif %}
+            </table>
+        </div>
+        
+        {% if photo.latitude and photo.longitude %}
+        <div class="metadata-section">
+            <h5><i class="bi bi-geo-alt"></i> Location</h5>
+            <p>Latitude: {{ photo.latitude }}<br>
+               Longitude: {{ photo.longitude }}</p>
+            <a href="https://www.google.com/maps?q={{ photo.latitude }},{{ photo.longitude }}" 
+               target="_blank" class="btn btn-sm btn-outline-primary">
+                <i class="bi bi-map"></i> View on Map
+            </a>
+        </div>
+        {% endif %}
+        
+        {% if photo.description or photo.emotional_tone or photo.objects %}
+        <div class="metadata-section">
+            <h5><i class="bi bi-robot"></i> AI Analysis Summary</h5>
+            {% if photo.description %}
+            <p><strong>Description:</strong> {{ photo.description }}</p>
+            {% endif %}
+            {% if photo.emotional_tone %}
+            <p><strong>Emotional Tone:</strong> {{ photo.emotional_tone }}</p>
+            {% endif %}
+            {% if photo.location_description %}
+            <p><strong>Location Description:</strong> {{ photo.location_description }}</p>
+            {% endif %}
+            {% if photo.people_count %}
+            <p><strong>People Count:</strong> {{ photo.people_count }}</p>
+            {% endif %}
+            {% if photo.objects %}
+            <p><strong>Objects Detected:</strong></p>
+            <div class="d-flex flex-wrap gap-1">
+                {% for obj in photo.objects %}
+                <span class="badge bg-secondary">{{ obj }}</span>
+                {% endfor %}
+            </div>
+            {% endif %}
+            {% if photo.model_name %}
+            <p class="small text-muted mt-2">
+                Model: {{ photo.model_name }}
+                {% if photo.confidence_score %}
+                | Confidence: {{ "%.2f"|format(photo.confidence_score) }}
+                {% endif %}
+            </p>
+            {% endif %}
+        </div>
+        {% endif %}
+    </div>
+</div>
+
+{% if photo.analysis_formatted %}
+<div class="metadata-section">
+    <h5><i class="bi bi-file-code"></i> Full AI Analysis</h5>
+    <pre><code>{{ photo.analysis_formatted }}</code></pre>
+</div>
+{% endif %}
+
+{% if photo.metadata_formatted %}
+<div class="metadata-section">
+    <h5><i class="bi bi-camera2"></i> EXIF Metadata</h5>
+    <details>
+        <summary>Click to expand technical metadata</summary>
+        <pre class="mt-2"><code>{{ photo.metadata_formatted }}</code></pre>
+    </details>
+</div>
+{% endif %}
+{% endblock %}

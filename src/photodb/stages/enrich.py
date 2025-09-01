@@ -1,3 +1,4 @@
+import json
 import os
 import base64
 import time
@@ -193,7 +194,9 @@ class EnrichStage(BaseStage):
             # Create batch job record
             from ..database.models import BatchJob
 
-            batch_job = BatchJob.create(provider_batch_id=batch_id, photo_ids=photo_ids)
+            batch_job = BatchJob.create(
+                provider_batch_id=batch_id, photo_ids=photo_ids, model_name=self.model_name
+            )
             batch_job.status = "submitted"
             self.repository.create_batch_job(batch_job)
 
@@ -239,6 +242,32 @@ class EnrichStage(BaseStage):
                         batch_job.processed_count = processed_count
                         batch_job.failed_count = batch_job.photo_count - processed_count
 
+                        # Extract and save token usage and cost information
+                        usage_data = self._extract_usage_from_raw_results(batch_id)
+                        total_usage = usage_data.get("total_usage", {})
+
+                        if total_usage:
+                            batch_job.total_input_tokens = total_usage.get("input_tokens", 0)
+                            batch_job.total_output_tokens = total_usage.get("output_tokens", 0)
+                            batch_job.total_cache_creation_tokens = total_usage.get(
+                                "cache_creation_tokens", 0
+                            )
+                            batch_job.total_cache_read_tokens = total_usage.get(
+                                "cache_read_tokens", 0
+                            )
+
+                            # Calculate cost
+                            batch_job.actual_cost_cents = self._calculate_batch_cost(
+                                total_usage, self.model_name, batch_discount=True
+                            )
+
+                            logger.info(
+                                f"Batch {batch_id} completed: "
+                                f"Input tokens: {batch_job.total_input_tokens:,}, "
+                                f"Output tokens: {batch_job.total_output_tokens:,}, "
+                                f"Cost: ${batch_job.actual_cost_cents / 100:.2f}"
+                            )
+
                 self.repository.update_batch_job(batch_job)
 
             return {
@@ -259,11 +288,122 @@ class EnrichStage(BaseStage):
             logger.error(f"Error monitoring Instructor batch {batch_id}: {e}")
             return None
 
+    def _extract_usage_from_raw_results(self, results: str) -> Dict[str, Any]:
+        """Extract token usage information from raw batch results."""
+        try:
+            total_usage = {
+                "input_tokens": 0,
+                "output_tokens": 0,
+                "cache_creation_tokens": 0,
+                "cache_read_tokens": 0,
+            }
+
+            per_photo_usage = []  # List of (custom_id, usage_dict) tuples
+
+            lines = results.strip().split("\n")
+            for line in lines:
+                if not line.strip():
+                    continue
+
+                data = json.loads(line)
+                custom_id = data.get("custom_id", "unknown")
+                result = data.get("result", {})
+                message = result.get("message", {})
+                usage = message.get("usage", {})
+
+                if usage:
+                    photo_usage = {
+                        "input_tokens": usage.get("input_tokens", 0),
+                        "output_tokens": usage.get("output_tokens", 0),
+                        "cache_creation_tokens": usage.get("cache_creation_input_tokens", 0),
+                        "cache_read_tokens": usage.get("cache_read_input_tokens", 0),
+                    }
+
+                    # Accumulate totals
+                    for key in total_usage:
+                        total_usage[key] += photo_usage.get(key, 0)
+
+                    per_photo_usage.append((custom_id, photo_usage))
+
+            return {
+                "total_usage": total_usage,
+                "per_photo_usage": per_photo_usage,
+            }
+
+        except Exception as e:
+            logger.error(f"Error extracting usage from batch results: {e}")
+            return {"total_usage": {}, "per_photo_usage": []}
+
+    def _calculate_batch_cost(
+        self, usage: Dict[str, int], model_name: str, batch_discount: bool = True
+    ) -> int:
+        """Calculate cost in cents based on token usage.
+
+        Pricing as of 2024:
+        - Claude 3.5 Sonnet: $3.00 per million input tokens, $15.00 per million output tokens
+        - Batch API: 50% discount
+        - Cache read: 90% discount on input tokens
+        - Cache creation: 25% extra on input tokens
+        """
+        # Base prices in cents per million tokens
+        price_map = {
+            "claude-3-5-sonnet": {"input": 300, "output": 1500},
+            "claude-3-sonnet": {"input": 300, "output": 1500},
+            "claude-3-opus": {"input": 1500, "output": 7500},
+            "claude-3-haiku": {"input": 25, "output": 125},
+        }
+
+        # Get base prices for the model
+        base_prices = None
+        for model_key in price_map:
+            if model_key in model_name.lower():
+                base_prices = price_map[model_key]
+                break
+
+        if not base_prices:
+            # Default to Sonnet pricing if model not recognized
+            base_prices = price_map["claude-3-sonnet"]
+
+        # Calculate costs in cents directly (prices are in cents per million tokens)
+        input_cost_cents = (usage.get("input_tokens", 0) * base_prices["input"]) / 1_000_000
+        output_cost_cents = (usage.get("output_tokens", 0) * base_prices["output"]) / 1_000_000
+
+        # Cache creation costs 25% extra
+        cache_creation_cost_cents = (
+            usage.get("cache_creation_tokens", 0) * base_prices["input"] * 1.25
+        ) / 1_000_000
+
+        # Cache read costs 90% less
+        cache_read_cost_cents = (
+            usage.get("cache_read_tokens", 0) * base_prices["input"] * 0.1
+        ) / 1_000_000
+
+        total_cost_cents = (
+            input_cost_cents + output_cost_cents + cache_creation_cost_cents + cache_read_cost_cents
+        )
+
+        # Apply batch discount if applicable
+        if batch_discount:
+            total_cost_cents *= 0.5
+
+        # Return cost in cents (rounded)
+        return round(total_cost_cents)
+
     def _process_instructor_batch_results(self, batch_id: str, photo_ids: List[str]) -> int:
         """Process completed Instructor batch results and save to database."""
         try:
             if not self.batch_processor:
                 return 0
+
+            # Retrieve raw results using Instructor's batch processor
+            raw_results = self.batch_processor.provider.retrieve_results(batch_id)
+            all_results = self.batch_processor.parse_results(raw_results)
+
+            # First, extract token usage from raw results
+            usage_data = self._extract_usage_from_raw_results(raw_results)
+            per_photo_usage_map = {
+                custom_id: usage for custom_id, usage in usage_data.get("per_photo_usage", [])
+            }
 
             # Retrieve results using Instructor's batch processor
             all_results = self.batch_processor.retrieve_results(batch_id)
@@ -280,20 +420,31 @@ class EnrichStage(BaseStage):
                 try:
                     custom_id = result.custom_id
 
-                    # Get photo_id from the array using the result index
-                    if i >= len(photo_ids):
+                    photo_id = None
+                    if custom_id:
+                        if custom_id.startswith("request-"):
+                            custom_id = custom_id[len("request-") :]
+                            photo_id = photo_ids[int(custom_id)]
+                        elif custom_id.startswith("photoid-"):
+                            custom_id = custom_id[len("photoid-") :]
+                            photo_id = custom_id
+
+                    # TODO: it looks like Instructor doesn't allow setting custom_id yet, so the photoid- prefix isn't currently used.
+
+                    if not photo_id:
                         logger.error(
-                            f"Instructor result index {i} exceeds photo_ids length {len(photo_ids)} for batch {batch_id}"
+                            f"Failed to extract photo id for batch {batch_id} result {i}: {custom_id}"
                         )
                         continue
-
-                    photo_id = photo_ids[i]
 
                     # Get structured response from Instructor result
                     analysis_data = result.result.model_dump() if result.result else {}
 
                     # Extract key fields from structured data
                     extracted_fields = self._extract_key_fields(analysis_data)
+
+                    # Get token usage for this photo if available
+                    photo_usage = per_photo_usage_map.get(result.custom_id, {})
 
                     # Create and save LLM analysis
                     llm_analysis = LLMAnalysis.create(
@@ -304,6 +455,10 @@ class EnrichStage(BaseStage):
                         model_version=(
                             self.model_name.split("-")[-1] if "-" in self.model_name else None
                         ),
+                        input_tokens=photo_usage.get("input_tokens"),
+                        output_tokens=photo_usage.get("output_tokens"),
+                        cache_creation_tokens=photo_usage.get("cache_creation_tokens"),
+                        cache_read_tokens=photo_usage.get("cache_read_tokens"),
                         **extracted_fields,
                     )
 
@@ -457,75 +612,57 @@ Return structured data following the PhotoAnalysisResponse schema."""
         if metadata.latitude and metadata.longitude:
             context_parts.append(f"Location: {metadata.latitude}, {metadata.longitude}")
 
-        if metadata.extra:
-            # Include key camera settings
-            camera_info = []
-            if "make" in metadata.extra:
-                camera_info.append(f"Camera: {metadata.extra['make']}")
-            if "model" in metadata.extra:
-                camera_info.append(f"Model: {metadata.extra['model']}")
-            if "f_number" in metadata.extra:
-                camera_info.append(f"Aperture: f/{metadata.extra['f_number']}")
-            if "exposure_time" in metadata.extra:
-                camera_info.append(f"Shutter: {metadata.extra['exposure_time']}s")
-            if "iso" in metadata.extra:
-                camera_info.append(f"ISO: {metadata.extra['iso']}")
-
-            if camera_info:
-                context_parts.extend(camera_info)
-
         return "\n".join(context_parts)
 
     def _extract_key_fields(self, analysis: Dict[str, Any]) -> Dict[str, Any]:
         """Extract key fields from structured analysis for database indexing."""
         extracted = {}
 
-        # Extract description from scene info
-        if "scene" in analysis:
-            scene = analysis["scene"]
-            if "short_caption" in scene:
-                extracted["description"] = scene["short_caption"]
-            elif "long_description" in scene:
-                extracted["description"] = scene["long_description"]
+        try:
+            # Extract description and confidence
+            if "description" in analysis:
+                extracted["description"] = analysis["description"]
 
-        # Extract objects list
-        if "objects" in analysis and "items" in analysis["objects"]:
-            extracted["objects"] = [item["label"] for item in analysis["objects"]["items"]]
+            # Extract objects list
+            if (
+                "objects" in analysis
+                and analysis["objects"]
+                and "items" in analysis["objects"]
+                and analysis["objects"]["items"]
+            ):
+                extracted["objects"] = [
+                    item.get("label") for item in analysis["objects"]["items"] if item.get("label")
+                ]
 
-        # Extract people count
-        if "people" in analysis and "count" in analysis["people"]:
-            extracted["people_count"] = analysis["people"]["count"]
+            # Extract people count
+            if "people" in analysis and analysis["people"] and "count" in analysis["people"]:
+                extracted["people_count"] = analysis["people"]["count"]
 
-        # Extract location information
-        if "location" in analysis:
-            location = analysis["location"]
-            if "environment" in location:
-                extracted["location_description"] = location["environment"]
-            # Add hypotheses if available
-            if "hypotheses" in location and location["hypotheses"]:
-                best_location = max(location["hypotheses"], key=lambda x: x.get("confidence", 0))
-                if best_location["confidence"] > 0.5:
-                    extracted["location_description"] = (
-                        f"{location['environment']} - {best_location['value']}"
+            # Extract location information
+            if "location" in analysis and analysis["location"]:
+                location = analysis["location"]
+                if "environment" in location and location["environment"]:
+                    extracted["location_description"] = location["environment"]
+                # Add hypotheses if available
+                if "hypotheses" in location and location["hypotheses"]:
+                    best_location = max(
+                        location["hypotheses"], key=lambda x: x.get("confidence", 0)
                     )
+                    if best_location.get("confidence", 0) > 0.5 and best_location.get("value"):
+                        extracted["location_description"] = (
+                            f"{location.get('environment', '')} - {best_location['value']}"
+                        )
 
-        # Extract activities/emotional context
-        if "activities" in analysis:
-            activities = analysis["activities"]
-            if "event_hypotheses" in activities and activities["event_hypotheses"]:
-                best_event = max(
-                    activities["event_hypotheses"], key=lambda x: x.get("confidence", 0)
-                )
-                if best_event["confidence"] > 0.5:
-                    extracted["emotional_tone"] = best_event["type"]
-
-        # Extract overall confidence - use aesthetic score or a derived confidence
-        confidence_score = 0.5  # default
-        if "image" in analysis and "technical" in analysis["image"]:
-            tech = analysis["image"]["technical"]
-            if "quality" in tech and "aesthetic_score" in tech["quality"]:
-                confidence_score = tech["quality"]["aesthetic_score"]
-
-        extracted["confidence_score"] = confidence_score
+            # Extract activities/emotional context
+            if "activities" in analysis and analysis["activities"]:
+                activities = analysis["activities"]
+                if "event_hypotheses" in activities and activities["event_hypotheses"]:
+                    best_event = max(
+                        activities["event_hypotheses"], key=lambda x: x.get("confidence", 0)
+                    )
+                    if best_event.get("confidence", 0) > 0.5 and best_event.get("type"):
+                        extracted["emotional_tone"] = best_event["type"]
+        except Exception as e:
+            logger.error(f"Error extracting key fields from analysis: {e} - analysis: {analysis}")
 
         return extracted

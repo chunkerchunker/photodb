@@ -5,106 +5,106 @@ from pydantic import BaseModel, Field
 
 
 class QualityInfo(BaseModel):
-    aesthetic_score: float = Field(ge=0.0, le=1.0)
+    aesthetic_score: Optional[float] = Field(None, ge=0.0, le=1.0)
     notes: Optional[str] = None
 
 
 class TimeHypothesis(BaseModel):
-    value: Literal["morning", "afternoon", "evening", "night", "indoors-unclear"]
-    confidence: float = Field(ge=0.0, le=1.0)
-    evidence: str
+    value: Optional[Literal["morning", "afternoon", "evening", "night", "indoors-unclear"]] = None
+    confidence: Optional[float] = Field(None, ge=0.0, le=1.0)
+    evidence: Optional[str] = None
 
 
 class DateEstimate(BaseModel):
     value: Optional[str] = None
     lower: Optional[str] = None
     upper: Optional[str] = None
-    confidence: float = Field(ge=0.0, le=1.0)
+    confidence: Optional[float] = Field(None, ge=0.0, le=1.0)
     evidence: Optional[str] = None
 
 
 class TimeInfo(BaseModel):
     from_exif: Optional[str] = None
-    season: Literal["winter", "spring", "summer", "autumn", "unknown"] = "unknown"
-    time_of_day_hypotheses: List[TimeHypothesis] = Field(default_factory=list)
-    date_estimate: DateEstimate = Field(default_factory=lambda: DateEstimate(confidence=0))
+    season: Optional[Literal["winter", "spring", "summer", "autumn", "unknown"]] = "unknown"
+    time_of_day_hypotheses: Optional[List[TimeHypothesis]] = Field(default_factory=list)
+    date_estimate: Optional[DateEstimate] = None
 
 
 class LocationHypothesis(BaseModel):
-    value: str
-    granularity: Literal["room", "building", "street", "city", "region", "country", "landmark"]
-    confidence: float = Field(ge=0.0, le=1.0)
-    evidence: str
+    value: Optional[str] = None
+    granularity: Optional[Literal["room", "building", "street", "city", "region", "country", "landmark"]] = None
+    confidence: Optional[float] = Field(None, ge=0.0, le=1.0)
+    evidence: Optional[str] = None
 
 
 class LocationInfo(BaseModel):
-    environment: Literal["indoor", "outdoor", "vehicle-interior", "unknown"] = "unknown"
-    hypotheses: List[LocationHypothesis] = Field(default_factory=list)
+    environment: Optional[Literal["indoor", "outdoor", "vehicle-interior", "unknown"]] = "unknown"
+    hypotheses: Optional[List[LocationHypothesis]] = Field(default_factory=list)
 
 
 class Expression(BaseModel):
-    value: Literal["smile", "neutral", "serious", "surprised", "eyes-closed", "unknown"]
-    confidence: float = Field(ge=0.0, le=1.0)
+    value: Optional[Literal["smile", "neutral", "serious", "surprised", "eyes-closed", "unknown"]] = None
+    confidence: Optional[float] = Field(None, ge=0.0, le=1.0)
 
 
 class Face(BaseModel):
-    bbox: List[float] = Field(min_length=4, max_length=4)  # [x, y, w, h] normalized
-    expression: Expression
-    attributes: List[str] = Field(default_factory=list)
+    bbox: Optional[List[float]] = Field(None, min_length=4, max_length=4)  # [x, y, w, h] normalized
+    expression: Optional[Expression] = None
+    attributes: Optional[List[str]] = Field(default_factory=list)
 
 
 class PeopleInfo(BaseModel):
-    count: int = 0
-    faces: List[Face] = Field(default_factory=list)
+    count: Optional[int] = 0
+    faces: Optional[List[Face]] = Field(default_factory=list)
 
 
 class ActivityVerb(BaseModel):
-    value: str
-    confidence: float = Field(ge=0.0, le=1.0)
-    evidence: str
+    value: Optional[str] = None
+    confidence: Optional[float] = Field(None, ge=0.0, le=1.0)
+    evidence: Optional[str] = None
 
 
 class EventHypothesis(BaseModel):
-    type: str
-    confidence: float = Field(ge=0.0, le=1.0)
-    evidence: str
+    type: Optional[str] = None
+    confidence: Optional[float] = Field(None, ge=0.0, le=1.0)
+    evidence: Optional[str] = None
 
 
 class ActivitiesInfo(BaseModel):
-    verbs: List[ActivityVerb] = Field(default_factory=list)
-    event_hypotheses: List[EventHypothesis] = Field(default_factory=list)
+    verbs: Optional[List[ActivityVerb]] = Field(default_factory=list)
+    event_hypotheses: Optional[List[EventHypothesis]] = Field(default_factory=list)
 
 
 class ObjectItem(BaseModel):
-    label: str
-    bbox: List[float] = Field(min_length=4, max_length=4)  # [x, y, w, h] normalized
-    significance: Literal["foreground", "background", "decor", "prop", "unknown"] = "unknown"
+    label: Optional[str] = None
+    bbox: Optional[List[float]] = Field(None, min_length=4, max_length=4)  # [x, y, w, h] normalized
+    significance: Optional[Literal["foreground", "background", "decor", "prop", "unknown"]] = "unknown"
 
 
 class ObjectsInfo(BaseModel):
-    items: List[ObjectItem] = Field(default_factory=list)
+    items: Optional[List[ObjectItem]] = Field(default_factory=list)
 
 
 class TextLine(BaseModel):
-    text: str
-    bbox: List[float] = Field(min_length=4, max_length=4)  # [x, y, w, h] normalized
-    lang: str = "en"
+    text: Optional[str] = None
+    bbox: Optional[List[float]] = Field(None, min_length=4, max_length=4)  # [x, y, w, h] normalized
+    lang: Optional[str] = "en"
 
 
 class TextInImage(BaseModel):
-    full_text: str = ""
-    lines: List[TextLine] = Field(default_factory=list)
+    full_text: Optional[str] = None
+    lines: Optional[List[TextLine]] = Field(default_factory=list)
 
 
 class PhotoAnalysisResponse(BaseModel):
     """Complete photo analysis response matching the schema from analyze_photo.md"""
 
-    description: str
-    quality: QualityInfo
-    time: TimeInfo
-    location: LocationInfo
-    people: PeopleInfo
-    activities: ActivitiesInfo
-    objects: ObjectsInfo
-    text_in_image: TextInImage
-    tags: List[str] = Field(default_factory=list)
+    description: Optional[str] = None
+    quality: Optional[QualityInfo] = None
+    time: Optional[TimeInfo] = None
+    location: Optional[LocationInfo] = None
+    people: Optional[PeopleInfo] = None
+    activities: Optional[ActivitiesInfo] = None
+    objects: Optional[ObjectsInfo] = None
+    text_in_image: Optional[TextInImage] = None
+    tags: Optional[List[str]] = None

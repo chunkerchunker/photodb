@@ -101,7 +101,14 @@ class LLMAnalysis:
     emotional_tone: Optional[str]
     confidence_score: Optional[float]
     processing_duration_ms: Optional[int]
-    error_message: Optional[str]
+    
+    # Token usage tracking (per photo)
+    input_tokens: Optional[int] = None
+    output_tokens: Optional[int] = None
+    cache_creation_tokens: Optional[int] = None
+    cache_read_tokens: Optional[int] = None
+    
+    error_message: Optional[str] = None
 
     @classmethod
     def create(
@@ -123,6 +130,10 @@ class LLMAnalysis:
             emotional_tone=kwargs.get("emotional_tone"),
             confidence_score=kwargs.get("confidence_score"),
             processing_duration_ms=kwargs.get("processing_duration_ms"),
+            input_tokens=kwargs.get("input_tokens"),
+            output_tokens=kwargs.get("output_tokens"),
+            cache_creation_tokens=kwargs.get("cache_creation_tokens"),
+            cache_read_tokens=kwargs.get("cache_read_tokens"),
             error_message=kwargs.get("error_message"),
         )
 
@@ -142,6 +153,10 @@ class LLMAnalysis:
             "emotional_tone": self.emotional_tone,
             "confidence_score": self.confidence_score,
             "processing_duration_ms": self.processing_duration_ms,
+            "input_tokens": self.input_tokens,
+            "output_tokens": self.output_tokens,
+            "cache_creation_tokens": self.cache_creation_tokens,
+            "cache_read_tokens": self.cache_read_tokens,
             "error_message": self.error_message,
         }
 
@@ -157,10 +172,25 @@ class BatchJob:
     processed_count: int
     failed_count: int
     photo_ids: List[str]
-    error_message: Optional[str]
+    
+    # Token usage tracking
+    total_input_tokens: int = 0
+    total_output_tokens: int = 0
+    total_cache_creation_tokens: int = 0
+    total_cache_read_tokens: int = 0
+    
+    # Cost tracking (in USD cents)
+    estimated_cost_cents: int = 0
+    actual_cost_cents: int = 0
+    
+    # Additional metadata
+    model_name: Optional[str] = None
+    batch_discount_applied: bool = True
+    
+    error_message: Optional[str] = None
 
     @classmethod
-    def create(cls, provider_batch_id: str, photo_ids: List[str]) -> "BatchJob":
+    def create(cls, provider_batch_id: str, photo_ids: List[str], model_name: Optional[str] = None) -> "BatchJob":
         """Create new batch job record."""
         return cls(
             id=str(uuid.uuid4()),
@@ -172,7 +202,7 @@ class BatchJob:
             processed_count=0,
             failed_count=0,
             photo_ids=photo_ids,
-            error_message=None,
+            model_name=model_name,
         )
 
     def to_dict(self) -> Dict[str, Any]:
@@ -186,5 +216,13 @@ class BatchJob:
             "processed_count": self.processed_count,
             "failed_count": self.failed_count,
             "photo_ids": self.photo_ids,
+            "total_input_tokens": self.total_input_tokens,
+            "total_output_tokens": self.total_output_tokens,
+            "total_cache_creation_tokens": self.total_cache_creation_tokens,
+            "total_cache_read_tokens": self.total_cache_read_tokens,
+            "estimated_cost_cents": self.estimated_cost_cents,
+            "actual_cost_cents": self.actual_cost_cents,
+            "model_name": self.model_name,
+            "batch_discount_applied": self.batch_discount_applied,
             "error_message": self.error_message,
         }

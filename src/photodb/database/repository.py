@@ -200,8 +200,10 @@ class PhotoRepository:
                     """INSERT INTO llm_analysis 
                        (id, photo_id, model_name, model_version, processed_at, batch_id,
                         analysis, description, objects, people_count, location_description,
-                        emotional_tone, confidence_score, processing_duration_ms, error_message)
-                       VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                        emotional_tone, confidence_score, processing_duration_ms,
+                        input_tokens, output_tokens, cache_creation_tokens, cache_read_tokens,
+                        error_message)
+                       VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
                        ON CONFLICT (photo_id) 
                        DO UPDATE SET 
                            model_name = EXCLUDED.model_name,
@@ -216,6 +218,10 @@ class PhotoRepository:
                            emotional_tone = EXCLUDED.emotional_tone,
                            confidence_score = EXCLUDED.confidence_score,
                            processing_duration_ms = EXCLUDED.processing_duration_ms,
+                           input_tokens = EXCLUDED.input_tokens,
+                           output_tokens = EXCLUDED.output_tokens,
+                           cache_creation_tokens = EXCLUDED.cache_creation_tokens,
+                           cache_read_tokens = EXCLUDED.cache_read_tokens,
                            error_message = EXCLUDED.error_message""",
                     (
                         analysis.id,
@@ -232,6 +238,10 @@ class PhotoRepository:
                         analysis.emotional_tone,
                         analysis.confidence_score,
                         analysis.processing_duration_ms,
+                        analysis.input_tokens,
+                        analysis.output_tokens,
+                        analysis.cache_creation_tokens,
+                        analysis.cache_read_tokens,
                         analysis.error_message,
                     ),
                 )
@@ -282,8 +292,11 @@ class PhotoRepository:
                 cursor.execute(
                     """INSERT INTO batch_jobs 
                        (id, provider_batch_id, status, submitted_at, completed_at,
-                        photo_count, processed_count, failed_count, photo_ids, error_message)
-                       VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)""",
+                        photo_count, processed_count, failed_count, photo_ids,
+                        total_input_tokens, total_output_tokens, total_cache_creation_tokens, total_cache_read_tokens,
+                        estimated_cost_cents, actual_cost_cents, model_name, batch_discount_applied,
+                        error_message)
+                       VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)""",
                     (
                         batch_job.id,
                         batch_job.provider_batch_id,
@@ -294,6 +307,14 @@ class PhotoRepository:
                         batch_job.processed_count,
                         batch_job.failed_count,
                         batch_job.photo_ids,
+                        batch_job.total_input_tokens,
+                        batch_job.total_output_tokens,
+                        batch_job.total_cache_creation_tokens,
+                        batch_job.total_cache_read_tokens,
+                        batch_job.estimated_cost_cents,
+                        batch_job.actual_cost_cents,
+                        batch_job.model_name,
+                        batch_job.batch_discount_applied,
                         batch_job.error_message,
                     ),
                 )
@@ -322,13 +343,23 @@ class PhotoRepository:
                 cursor.execute(
                     """UPDATE batch_jobs 
                        SET status = %s, completed_at = %s, processed_count = %s,
-                           failed_count = %s, error_message = %s
+                           failed_count = %s, 
+                           total_input_tokens = %s, total_output_tokens = %s,
+                           total_cache_creation_tokens = %s, total_cache_read_tokens = %s,
+                           estimated_cost_cents = %s, actual_cost_cents = %s,
+                           error_message = %s
                        WHERE id = %s""",
                     (
                         batch_job.status,
                         batch_job.completed_at,
                         batch_job.processed_count,
                         batch_job.failed_count,
+                        batch_job.total_input_tokens,
+                        batch_job.total_output_tokens,
+                        batch_job.total_cache_creation_tokens,
+                        batch_job.total_cache_read_tokens,
+                        batch_job.estimated_cost_cents,
+                        batch_job.actual_cost_cents,
                         batch_job.error_message,
                         batch_job.id,
                     ),

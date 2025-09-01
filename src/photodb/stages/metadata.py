@@ -25,17 +25,17 @@ class MetadataStage(BaseStage):
         logger.info(f"Extracting metadata from: {file_path}")
 
         try:
-            # Extract all metadata using ExifExtractor
+            # Extract all metadata using ExifExtractor (already serializable with piexif)
             all_metadata = ExifExtractor.extract_all_metadata(file_path)
 
             # Extract specific fields
             captured_at = ExifExtractor.extract_datetime(file_path)
             gps_coords = ExifExtractor.extract_gps_coordinates(file_path)
 
-            # Parse additional metadata
+            # Parse additional metadata from the already-serializable data
             parsed_metadata = self._parse_metadata(all_metadata)
-
-            # Ensure metadata is JSON serializable
+            
+            # Ensure everything is JSON serializable (safety check)
             serializable_metadata = self._make_json_serializable(parsed_metadata)
 
             # Create metadata record
@@ -52,7 +52,6 @@ class MetadataStage(BaseStage):
             existing_metadata = self.repository.get_metadata(photo.id)
             if existing_metadata:
                 logger.debug(f"Metadata already exists for {photo.id}, updating")
-                metadata.created_at = existing_metadata.created_at
                 self._update_metadata(metadata)
             else:
                 self.repository.create_metadata(metadata)
@@ -122,9 +121,7 @@ class MetadataStage(BaseStage):
             for exif_key, parsed_key in shooting_fields.items():
                 if exif_key in exif:
                     value = exif[exif_key]
-                    # Convert tuples to values
-                    if isinstance(value, tuple) and len(value) == 2:
-                        value = value[0] / value[1] if value[1] != 0 else value[0]
+                    # Values should already be serializable from _make_json_serializable
                     parsed[parsed_key] = value
 
             # Image orientation

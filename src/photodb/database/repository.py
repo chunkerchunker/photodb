@@ -74,6 +74,7 @@ class PhotoRepository:
                        VALUES (%s, %s, %s, %s, %s, %s)
                        ON CONFLICT (photo_id) 
                        DO UPDATE SET 
+                           created_at = EXCLUDED.created_at,
                            captured_at = EXCLUDED.captured_at,
                            latitude = EXCLUDED.latitude,
                            longitude = EXCLUDED.longitude,

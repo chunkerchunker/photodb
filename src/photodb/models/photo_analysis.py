@@ -32,7 +32,9 @@ class TimeInfo(BaseModel):
 
 class LocationHypothesis(BaseModel):
     value: Optional[str] = None
-    granularity: Optional[Literal["room", "building", "street", "city", "region", "country", "landmark"]] = None
+    granularity: Optional[
+        Literal["room", "building", "street", "city", "region", "country", "landmark"]
+    ] = None
     confidence: Optional[float] = Field(None, ge=0.0, le=1.0)
     evidence: Optional[str] = None
 
@@ -43,7 +45,9 @@ class LocationInfo(BaseModel):
 
 
 class Expression(BaseModel):
-    value: Optional[Literal["smile", "neutral", "serious", "surprised", "eyes-closed", "unknown"]] = None
+    value: Optional[
+        Literal["smile", "neutral", "serious", "surprised", "eyes-closed", "unknown"]
+    ] = None
     confidence: Optional[float] = Field(None, ge=0.0, le=1.0)
 
 
@@ -78,7 +82,9 @@ class ActivitiesInfo(BaseModel):
 class ObjectItem(BaseModel):
     label: Optional[str] = None
     bbox: Optional[List[float]] = Field(None, min_length=4, max_length=4)  # [x, y, w, h] normalized
-    significance: Optional[Literal["foreground", "background", "decor", "prop", "unknown"]] = "unknown"
+    significance: Optional[Literal["foreground", "background", "decor", "prop", "unknown"]] = (
+        "unknown"
+    )
 
 
 class ObjectsInfo(BaseModel):

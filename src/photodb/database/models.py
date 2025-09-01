@@ -101,13 +101,13 @@ class LLMAnalysis:
     emotional_tone: Optional[str]
     confidence_score: Optional[float]
     processing_duration_ms: Optional[int]
-    
+
     # Token usage tracking (per photo)
     input_tokens: Optional[int] = None
     output_tokens: Optional[int] = None
     cache_creation_tokens: Optional[int] = None
     cache_read_tokens: Optional[int] = None
-    
+
     error_message: Optional[str] = None
 
     @classmethod
@@ -172,25 +172,27 @@ class BatchJob:
     processed_count: int
     failed_count: int
     photo_ids: List[str]
-    
+
     # Token usage tracking
     total_input_tokens: int = 0
     total_output_tokens: int = 0
     total_cache_creation_tokens: int = 0
     total_cache_read_tokens: int = 0
-    
+
     # Cost tracking (in USD cents)
     estimated_cost_cents: int = 0
     actual_cost_cents: int = 0
-    
+
     # Additional metadata
     model_name: Optional[str] = None
     batch_discount_applied: bool = True
-    
+
     error_message: Optional[str] = None
 
     @classmethod
-    def create(cls, provider_batch_id: str, photo_ids: List[str], model_name: Optional[str] = None) -> "BatchJob":
+    def create(
+        cls, provider_batch_id: str, photo_ids: List[str], model_name: Optional[str] = None
+    ) -> "BatchJob":
         """Create new batch job record."""
         return cls(
             id=str(uuid.uuid4()),

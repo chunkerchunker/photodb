@@ -216,9 +216,17 @@ def load_configuration(config_path: Optional[str]) -> dict:
         "LOG_LEVEL": os.getenv("LOG_LEVEL", "INFO"),
         "LOG_FILE": os.getenv("LOG_FILE", "./logs/photodb.log"),
         # LLM Configuration
-        "LLM_PROVIDER": os.getenv("LLM_PROVIDER", "anthropic"),
+        "LLM_PROVIDER": os.getenv("LLM_PROVIDER", "anthropic"),  # "anthropic" or "bedrock"
         "LLM_MODEL": os.getenv("LLM_MODEL", "claude-sonnet-4-20250514"),
         "LLM_API_KEY": os.getenv("LLM_API_KEY") or os.getenv("ANTHROPIC_API_KEY"),
+        # Bedrock-specific configuration
+        "BEDROCK_MODEL_ID": os.getenv(
+            "BEDROCK_MODEL_ID", "anthropic.claude-3-5-sonnet-20241022-v2:0"
+        ),
+        "AWS_REGION": os.getenv("AWS_REGION", "us-east-1"),
+        "AWS_PROFILE": os.getenv("AWS_PROFILE"),  # Optional: use specific AWS profile
+        "BEDROCK_BATCH_S3_BUCKET": os.getenv("BEDROCK_BATCH_S3_BUCKET"),  # S3 bucket for batch processing
+        "BEDROCK_BATCH_ROLE_ARN": os.getenv("BEDROCK_BATCH_ROLE_ARN"),  # IAM role ARN for batch processing
         "BATCH_SIZE": int(os.getenv("BATCH_SIZE", "100")),
         "BATCH_CHECK_INTERVAL": int(os.getenv("BATCH_CHECK_INTERVAL", "300")),
         "RESIZE_SCALE": float(os.getenv("RESIZE_SCALE", "1.0")),

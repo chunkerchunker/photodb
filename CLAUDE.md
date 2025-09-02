@@ -119,6 +119,11 @@ The application uses environment variables and optional config files:
 - `IMG_PATH`: Processed photos output path (default: `./photos/processed`)
 - `LOG_LEVEL`: Logging verbosity (default: `INFO`)
 - `LOG_FILE`: Log file path (default: `./logs/photodb.log`)
+- `LLM_PROVIDER`: LLM provider - `anthropic` (default) or `bedrock` for AWS Bedrock
+- `LLM_API_KEY` or `ANTHROPIC_API_KEY`: API key for Anthropic (not needed for Bedrock)
+- `BEDROCK_MODEL_ID`: Bedrock model ID (default: `anthropic.claude-3-5-sonnet-20241022-v2:0`)
+- `AWS_REGION`: AWS region for Bedrock (default: `us-east-1`)
+- `AWS_PROFILE`: Optional AWS profile name for Bedrock
 
 ## Performance Considerations
 

@@ -1,7 +1,7 @@
 from pathlib import Path
 import logging
 from datetime import datetime
-from typing import Dict, Any
+from typing import Dict, Any, Optional
 from PIL.ExifTags import TAGS, GPSTAGS
 
 from .base import BaseStage
@@ -27,7 +27,7 @@ class MetadataStage(BaseStage):
         try:
             # Create ExifExtractor instance - loads EXIF data once for efficiency
             extractor = ExifExtractor(file_path)
-            
+
             # Extract all metadata using the instance (already serializable with piexif)
             all_metadata = extractor.extract_all_metadata()
 
@@ -44,7 +44,7 @@ class MetadataStage(BaseStage):
             # Create metadata record
             metadata = Metadata(
                 photo_id=photo.id,
-                captured_at=captured_at or datetime.fromtimestamp(file_path.stat().st_mtime),
+                captured_at=captured_at or self._infer_date_from_filename(photo.filename),
                 latitude=gps_coords[0] if gps_coords else None,
                 longitude=gps_coords[1] if gps_coords else None,
                 created_at=datetime.now(),
@@ -281,3 +281,20 @@ class MetadataStage(BaseStage):
             if value.denominator != 0:
                 return float(value.numerator) / float(value.denominator)
         return float(value)
+
+    def _infer_date_from_filename(self, filename: str) -> Optional[datetime]:
+        """Infer date from filename if possible."""
+        import re
+
+        # Example pattern: 2020/01/10/IMG_7529.JPG (YYYY/MM/DD/xxxx.ext)
+        match = re.search(r"(\d{4})/(\d{2})/(\d{2})/[^/]+$", filename)
+        if match:
+            try:
+                return datetime(
+                    int(match.group(1)),
+                    int(match.group(2)),
+                    int(match.group(3)),
+                )
+            except ValueError:
+                logger.debug(f"Could not parse date from filename: {filename}")
+        return None

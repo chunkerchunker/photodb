@@ -63,10 +63,10 @@ class EnrichStage(BaseStage):
                 self.bedrock_control_client = session.client(
                     service_name="bedrock", config=bedrock_config
                 )
-                
+
                 # Don't use instructor for Bedrock images - use native API
                 self.client = None  # Will use native bedrock API
-                
+
                 # Validate Bedrock setup
                 if self._validate_bedrock_setup():
                     self.api_available = True
@@ -162,13 +162,17 @@ class EnrichStage(BaseStage):
             # Analyze photo with LLM
             try:
                 analysis_result = self._analyze_single_photo(normalized_path, exif_context)
-                
+
                 if not analysis_result:
-                    logger.error(f"LLM analysis returned None for photo: {photo.id} - check previous error logs")
+                    logger.error(
+                        f"LLM analysis returned None for photo: {photo.id} - check previous error logs"
+                    )
                     return False
-                    
+
             except Exception as e:
-                logger.error(f"Exception during LLM analysis for photo {photo.id}: {e}", exc_info=True)
+                logger.error(
+                    f"Exception during LLM analysis for photo {photo.id}: {e}", exc_info=True
+                )
                 return False
 
             # Extract key fields for indexing
@@ -279,37 +283,37 @@ class EnrichStage(BaseStage):
         except Exception as e:
             logger.error(f"Error submitting Instructor batch: {e}")
             return None
-            
+
     def _process_bedrock_batch(self, photos: List[Photo]) -> Optional[str]:
         """Process batch using Bedrock's native batch inference API."""
         logger.info(f"Using Bedrock batch inference API for {len(photos)} photos")
-        
+
         try:
             # Create input data file for Bedrock batch inference
             batch_requests_dir = os.getenv("BATCH_REQUESTS_PATH", "./batch_requests")
             Path(batch_requests_dir).mkdir(parents=True, exist_ok=True)
-            
+
             # Generate unique identifier for this batch (Bedrock allows: [a-zA-Z0-9-+.])
             timestamp = int(time.time())
             batch_name = f"photodb-batch-{timestamp}"
             input_file_path = Path(batch_requests_dir) / f"{batch_name}-input.jsonl"
-            
+
             # Prepare batch input data
             photo_ids = []
             with open(input_file_path, "w") as f:
                 for i, photo in enumerate(photos):
                     normalized_path = Path(photo.normalized_path)
-                    
+
                     if not normalized_path.exists():
                         logger.warning(f"Skipping {photo.id} - normalized image not found")
                         continue
-                    
+
                     metadata = self.repository.get_metadata(photo.id)
                     exif_context = self._build_exif_context(metadata) if metadata else ""
-                    
+
                     # Create message content
                     content = self._create_message_content(normalized_path, exif_context)
-                    
+
                     # Bedrock batch request format
                     request = {
                         "recordId": f"photo_{i}",
@@ -318,79 +322,67 @@ class EnrichStage(BaseStage):
                             "max_tokens": 4000,
                             "temperature": 0.1,
                             "system": self.system_prompt,
-                            "messages": [{
-                                "role": "user", 
-                                "content": content
-                            }]
-                        }
+                            "messages": [{"role": "user", "content": content}],
+                        },
                     }
-                    
+
                     f.write(json.dumps(request) + "\n")
                     photo_ids.append(photo.id)
-            
+
             if not photo_ids:
                 logger.warning("No valid photos to process in batch")
                 return None
-                
+
             # Check required configuration
             s3_bucket = self.config.get("BEDROCK_BATCH_S3_BUCKET")
             role_arn = self.config.get("BEDROCK_BATCH_ROLE_ARN")
-            
+
             if not s3_bucket:
                 logger.error("BEDROCK_BATCH_S3_BUCKET not configured")
                 return None
-                
+
             if not role_arn:
                 logger.error("BEDROCK_BATCH_ROLE_ARN not configured")
                 return None
-                
+
             import boto3
-            s3_client = boto3.client('s3')
+
+            s3_client = boto3.client("s3")
             input_s3_key = f"batch-input/{batch_name}-input.jsonl"
             output_s3_prefix = f"batch-output/{batch_name}/"
-            
+
             # Upload input file
-            s3_client.upload_file(
-                str(input_file_path), 
-                s3_bucket, 
-                input_s3_key
-            )
-            
+            s3_client.upload_file(str(input_file_path), s3_bucket, input_s3_key)
+
             # Use the stored bedrock control client for batch operations
             bedrock_client = self.bedrock_control_client
-            
+
             job_response = bedrock_client.create_model_invocation_job(
                 jobName=batch_name,
                 modelId=self.model_name,
                 roleArn=role_arn,
                 inputDataConfig={
-                    's3InputDataConfig': {
-                        's3Uri': f"s3://{s3_bucket}/{input_s3_key}"
-                    }
+                    "s3InputDataConfig": {"s3Uri": f"s3://{s3_bucket}/{input_s3_key}"}
                 },
                 outputDataConfig={
-                    's3OutputDataConfig': {
-                        's3Uri': f"s3://{s3_bucket}/{output_s3_prefix}"
-                    }
-                }
+                    "s3OutputDataConfig": {"s3Uri": f"s3://{s3_bucket}/{output_s3_prefix}"}
+                },
             )
-            
-            job_arn = job_response['jobArn']
-            
+
+            job_arn = job_response["jobArn"]
+
             # Create batch job record
             from ..database.models import BatchJob
-            
+
             batch_job = BatchJob.create(
-                provider_batch_id=job_arn,
-                photo_ids=photo_ids,
-                model_name=self.model_name
+                provider_batch_id=job_arn, photo_ids=photo_ids, model_name=self.model_name
             )
             batch_job.status = "submitted"
             self.repository.create_batch_job(batch_job)
-            
+
             logger.info(f"Bedrock batch job submitted: {job_arn}")
             return job_arn
-            
+
         except Exception as e:
             logger.error(f"Error submitting Bedrock batch job: {e}")
             return None
@@ -401,13 +393,13 @@ class EnrichStage(BaseStage):
         """Monitor the status of a batch job based on provider."""
         if not self.api_available:
             return None
-            
+
         # Determine provider based on batch_id format
-        if batch_id.startswith('arn:aws:bedrock'):
+        if batch_id.startswith("arn:aws:bedrock"):
             return self._monitor_bedrock_batch(batch_id)
         else:
             return self._monitor_anthropic_batch(batch_id)
-            
+
     def _monitor_anthropic_batch(self, batch_id: str) -> Optional[dict]:
         """Monitor Anthropic batch job using Instructor's batch processor."""
         if not self.batch_processor:
@@ -486,136 +478,140 @@ class EnrichStage(BaseStage):
         except Exception as e:
             logger.error(f"Error monitoring Instructor batch {batch_id}: {e}")
             return None
-            
+
     def _monitor_bedrock_batch(self, job_arn: str) -> Optional[dict]:
         """Monitor Bedrock batch job using native API."""
         try:
             # Use the stored bedrock control client
             bedrock_client = self.bedrock_control_client
-            
+
             # Get job status
             response = bedrock_client.get_model_invocation_job(jobIdentifier=job_arn)
-            job_status = response['status']
-            
+            job_status = response["status"]
+
             # Update our database record
             batch_job = self.repository.get_batch_job_by_provider_id(job_arn)
             if batch_job:
                 # Map Bedrock status to our internal status
-                if job_status in ['InProgress', 'Validating']:
-                    batch_job.status = 'processing'
-                elif job_status == 'Completed':
-                    batch_job.status = 'completed'
-                elif job_status in ['Failed', 'Stopped']:
-                    batch_job.status = 'failed'
-                elif job_status == 'Submitted':
-                    batch_job.status = 'submitted'
-                    
-                if batch_job.status in ['completed', 'failed']:
+                if job_status in ["InProgress", "Validating"]:
+                    batch_job.status = "processing"
+                elif job_status == "Completed":
+                    batch_job.status = "completed"
+                elif job_status in ["Failed", "Stopped"]:
+                    batch_job.status = "failed"
+                elif job_status == "Submitted":
+                    batch_job.status = "submitted"
+
+                if batch_job.status in ["completed", "failed"]:
                     from datetime import datetime
+
                     batch_job.completed_at = datetime.now()
-                    
+
                     # Process results if completed
-                    if batch_job.status == 'completed':
+                    if batch_job.status == "completed":
                         processed_count = self._process_bedrock_batch_results(
                             job_arn, batch_job.photo_ids, response
                         )
                         batch_job.processed_count = processed_count
                         batch_job.failed_count = batch_job.photo_count - processed_count
-                        
+
                         logger.info(
-                            f"Bedrock batch {job_arn} completed: "
-                            f"Processed {processed_count} photos"
+                            f"Bedrock batch {job_arn} completed: Processed {processed_count} photos"
                         )
-                        
+
                 self.repository.update_batch_job(batch_job)
-                
+
             return {
-                'batch_id': job_arn,
-                'status': batch_job.status if batch_job else job_status.lower(),
-                'photo_count': batch_job.photo_count if batch_job else 0,
-                'processed_count': batch_job.processed_count if batch_job else 0,
-                'failed_count': batch_job.failed_count if batch_job else 0,
-                'submitted_at': batch_job.submitted_at.isoformat() if batch_job else None,
-                'completed_at': (
+                "batch_id": job_arn,
+                "status": batch_job.status if batch_job else job_status.lower(),
+                "photo_count": batch_job.photo_count if batch_job else 0,
+                "processed_count": batch_job.processed_count if batch_job else 0,
+                "failed_count": batch_job.failed_count if batch_job else 0,
+                "submitted_at": batch_job.submitted_at.isoformat() if batch_job else None,
+                "completed_at": (
                     batch_job.completed_at.isoformat()
                     if batch_job and batch_job.completed_at
                     else None
                 ),
             }
-            
+
         except Exception as e:
             logger.error(f"Error monitoring Bedrock batch {job_arn}: {e}")
             return None
-            
+
     def _process_bedrock_batch_results(
         self, job_arn: str, photo_ids: List[str], job_response: dict
     ) -> int:
         """Process completed Bedrock batch results."""
         try:
             import boto3
-            
+
             # Download results from S3
             s3_bucket = self.config.get("BEDROCK_BATCH_S3_BUCKET")
             if not s3_bucket:
                 logger.error("BEDROCK_BATCH_S3_BUCKET not configured")
                 return 0
-                
-            s3_client = boto3.client('s3')
-            
+
+            s3_client = boto3.client("s3")
+
             # Extract job name from ARN for S3 path
             # The ARN format should be: arn:aws:bedrock:region:account:model-invocation-job/job-name
             logger.debug(f"Batch job ARN: {job_arn}")
-            job_name = job_arn.split('/')[-1]
+            job_name = job_arn.split("/")[-1]
             logger.debug(f"Extracted job name: {job_name}")
-            
+
             # The output path should match what we used in job creation
             # We used: f"batch-output/{batch_name}/" where batch_name was f"photodb-batch-{timestamp}"
             # But the job name in the ARN might be different, so let's try both patterns
             output_prefix = f"batch-output/{job_name}/"
             logger.debug(f"S3 output prefix: {output_prefix}")
-            
+
             # List output files - try the expected path first
             logger.debug(f"Looking for output files with prefix: {output_prefix}")
-            response = s3_client.list_objects_v2(
-                Bucket=s3_bucket,
-                Prefix=output_prefix
-            )
-            
+            response = s3_client.list_objects_v2(Bucket=s3_bucket, Prefix=output_prefix)
+
             processed_count = 0
-            
-            if 'Contents' in response:
-                logger.info(f"Found {len(response['Contents'])} output files with prefix {output_prefix}")
-                for obj_info in response['Contents']:
+
+            if "Contents" in response:
+                logger.info(
+                    f"Found {len(response['Contents'])} output files with prefix {output_prefix}"
+                )
+                for obj_info in response["Contents"]:
                     logger.debug(f"Output file: {obj_info['Key']} (size: {obj_info['Size']})")
             else:
                 # If not found, try to see what's actually in the bucket
                 logger.warning(f"No output files found with prefix {output_prefix}")
                 logger.debug("Listing all objects in batch-output/ to see what's there...")
-                
+
                 try:
                     all_output_response = s3_client.list_objects_v2(
-                        Bucket=s3_bucket,
-                        Prefix="batch-output/"
+                        Bucket=s3_bucket, Prefix="batch-output/"
                     )
-                    
-                    if 'Contents' in all_output_response:
-                        logger.info(f"Found {len(all_output_response['Contents'])} files in batch-output/:")
-                        for obj_info in all_output_response['Contents']:
+
+                    if "Contents" in all_output_response:
+                        logger.info(
+                            f"Found {len(all_output_response['Contents'])} files in batch-output/:"
+                        )
+                        for obj_info in all_output_response["Contents"]:
                             logger.info(f"  - {obj_info['Key']} (size: {obj_info['Size']})")
-                            
+
                         # Try to find files that match our job name pattern
                         # Bedrock output files end with .out, not .jsonl
                         matching_files = []
-                        for obj in all_output_response['Contents']:
+                        for obj in all_output_response["Contents"]:
                             # Look for files containing the job name and ending with .jsonl.out
-                            if (job_name in obj['Key'] and 
-                                (obj['Key'].endswith('.jsonl.out') or obj['Key'].endswith('.out')) and
-                                obj['Size'] > 0):  # Skip empty files/directories
+                            if (
+                                job_name in obj["Key"]
+                                and (
+                                    obj["Key"].endswith(".jsonl.out") or obj["Key"].endswith(".out")
+                                )
+                                and obj["Size"] > 0
+                            ):  # Skip empty files/directories
                                 logger.info(f"Found matching output file: {obj['Key']}")
                                 matching_files.append(obj)
-                                
+
                         if matching_files:
-                            response = {'Contents': matching_files}
+                            response = {"Contents": matching_files}
                             logger.info(f"Will process {len(matching_files)} output files")
                         else:
                             logger.error(f"No matching .out files found for job {job_name}")
@@ -625,78 +621,90 @@ class EnrichStage(BaseStage):
                         logger.debug("Listing entire bucket to see available files...")
                         try:
                             all_bucket_response = s3_client.list_objects_v2(Bucket=s3_bucket)
-                            if 'Contents' in all_bucket_response:
-                                logger.info(f"Found {len(all_bucket_response['Contents'])} total files in bucket:")
-                                for obj_info in all_bucket_response['Contents'][:20]:  # Show first 20 files
+                            if "Contents" in all_bucket_response:
+                                logger.info(
+                                    f"Found {len(all_bucket_response['Contents'])} total files in bucket:"
+                                )
+                                for obj_info in all_bucket_response["Contents"][
+                                    :20
+                                ]:  # Show first 20 files
                                     logger.info(f"  - {obj_info['Key']} (size: {obj_info['Size']})")
-                                if len(all_bucket_response['Contents']) > 20:
-                                    logger.info(f"  ... and {len(all_bucket_response['Contents']) - 20} more files")
+                                if len(all_bucket_response["Contents"]) > 20:
+                                    logger.info(
+                                        f"  ... and {len(all_bucket_response['Contents']) - 20} more files"
+                                    )
                             else:
                                 logger.error("Bucket is completely empty")
                         except Exception as e:
                             logger.error(f"Error listing entire bucket: {e}")
                         return 0
-                        
+
                 except Exception as e:
                     logger.error(f"Error listing bucket contents: {e}")
                     return 0
-                    
-                if 'Contents' not in response:
+
+                if "Contents" not in response:
                     logger.error(f"Still no output files found for job {job_name}")
                     return 0
-            
-            if 'Contents' in response:
-                for obj in response['Contents']:
+
+            if "Contents" in response:
+                for obj in response["Contents"]:
                     # Process both .jsonl and .out files (Bedrock batch outputs use .out extension)
-                    if obj['Key'].endswith('.jsonl') or obj['Key'].endswith('.out'):
+                    if obj["Key"].endswith(".jsonl") or obj["Key"].endswith(".out"):
                         logger.debug(f"Processing result file: {obj['Key']}")
                         # Download and process each result file
                         local_path = f"/tmp/{os.path.basename(obj['Key'])}"
-                        s3_client.download_file(s3_bucket, obj['Key'], local_path)
-                        
+                        s3_client.download_file(s3_bucket, obj["Key"], local_path)
+
                         # Process results
                         logger.debug(f"Downloaded to {local_path}, reading file")
-                        with open(local_path, 'r') as f:
+                        with open(local_path, "r") as f:
                             line_count = 0
                             for line in f:
                                 line_count += 1
                                 if not line.strip():
                                     continue
-                                    
+
                                 try:
                                     logger.debug(f"Processing line {line_count}: {line[:100]}...")
                                     result = json.loads(line)
-                                    record_id = result.get('recordId')
+                                    record_id = result.get("recordId")
                                     logger.debug(f"Record ID: {record_id}")
-                                    
+
                                     # Extract photo index from record_id
-                                    if record_id and record_id.startswith('photo_'):
-                                        photo_idx = int(record_id.split('_')[1])
+                                    if record_id and record_id.startswith("photo_"):
+                                        photo_idx = int(record_id.split("_")[1])
                                         if photo_idx < len(photo_ids):
                                             photo_id = photo_ids[photo_idx]
-                                            
+
                                             # Extract analysis from model output
-                                            model_output = result.get('modelOutput', {})
-                                            logger.debug(f"Model output keys: {list(model_output.keys())}")
-                                            logger.debug(f"Full model output: {json.dumps(model_output, indent=2)[:500]}...")
-                                            
-                                            if 'content' in model_output:
-                                                content = model_output['content']
+                                            model_output = result.get("modelOutput", {})
+                                            logger.debug(
+                                                f"Model output keys: {list(model_output.keys())}"
+                                            )
+                                            logger.debug(
+                                                f"Full model output: {json.dumps(model_output, indent=2)[:500]}..."
+                                            )
+
+                                            if "content" in model_output:
+                                                content = model_output["content"]
                                                 if content and len(content) > 0:
-                                                    text_response = content[0].get('text', '')
-                                                    
+                                                    text_response = content[0].get("text", "")
+
                                                     # Parse JSON response
                                                     try:
                                                         analysis_data = json.loads(text_response)
                                                     except json.JSONDecodeError:
                                                         analysis_data = {
-                                                            'description': text_response,
-                                                            'confidence': 0.8
+                                                            "description": text_response,
+                                                            "confidence": 0.8,
                                                         }
-                                                    
+
                                                     # Extract key fields
-                                                    extracted_fields = self._extract_key_fields(analysis_data)
-                                                    
+                                                    extracted_fields = self._extract_key_fields(
+                                                        analysis_data
+                                                    )
+
                                                     # Create LLM analysis record
                                                     llm_analysis = LLMAnalysis.create(
                                                         photo_id=photo_id,
@@ -705,21 +713,23 @@ class EnrichStage(BaseStage):
                                                         batch_id=job_arn,
                                                         **extracted_fields,
                                                     )
-                                                    
-                                                    self.repository.create_llm_analysis(llm_analysis)
+
+                                                    self.repository.create_llm_analysis(
+                                                        llm_analysis
+                                                    )
                                                     processed_count += 1
-                                                    
+
                                 except Exception as e:
                                     logger.error(f"Error processing Bedrock result: {e}")
                                     logger.debug(f"Problematic line: {line}")
                                     continue
-                                    
+
                         # Clean up temp file
                         os.unlink(local_path)
-                        
+
             logger.info(f"Processed {processed_count} Bedrock batch results")
             return processed_count
-            
+
         except Exception as e:
             logger.error(f"Error processing Bedrock batch results: {e}")
             return 0
@@ -978,8 +988,8 @@ class EnrichStage(BaseStage):
             if not self.client and self.provider_name != "bedrock":
                 logger.error(f"No {self.provider_name} client available for analysis")
                 return None
-                
-            if self.provider_name == "bedrock" and not hasattr(self, 'bedrock_client'):
+
+            if self.provider_name == "bedrock" and not hasattr(self, "bedrock_client"):
                 logger.error("Bedrock client not properly initialized")
                 return None
 
@@ -1006,10 +1016,10 @@ class EnrichStage(BaseStage):
                     "response_model": PhotoAnalysisResponse,
                     "messages": messages,
                 }
-                
+
                 if self.system_prompt:
                     create_params["system"] = self.system_prompt
-                
+
                 response = self.client.messages.create(**create_params)
 
             # Convert response to dict for database storage
@@ -1021,103 +1031,99 @@ class EnrichStage(BaseStage):
         except Exception as e:
             logger.error(f"Structured LLM analysis failed: {e}", exc_info=True)
             return None
-            
+
     def _call_bedrock_native(self, content: List[Dict[str, Any]]) -> Optional[Dict[str, Any]]:
         """Call Bedrock native API for image analysis."""
         try:
-            if not hasattr(self, 'bedrock_client') or not self.bedrock_client:
+            if not hasattr(self, "bedrock_client") or not self.bedrock_client:
                 logger.error("Bedrock client not available")
                 return None
-                
+
             logger.debug(f"Making Bedrock API call with model {self.model_name}")
-            
+
             # Note: EXIF context is already included in the content parameter
-            
+
             # Prepare the request for Bedrock native API
             request_body = {
                 "anthropic_version": "bedrock-2023-05-31",
                 "max_tokens": 4000,
                 "temperature": 0.1,
                 "system": self.system_prompt,
-                "messages": [
-                    {
-                        "role": "user",
-                        "content": content
-                    }
-                ]
+                "messages": [{"role": "user", "content": content}],
             }
-            
+
             logger.debug(f"Request body prepared with {len(content)} content blocks")
-            
+
             # Invoke the model
             response = self.bedrock_client.invoke_model(
                 modelId=self.model_name,
                 contentType="application/json",
                 accept="application/json",
-                body=json.dumps(request_body)
+                body=json.dumps(request_body),
             )
-            
+
             logger.debug("Bedrock API call successful")
-            
+
             # Parse response
-            response_body = json.loads(response['body'].read())
-            
+            response_body = json.loads(response["body"].read())
+
             # Extract the text content from Claude's response
-            content_blocks = response_body.get('content', [])
+            content_blocks = response_body.get("content", [])
             if content_blocks and len(content_blocks) > 0:
-                text_response = content_blocks[0].get('text', '')
-                
+                text_response = content_blocks[0].get("text", "")
+
                 # Try to parse as JSON (structured response)
                 try:
                     analysis_data = json.loads(text_response)
                 except json.JSONDecodeError:
                     # If not JSON, create a simple structure
-                    analysis_data = {
-                        "description": text_response,
-                        "confidence": 0.8
-                    }
-                
+                    analysis_data = {"description": text_response, "confidence": 0.8}
+
                 # Add usage metrics if available
-                if 'usage' in response_body:
-                    analysis_data['_usage'] = response_body['usage']
-                
+                if "usage" in response_body:
+                    analysis_data["_usage"] = response_body["usage"]
+
                 return analysis_data
-            
+
             return None
-            
+
         except Exception as e:
             logger.error(f"Bedrock native API call failed: {e}", exc_info=True)
             return None
-            
+
     def _validate_bedrock_setup(self) -> bool:
         """Validate Bedrock setup and permissions."""
         try:
             # Check if we can list foundation models (basic permission test)
             response = self.bedrock_control_client.list_foundation_models()
-            
+
             # Check if our specific model is available
-            available_models = [model['modelId'] for model in response.get('modelSummaries', [])]
-            
+            available_models = [model["modelId"] for model in response.get("modelSummaries", [])]
+
             if self.model_name not in available_models:
                 logger.error(f"Model {self.model_name} not found in available models")
-                logger.info(f"Available models: {', '.join(available_models[:10])}")  # Show first 10
+                logger.info(
+                    f"Available models: {', '.join(available_models[:10])}"
+                )  # Show first 10
                 return False
-                
+
             logger.debug(f"Model {self.model_name} is available")
             return True
-            
+
         except Exception as e:
             logger.error(f"Failed to validate Bedrock setup: {e}", exc_info=True)
-            
+
             # Common error checks
             error_str = str(e).lower()
-            if 'accessdenied' in error_str or 'unauthorizedoperation' in error_str:
+            if "accessdenied" in error_str or "unauthorizedoperation" in error_str:
                 logger.error("Permission denied - check your AWS credentials and IAM permissions")
-            elif 'regionnotsupported' in error_str or 'endpointconnectionerror' in error_str:
+            elif "regionnotsupported" in error_str or "endpointconnectionerror" in error_str:
                 logger.error("Region not supported or connection error - check AWS_REGION setting")
-            elif 'modelnotfound' in error_str:
-                logger.error("Model not found - check BEDROCK_MODEL_ID and ensure model access is enabled")
-                
+            elif "modelnotfound" in error_str:
+                logger.error(
+                    "Model not found - check BEDROCK_MODEL_ID and ensure model access is enabled"
+                )
+
             return False
 
     def _build_analysis_prompt(self, exif_context: str) -> str:

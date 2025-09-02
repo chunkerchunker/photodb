@@ -46,6 +46,7 @@ class PhotoProcessor:
         self.batch_mode = batch_mode
         self.batch_size = batch_size
         self.async_batch = async_batch
+        self.min_batch_size = config.get("MIN_BATCH_SIZE", 10)
 
         # Semaphore to limit concurrent file operations (prevents "too many open files")
         # Allow at most 50 concurrent file operations regardless of thread count
@@ -185,8 +186,8 @@ class PhotoProcessor:
 
         return result
 
-    def _find_files(self, directory: Path, recursive: bool, pattern: str) -> List[Path]:
-        """Find all matching image files in directory."""
+    def _find_files_generator(self, directory: Path, recursive: bool, pattern: str):
+        """Generate matching image files in directory."""
         supported_extensions = {".jpg", ".jpeg", ".png", ".heic", ".heif", ".bmp", ".tiff", ".webp"}
 
         if recursive:
@@ -194,9 +195,14 @@ class PhotoProcessor:
         else:
             files = directory.glob(pattern)
 
-        image_files = [f for f in files if f.is_file() and f.suffix.lower() in supported_extensions]
+        # Yield files as they are discovered
+        for file_path in files:
+            if file_path.is_file() and file_path.suffix.lower() in supported_extensions:
+                yield file_path
 
-        return sorted(image_files)
+    def _find_files(self, directory: Path, recursive: bool, pattern: str) -> List[Path]:
+        """Find all matching image files in directory (legacy method for compatibility)."""
+        return list(self._find_files_generator(directory, recursive, pattern))
 
     def _get_stages(self, stage: str) -> List[str]:
         """Get list of stages to run."""
@@ -372,35 +378,45 @@ class PhotoProcessor:
         self, directory: Path, stage: str, recursive: bool, pattern: str
     ) -> ProcessingResult:
         """Process directory in batch mode for improved performance."""
-        files = self._find_files(directory, recursive, pattern)
+        # We'll count files as we go since we're using a generator
+        result = ProcessingResult(total_files=0)
 
-        # Apply max_photos limit if specified
-        if self.max_photos is not None and len(files) > self.max_photos:
-            logger.info(f"Limiting to {self.max_photos} photos (found {len(files)})")
-            files = files[: self.max_photos]
+        # Use the generator to iterate through files efficiently
+        file_generator = self._find_files_generator(directory, recursive, pattern)
 
-        result = ProcessingResult(total_files=len(files))
-
-        if not files:
-            logger.warning(f"No matching files found in {directory}")
-            return result
-
-        logger.info(f"Found {len(files)} files to process in batch mode")
+        # We'll collect files as needed, but stop early if max_photos is reached
+        files_checked = 0
 
         # Process non-enrich stages first (normalize and metadata)
         stages_to_run = self._get_stages(stage)
         enrich_stage = self.stages.get("enrich")
 
-        # If we need to run normalize or metadata, do those first
-        if "normalize" in stages_to_run or "metadata" in stages_to_run:
-            logger.info("Processing normalize/metadata stages before batch enrichment")
+        # Track which unique photos we've processed across all stages
+        processed_photo_paths = set()
 
-            # Process normalize and metadata stages individually
-            for file_path in files:
+        # Keep track of files for enrich stage
+        files_for_enrich = []
+
+        # If we need to run normalize or metadata, process those first
+        if "normalize" in stages_to_run or "metadata" in stages_to_run:
+            logger.info("Processing normalize/metadata stages")
+
+            for file_path in file_generator:
+                files_checked += 1
+
+                # Check if we've hit the max_photos limit
+                if self.max_photos is not None and len(processed_photo_paths) >= self.max_photos:
+                    logger.info(
+                        f"Reached maximum photo limit ({self.max_photos}), stopping processing"
+                    )
+                    break
+
                 if self.dry_run:
                     logger.info(f"[DRY RUN] Would process: {file_path}")
                     result.skipped += 1
                     continue
+
+                photo_was_processed = False
 
                 # Process normalize stage if needed
                 if "normalize" in stages_to_run:
@@ -408,7 +424,7 @@ class PhotoProcessor:
                     if normalize_stage.should_process(file_path, self.force):
                         try:
                             normalize_stage.process(file_path)
-                            result.processed += 1
+                            photo_was_processed = True
                         except Exception as e:
                             logger.error(f"Normalize failed for {file_path}: {e}")
                             result.failed += 1
@@ -420,30 +436,87 @@ class PhotoProcessor:
                     if metadata_stage.should_process(file_path, self.force):
                         try:
                             metadata_stage.process(file_path)
-                            result.processed += 1
+                            photo_was_processed = True
                         except Exception as e:
                             logger.error(f"Metadata failed for {file_path}: {e}")
                             result.failed += 1
                             result.failed_files.append((str(file_path), str(e)))
 
+                # Track this photo as processed if any stage processed it
+                if photo_was_processed:
+                    processed_photo_paths.add(str(file_path))
+
+                # Keep track of files for potential enrich processing
+                if "enrich" in stages_to_run:
+                    files_for_enrich.append(file_path)
+
+            logger.info(
+                f"Checked {files_checked} files, processed {len(processed_photo_paths)} photos in normalize/metadata"
+            )
+
         # Now process enrich stage in batches
         if "enrich" in stages_to_run and enrich_stage:
             logger.info(f"Processing enrich stage in batches (batch_size={self.batch_size})")
 
-            # Collect photos that need enrichment
+            # Collect photos that need enrichment, respecting max_photos limit
             photos_to_enrich = []
-            for file_path in files:
+
+            # If we already processed normalize/metadata, use the files we collected
+            if files_for_enrich:
+                files_to_check = iter(files_for_enrich)
+            else:
+                # Otherwise, continue from the generator (enrich-only mode)
+                files_to_check = file_generator
+
+            for file_path in files_to_check:
+                # If we didn't process normalize/metadata, count files
+                if not files_for_enrich:
+                    files_checked += 1
+
+                # Stop collecting if we've hit the limit
+                if self.max_photos is not None and len(processed_photo_paths) >= self.max_photos:
+                    logger.info(
+                        f"Reached maximum photo limit ({self.max_photos}), skipping remaining"
+                    )
+                    break
+
                 photo = self.repository.get_photo_by_filename(str(file_path))
                 if photo and enrich_stage.should_process(file_path, self.force):
                     photos_to_enrich.append(photo)
+                    # Add to processed set if this photo will be processed
+                    # (but hasn't been processed by other stages yet)
+                    if str(file_path) not in processed_photo_paths:
+                        processed_photo_paths.add(str(file_path))
 
-            if photos_to_enrich:
+            if not photos_to_enrich:
+                logger.info("No photos need enrichment")
+            else:
                 logger.info(f"Found {len(photos_to_enrich)} photos needing enrichment")
 
                 # Process in batches
                 batch_ids = []
                 for i in range(0, len(photos_to_enrich), self.batch_size):
                     batch = photos_to_enrich[i : i + self.batch_size]
+
+                    # Skip batches that are smaller than min_batch_size
+                    if len(batch) < self.min_batch_size:
+                        if i == 0:
+                            # This is the first batch, so we don't have enough photos total
+                            logger.warning(
+                                f"Only {len(photos_to_enrich)} photos need enrichment, "
+                                f"but minimum batch size is {self.min_batch_size}. "
+                                f"Skipping enrich processing - these photos will be processed later "
+                                f"when more photos are available."
+                            )
+                        else:
+                            # This is a final partial batch
+                            logger.warning(
+                                f"Skipping final batch of {len(batch)} photos "
+                                f"(less than minimum batch size of {self.min_batch_size}). "
+                                f"These photos will be processed later."
+                            )
+                        break
+
                     logger.info(
                         f"Submitting batch {i // self.batch_size + 1} with {len(batch)} photos"
                     )
@@ -474,8 +547,8 @@ class PhotoProcessor:
                                 if status["status"] not in ["completed", "failed"]:
                                     all_completed = False
                                 else:
-                                    # Update results based on batch status
-                                    result.processed += status.get("processed_count", 0)
+                                    # Update failed count based on batch status
+                                    # (processed count is tracked via the set)
                                     result.failed += status.get("failed_count", 0)
                             else:
                                 logger.warning(f"Could not get status for batch {batch_id}")
@@ -490,12 +563,17 @@ class PhotoProcessor:
                         logger.warning(
                             "Batch processing timed out or some batches did not complete"
                         )
-                else:
-                    # For synchronous batch processing or if no batches were submitted
-                    result.processed += len(photos_to_enrich)
-            else:
-                logger.info("No photos need enrichment")
-                result.skipped += len(files)
 
+        # Final processed count is the number of unique photos processed
+        result.processed = len(processed_photo_paths)
+        result.total_files = files_checked
         result.success = result.failed == 0
+
+        if files_checked == 0:
+            logger.warning(f"No matching files found in {directory}")
+        else:
+            logger.info(
+                f"Total: checked {files_checked} files, processed {result.processed} photos"
+            )
+
         return result

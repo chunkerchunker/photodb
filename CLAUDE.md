@@ -124,6 +124,8 @@ The application uses environment variables and optional config files:
 - `BEDROCK_MODEL_ID`: Bedrock model ID (default: `anthropic.claude-3-5-sonnet-20241022-v2:0`)
 - `AWS_REGION`: AWS region for Bedrock (default: `us-east-1`)
 - `AWS_PROFILE`: Optional AWS profile name for Bedrock
+- `BATCH_SIZE`: Number of photos per LLM batch (default: `100`)
+- `MIN_BATCH_SIZE`: Minimum batch size for enrich processing (default: `10`) - batches smaller than this will be skipped
 
 ## Performance Considerations
 

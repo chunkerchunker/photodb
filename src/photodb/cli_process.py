@@ -225,9 +225,16 @@ def load_configuration(config_path: Optional[str]) -> dict:
         ),
         "AWS_REGION": os.getenv("AWS_REGION", "us-east-1"),
         "AWS_PROFILE": os.getenv("AWS_PROFILE"),  # Optional: use specific AWS profile
-        "BEDROCK_BATCH_S3_BUCKET": os.getenv("BEDROCK_BATCH_S3_BUCKET"),  # S3 bucket for batch processing
-        "BEDROCK_BATCH_ROLE_ARN": os.getenv("BEDROCK_BATCH_ROLE_ARN"),  # IAM role ARN for batch processing
+        "BEDROCK_BATCH_S3_BUCKET": os.getenv(
+            "BEDROCK_BATCH_S3_BUCKET"
+        ),  # S3 bucket for batch processing
+        "BEDROCK_BATCH_ROLE_ARN": os.getenv(
+            "BEDROCK_BATCH_ROLE_ARN"
+        ),  # IAM role ARN for batch processing
         "BATCH_SIZE": int(os.getenv("BATCH_SIZE", "100")),
+        "MIN_BATCH_SIZE": int(
+            os.getenv("MIN_BATCH_SIZE", "10")
+        ),  # Minimum batch size for enrich processing
         "BATCH_CHECK_INTERVAL": int(os.getenv("BATCH_CHECK_INTERVAL", "300")),
         "RESIZE_SCALE": float(os.getenv("RESIZE_SCALE", "1.0")),
     }

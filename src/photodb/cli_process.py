@@ -29,6 +29,7 @@ load_dotenv()
 @click.option("--recursive/--no-recursive", default=True, help="Process directories recursively")
 @click.option("--pattern", default="*", help='File pattern to match (e.g., "*.jpg")')
 @click.option("--verbose", is_flag=True, help="Enable verbose logging")
+@click.option("--quiet", is_flag=True, help="Reduce logging to warnings and above only")
 @click.option("--dry-run", is_flag=True, help="Show what would be processed without doing it")
 @click.option("--parallel", type=int, default=1, help="Number of parallel workers (default: 1)")
 @click.option("--config", type=click.Path(exists=True), help="Path to configuration file")
@@ -61,6 +62,7 @@ def main(
     recursive: bool,
     pattern: str,
     verbose: bool,
+    quiet: bool,
     dry_run: bool,
     parallel: int,
     config: Optional[str],
@@ -85,7 +87,13 @@ def main(
         process-photos /path/to/directory
         process-photos . --recursive --pattern "*.heic"
     """
-    log_level = logging.DEBUG if verbose else logging.INFO
+    if quiet:
+        log_level = logging.WARNING
+    elif verbose:
+        log_level = logging.DEBUG
+    else:
+        log_level = logging.INFO
+    
     logger = setup_logging(log_level)
 
     try:

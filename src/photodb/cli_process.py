@@ -12,6 +12,7 @@ from .processors import PhotoProcessor
 from .async_batch_monitor import AsyncBatchMonitor
 from .stages.enrich import EnrichStage
 from .utils.logging import setup_logging
+from .utils.batch import wait_for_batch_completion
 
 load_dotenv()
 
@@ -48,6 +49,11 @@ load_dotenv()
 @click.option(
     "--no-async", is_flag=True, help="Disable async batch monitoring (use synchronous processing)"
 )
+@click.option(
+    "--wait",
+    is_flag=True,
+    help="Wait for batch completion when checking batches (use with --check-batches)",
+)
 def main(
     path: Optional[str],
     force: bool,
@@ -64,6 +70,7 @@ def main(
     batch_size: int,
     no_batch: bool,
     no_async: bool,
+    wait: bool,
 ):
     """
     Process photos from PATH (file or directory).
@@ -108,38 +115,54 @@ def main(
 
             # Create EnrichStage to use its monitor_batch method
             enrich_stage = EnrichStage(repository, config_data)
+            batch_ids = [batch_job.provider_batch_id for batch_job in active_batches]
 
-            # Check status of each batch
-            completed_count = 0
-            processing_count = 0
-            failed_count = 0
+            if wait:
+                # Use shared batch waiting logic
+                result = wait_for_batch_completion(batch_ids, enrich_stage, logger=logger)
 
-            for batch_job in active_batches:
-                batch_id = batch_job.provider_batch_id
-                status_info = enrich_stage.monitor_batch(batch_id)
-
-                if status_info:
-                    status = status_info.get("status", "unknown")
-                    logger.info(f"Batch {batch_id}:")
-                    logger.info(f"  Status: {status}")
-                    logger.info(f"  Photos: {status_info.get('photo_count', 0)}")
-                    logger.info(f"  Processed: {status_info.get('processed_count', 0)}")
-                    logger.info(f"  Failed: {status_info.get('failed_count', 0)}")
-
-                    if status == "completed":
-                        completed_count += 1
-                    elif status in ["submitted", "processing"]:
-                        processing_count += 1
-                    elif status == "failed":
-                        failed_count += 1
+                if result["all_completed"]:
+                    logger.info(f"All {len(batch_ids)} batches completed successfully")
+                    if result["failed_count"] > 0:
+                        logger.warning(
+                            f"Total failed items across all batches: {result['failed_count']}"
+                        )
                 else:
-                    logger.warning(f"Could not get status for batch {batch_id}")
+                    logger.warning("Some batches did not complete or timed out")
+                    if result["timed_out"]:
+                        logger.warning("Operation timed out after waiting")
+            else:
+                # Original one-time status check logic
+                completed_count = 0
+                processing_count = 0
+                failed_count = 0
 
-            logger.info("\nBatch Status Summary:")
-            logger.info(f"  Total batches: {len(active_batches)}")
-            logger.info(f"  Processing: {processing_count}")
-            logger.info(f"  Completed: {completed_count}")
-            logger.info(f"  Failed: {failed_count}")
+                for batch_job in active_batches:
+                    batch_id = batch_job.provider_batch_id
+                    status_info = enrich_stage.monitor_batch(batch_id)
+
+                    if status_info:
+                        status = status_info.get("status", "unknown")
+                        logger.info(f"Batch {batch_id}:")
+                        logger.info(f"  Status: {status}")
+                        logger.info(f"  Photos: {status_info.get('photo_count', 0)}")
+                        logger.info(f"  Processed: {status_info.get('processed_count', 0)}")
+                        logger.info(f"  Failed: {status_info.get('failed_count', 0)}")
+
+                        if status == "completed":
+                            completed_count += 1
+                        elif status in ["submitted", "processing"]:
+                            processing_count += 1
+                        elif status == "failed":
+                            failed_count += 1
+                    else:
+                        logger.warning(f"Could not get status for batch {batch_id}")
+
+                logger.info("\nBatch Status Summary:")
+                logger.info(f"  Total batches: {len(active_batches)}")
+                logger.info(f"  Processing: {processing_count}")
+                logger.info(f"  Completed: {completed_count}")
+                logger.info(f"  Failed: {failed_count}")
 
             # Clean up stale batches using async monitor
             import asyncio

@@ -10,6 +10,7 @@ from .database.connection import ConnectionPool
 from .stages.normalize import NormalizeStage
 from .stages.metadata import MetadataStage
 from .stages.enrich import EnrichStage
+from .utils.batch import wait_for_batch_completion
 
 logger = logging.getLogger(__name__)
 
@@ -531,38 +532,10 @@ class PhotoProcessor:
 
                 # Monitor batch completion if async
                 if self.async_batch and batch_ids:
-                    logger.info(f"Monitoring {len(batch_ids)} batch(es) for completion")
+                    batch_result = wait_for_batch_completion(batch_ids, enrich_stage, logger=logger)
 
-                    import time
-
-                    all_completed = False
-                    max_wait_time = 3600  # 1 hour max wait
-                    start_time = time.time()
-
-                    while not all_completed and (time.time() - start_time) < max_wait_time:
-                        all_completed = True
-                        for batch_id in batch_ids:
-                            status = enrich_stage.monitor_batch(batch_id)
-                            if status:
-                                if status["status"] not in ["completed", "failed"]:
-                                    all_completed = False
-                                else:
-                                    # Update failed count based on batch status
-                                    # (processed count is tracked via the set)
-                                    result.failed += status.get("failed_count", 0)
-                            else:
-                                logger.warning(f"Could not get status for batch {batch_id}")
-
-                        if not all_completed:
-                            logger.info("Waiting for batches to complete...")
-                            time.sleep(10)  # Check every 10 seconds
-
-                    if all_completed:
-                        logger.info("All batches completed successfully")
-                    else:
-                        logger.warning(
-                            "Batch processing timed out or some batches did not complete"
-                        )
+                    # Update failed count based on batch results
+                    result.failed += batch_result["failed_count"]
 
         # Final processed count is the number of unique photos processed
         result.processed = len(processed_photo_paths)

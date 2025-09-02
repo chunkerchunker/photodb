@@ -1,8 +1,9 @@
 import logging
 import sys
 from pathlib import Path
-from logging.handlers import RotatingFileHandler
+from logging.handlers import TimedRotatingFileHandler
 import os
+import fcntl
 
 
 def setup_logging(level: int = logging.INFO) -> logging.Logger:
@@ -25,7 +26,9 @@ def setup_logging(level: int = logging.INFO) -> logging.Logger:
         log_path = Path(log_file)
         log_path.parent.mkdir(parents=True, exist_ok=True)
 
-        file_handler = RotatingFileHandler(log_file, maxBytes=10_485_760, backupCount=5)  # 10MB
+        file_handler = TimedRotatingFileHandler(
+            log_file, when="midnight", interval=1, backupCount=7
+        )
         file_handler.setLevel(logging.DEBUG)
         file_formatter = logging.Formatter(
             "%(asctime)s - %(name)s - %(levelname)s - %(filename)s:%(lineno)d - %(message)s"

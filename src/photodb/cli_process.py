@@ -14,7 +14,7 @@ from .stages.enrich import EnrichStage
 from .utils.logging import setup_logging
 from .utils.batch import wait_for_batch_completion
 
-load_dotenv()
+load_dotenv(os.getenv("ENV_FILE", "./.env"))
 
 
 @click.command()
@@ -40,12 +40,6 @@ load_dotenv()
 @click.option(
     "--retry-failed", is_flag=True, help="Retry failed LLM analysis (use with --stage enrich)"
 )
-@click.option(
-    "--batch-size",
-    type=int,
-    default=100,
-    help="Number of photos per batch for LLM processing (default: 100)",
-)
 @click.option("--no-batch", is_flag=True, help="Disable batch processing for enrich stage")
 @click.option(
     "--no-async", is_flag=True, help="Disable async batch monitoring (use synchronous processing)"
@@ -69,7 +63,6 @@ def main(
     max_photos: Optional[int],
     check_batches: bool,
     retry_failed: bool,
-    batch_size: int,
     no_batch: bool,
     no_async: bool,
     wait: bool,
@@ -93,7 +86,7 @@ def main(
         log_level = logging.DEBUG
     else:
         log_level = logging.INFO
-    
+
     logger = setup_logging(log_level)
 
     try:
@@ -201,7 +194,7 @@ def main(
         use_batch_mode = not no_batch and (stage == "enrich" or (stage == "all" and not dry_run))
 
         if use_batch_mode:
-            logger.info(f"Using batch mode with batch size: {batch_size}")
+            logger.info(f"Using batch mode with batch size: {config_data['BATCH_SIZE']}")
         elif stage == "enrich":
             logger.info("Batch mode disabled for enrich stage")
 
@@ -213,7 +206,6 @@ def main(
             parallel=parallel,
             max_photos=max_photos,
             batch_mode=use_batch_mode,
-            batch_size=batch_size,
             async_batch=not no_async,
         )
 

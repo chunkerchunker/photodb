@@ -35,7 +35,6 @@ class PhotoProcessor:
         parallel: int = 1,
         max_photos: Optional[int] = None,
         batch_mode: bool = False,
-        batch_size: int = 100,
         async_batch: bool = True,
     ):
         self.repository = repository
@@ -45,7 +44,7 @@ class PhotoProcessor:
         self.parallel = max(1, parallel)
         self.max_photos = max_photos
         self.batch_mode = batch_mode
-        self.batch_size = batch_size
+        self.batch_size = config.get("BATCH_SIZE", 100)
         self.async_batch = async_batch
         self.min_batch_size = config.get("MIN_BATCH_SIZE", 10)
 
@@ -527,8 +526,12 @@ class PhotoProcessor:
                         batch_ids.append(batch_id)
                         logger.info(f"Batch submitted with ID: {batch_id}")
                     else:
-                        logger.error(f"Failed to submit batch {i // self.batch_size + 1}")
+                        logger.error(
+                            f"Failed to submit batch {i // self.batch_size + 1}.  Stopping."
+                        )
                         result.failed += len(batch)
+                        # break early, in case we've hit quotas or other issues
+                        break
 
                 # Monitor batch completion if async
                 if self.async_batch and batch_ids:

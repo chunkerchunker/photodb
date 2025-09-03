@@ -495,7 +495,7 @@ class EnrichStage(BaseStage):
                 # Map Bedrock status to our internal status
                 if job_status in ["InProgress", "Validating"]:
                     batch_job.status = "processing"
-                elif job_status == "Completed":
+                elif job_status in ["Completed", "PartiallyCompleted"]:
                     batch_job.status = "completed"
                 elif job_status in ["Failed", "Stopped"]:
                     batch_job.status = "failed"

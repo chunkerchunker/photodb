@@ -1,4 +1,4 @@
-# depends on jq module https://github.com/robzr/jq-printf (with bugfix in https://github.com/chunkerchunker/jq-printf)
+# depends on jq module https://github.com/robzr/jq-printf
 # download printf.jq to ~/.jq
 
 find tmp/aws/batch-output -name "*manifest.json.out" -exec cat {} + \

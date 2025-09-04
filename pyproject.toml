@@ -28,6 +28,8 @@ dev = [
 
 [project.scripts]
 process-photos = "photodb.cli_process:main"
+process-local = "photodb.cli_local:main"
+enrich-photos = "photodb.cli_enrich:main"
 photodb-web = "photodb.cli_web:main"
 
 [build-system]

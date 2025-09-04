@@ -5,7 +5,7 @@ import logging
 from psycopg2.extras import RealDictCursor
 
 from .connection import ConnectionPool
-from .models import Photo, Metadata, ProcessingStatus, LLMAnalysis, BatchJob
+from .models import Photo, Metadata, ProcessingStatus, LLMAnalysis, BatchJob, Person, Face
 
 logger = logging.getLogger(__name__)
 
@@ -385,3 +385,156 @@ class PhotoRepository:
                         row_dict["photo_ids"] = []
                     batch_jobs.append(BatchJob(**row_dict))  # type: ignore[arg-type]
                 return batch_jobs
+
+    # Person methods
+
+    def create_person(self, person: Person) -> None:
+        """Create a new person record."""
+        with self.pool.transaction() as conn:
+            with conn.cursor() as cursor:
+                cursor.execute(
+                    """INSERT INTO person (id, name, created_at, updated_at)
+                       VALUES (%s, %s, %s, %s)""",
+                    (
+                        person.id,
+                        person.name,
+                        person.created_at,
+                        person.updated_at,
+                    ),
+                )
+
+    def get_person_by_id(self, person_id: str) -> Optional[Person]:
+        """Get person by ID."""
+        with self.pool.get_connection() as conn:
+            with conn.cursor(cursor_factory=RealDictCursor) as cursor:
+                cursor.execute("SELECT * FROM person WHERE id = %s", (person_id,))
+                row = cursor.fetchone()
+
+                if row:
+                    return Person(**dict(row))  # type: ignore[arg-type]
+                return None
+
+    def get_person_by_name(self, name: str) -> Optional[Person]:
+        """Get person by name."""
+        with self.pool.get_connection() as conn:
+            with conn.cursor(cursor_factory=RealDictCursor) as cursor:
+                cursor.execute("SELECT * FROM person WHERE name = %s", (name,))
+                row = cursor.fetchone()
+
+                if row:
+                    return Person(**dict(row))  # type: ignore[arg-type]
+                return None
+
+    def update_person(self, person: Person) -> None:
+        """Update person record."""
+        person.updated_at = datetime.now()
+        with self.pool.transaction() as conn:
+            with conn.cursor() as cursor:
+                cursor.execute(
+                    """UPDATE person 
+                       SET name = %s, updated_at = %s
+                       WHERE id = %s""",
+                    (person.name, person.updated_at, person.id),
+                )
+
+    def list_people(self) -> List[Person]:
+        """List all people."""
+        with self.pool.get_connection() as conn:
+            with conn.cursor(cursor_factory=RealDictCursor) as cursor:
+                cursor.execute("SELECT * FROM person ORDER BY name")
+                rows = cursor.fetchall()
+
+                return [Person(**dict(row)) for row in rows]  # type: ignore[arg-type]
+
+    # Face methods
+
+    def create_face(self, face: Face) -> None:
+        """Create a new face detection record."""
+        with self.pool.transaction() as conn:
+            with conn.cursor() as cursor:
+                cursor.execute(
+                    """INSERT INTO face 
+                       (id, photo_id, bbox_x, bbox_y, bbox_width, bbox_height, 
+                        person_id, confidence)
+                       VALUES (%s, %s, %s, %s, %s, %s, %s, %s)""",
+                    (
+                        face.id,
+                        face.photo_id,
+                        face.bbox_x,
+                        face.bbox_y,
+                        face.bbox_width,
+                        face.bbox_height,
+                        face.person_id,
+                        face.confidence,
+                    ),
+                )
+
+    def get_face_by_id(self, face_id: str) -> Optional[Face]:
+        """Get face by ID."""
+        with self.pool.get_connection() as conn:
+            with conn.cursor(cursor_factory=RealDictCursor) as cursor:
+                cursor.execute("SELECT * FROM face WHERE id = %s", (face_id,))
+                row = cursor.fetchone()
+
+                if row:
+                    return Face(**dict(row))  # type: ignore[arg-type]
+                return None
+
+    def get_faces_for_photo(self, photo_id: str) -> List[Face]:
+        """Get all faces detected in a photo."""
+        with self.pool.get_connection() as conn:
+            with conn.cursor(cursor_factory=RealDictCursor) as cursor:
+                cursor.execute(
+                    """SELECT * FROM face 
+                       WHERE photo_id = %s 
+                       ORDER BY confidence DESC""",
+                    (photo_id,),
+                )
+                rows = cursor.fetchall()
+
+                return [Face(**dict(row)) for row in rows]  # type: ignore[arg-type]
+
+    def get_faces_for_person(self, person_id: str) -> List[Face]:
+        """Get all faces identified as a specific person."""
+        with self.pool.get_connection() as conn:
+            with conn.cursor(cursor_factory=RealDictCursor) as cursor:
+                cursor.execute(
+                    """SELECT * FROM face 
+                       WHERE person_id = %s 
+                       ORDER BY confidence DESC""",
+                    (person_id,),
+                )
+                rows = cursor.fetchall()
+
+                return [Face(**dict(row)) for row in rows]  # type: ignore[arg-type]
+
+    def update_face_person(self, face_id: str, person_id: Optional[str]) -> None:
+        """Update the person association for a face."""
+        with self.pool.transaction() as conn:
+            with conn.cursor() as cursor:
+                cursor.execute(
+                    """UPDATE face 
+                       SET person_id = %s
+                       WHERE id = %s""",
+                    (person_id, face_id),
+                )
+
+    def get_photos_with_person(self, person_id: str) -> List[Photo]:
+        """Get all photos containing a specific person."""
+        with self.pool.get_connection() as conn:
+            with conn.cursor(cursor_factory=RealDictCursor) as cursor:
+                cursor.execute(
+                    """SELECT DISTINCT p.* FROM photos p
+                       JOIN face f ON p.id = f.photo_id
+                       WHERE f.person_id = %s""",
+                    (person_id,),
+                )
+                rows = cursor.fetchall()
+
+                return [Photo(**dict(row)) for row in rows]  # type: ignore[arg-type]
+
+    def delete_faces_for_photo(self, photo_id: str) -> None:
+        """Delete all face detections for a photo."""
+        with self.pool.transaction() as conn:
+            with conn.cursor() as cursor:
+                cursor.execute("DELETE FROM face WHERE photo_id = %s", (photo_id,))

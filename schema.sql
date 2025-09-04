@@ -1,114 +1,157 @@
+CREATE EXTENSION IF NOT EXISTS vector;
+
 -- Photos table: Core photo records
-CREATE TABLE IF NOT EXISTS photos (
-    id TEXT PRIMARY KEY,  -- UUID
-    filename TEXT NOT NULL UNIQUE,  -- Relative path from INGEST_PATH
-    normalized_path TEXT NOT NULL,  -- Path to normalized image in IMG_PATH
-    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+CREATE TABLE IF NOT EXISTS photos(
+    id text PRIMARY KEY DEFAULT gen_random_uuid(),
+    filename text NOT NULL UNIQUE, -- Relative path from INGEST_PATH
+    normalized_path text NOT NULL, -- Path to normalized image in IMG_PATH
+    created_at timestamp DEFAULT CURRENT_TIMESTAMP,
+    updated_at timestamp DEFAULT CURRENT_TIMESTAMP
 );
 
 -- Metadata table: Extracted photo metadata
-CREATE TABLE IF NOT EXISTS metadata (
-    photo_id TEXT PRIMARY KEY,
-    captured_at TIMESTAMP,  -- When photo was taken
-    latitude REAL,
-    longitude REAL,
-    extra JSONB,  -- All EXIF/TIFF/IFD metadata as JSONB (PostgreSQL native JSON)
-    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+CREATE TABLE IF NOT EXISTS metadata(
+    photo_id text PRIMARY KEY,
+    captured_at timestamp, -- When photo was taken
+    latitude real,
+    longitude real,
+    extra jsonb, -- All EXIF/TIFF/IFD metadata as JSONB (PostgreSQL native JSON)
+    created_at timestamp DEFAULT CURRENT_TIMESTAMP,
     FOREIGN KEY (photo_id) REFERENCES photos(id) ON DELETE CASCADE
 );
 
 -- Processing status table: Track processing stages
-CREATE TABLE IF NOT EXISTS processing_status (
-    photo_id TEXT NOT NULL,
-    stage TEXT NOT NULL,  -- 'normalize', 'metadata', etc.
-    status TEXT NOT NULL,  -- 'pending', 'processing', 'completed', 'failed'
-    processed_at TIMESTAMP,
-    error_message TEXT,
+CREATE TABLE IF NOT EXISTS processing_status(
+    photo_id text NOT NULL,
+    stage text NOT NULL, -- 'normalize', 'metadata', etc.
+    status text NOT NULL, -- 'pending', 'processing', 'completed', 'failed'
+    processed_at timestamp,
+    error_message text,
     PRIMARY KEY (photo_id, stage),
     FOREIGN KEY (photo_id) REFERENCES photos(id) ON DELETE CASCADE
 );
 
 -- Indexes for performance
 CREATE INDEX IF NOT EXISTS idx_photos_filename ON photos(filename);
+
 CREATE INDEX IF NOT EXISTS idx_metadata_captured_at ON metadata(captured_at);
+
 CREATE INDEX IF NOT EXISTS idx_metadata_location ON metadata(latitude, longitude);
+
 CREATE INDEX IF NOT EXISTS idx_processing_status ON processing_status(status, stage);
 
 -- PostgreSQL-specific: GIN index for JSONB search
-CREATE INDEX IF NOT EXISTS idx_metadata_extra ON metadata USING GIN (extra);
+CREATE INDEX IF NOT EXISTS idx_metadata_extra ON metadata USING GIN(extra);
 
 -- LLM Analysis table: Store LLM-based photo analysis results
-CREATE TABLE IF NOT EXISTS llm_analysis (
-    id TEXT PRIMARY KEY DEFAULT gen_random_uuid(),
-    photo_id TEXT NOT NULL UNIQUE,
-    
+CREATE TABLE IF NOT EXISTS llm_analysis(
+    id text PRIMARY KEY DEFAULT gen_random_uuid(),
+    photo_id text NOT NULL UNIQUE,
     -- LLM processing metadata
-    model_name VARCHAR(100) NOT NULL,
-    model_version VARCHAR(50),
-    processed_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
-    batch_id VARCHAR(255), -- Provider batch job ID
-    
+    model_name varchar(100) NOT NULL,
+    model_version varchar(50),
+    processed_at timestamp with time zone DEFAULT NOW(),
+    batch_id varchar(255), -- Provider batch job ID
     -- Analysis results (JSON structure matching analyze_photo.md prompt)
-    analysis JSONB NOT NULL,
-    
+    analysis jsonb NOT NULL,
     -- Extracted key fields for indexing/querying
-    description TEXT, -- Main scene description
-    objects TEXT[], -- Array of identified objects
-    people_count INTEGER, -- Number of people detected
-    location_description TEXT, -- Described location if not in EXIF
-    emotional_tone VARCHAR(50), -- Happy, sad, neutral, etc.
-    
+    description text, -- Main scene description
+    objects text[], -- Array of identified objects
+    people_count integer, -- Number of people detected
+    location_description text, -- Described location if not in EXIF
+    emotional_tone varchar(50), -- Happy, sad, neutral, etc.
     -- Processing metadata
-    confidence_score DECIMAL(3,2), -- Overall confidence 0.00-1.00
-    processing_duration_ms INTEGER,
-    
+    confidence_score DECIMAL(3, 2), -- Overall confidence 0.00-1.00
+    processing_duration_ms integer,
     -- Token usage tracking (per photo)
-    input_tokens INTEGER,
-    output_tokens INTEGER,
-    cache_creation_tokens INTEGER,
-    cache_read_tokens INTEGER,
-    
-    error_message TEXT, -- If processing failed
-    
+    input_tokens integer,
+    output_tokens integer,
+    cache_creation_tokens integer,
+    cache_read_tokens integer,
+    error_message text, -- If processing failed
     FOREIGN KEY (photo_id) REFERENCES photos(id) ON DELETE CASCADE
 );
 
 -- Batch Jobs table: Track LLM batch processing jobs
-CREATE TABLE IF NOT EXISTS batch_jobs (
-    id TEXT PRIMARY KEY DEFAULT gen_random_uuid(),
-    provider_batch_id VARCHAR(255) UNIQUE NOT NULL,
-    status VARCHAR(20) NOT NULL, -- submitted, processing, completed, failed
-    submitted_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
-    completed_at TIMESTAMP WITH TIME ZONE,
-    photo_count INTEGER NOT NULL,
-    processed_count INTEGER DEFAULT 0,
-    failed_count INTEGER DEFAULT 0,
-    photo_ids TEXT[] NOT NULL, -- Array of photo IDs in the batch
-    
+CREATE TABLE IF NOT EXISTS batch_jobs(
+    id text PRIMARY KEY DEFAULT gen_random_uuid(),
+    provider_batch_id varchar(255) UNIQUE NOT NULL,
+    status varchar(20) NOT NULL, -- submitted, processing, completed, failed
+    submitted_at timestamp with time zone DEFAULT NOW(),
+    completed_at timestamp with time zone,
+    photo_count integer NOT NULL,
+    processed_count integer DEFAULT 0,
+    failed_count integer DEFAULT 0,
+    photo_ids text[] NOT NULL, -- Array of photo IDs in the batch
     -- Token usage tracking
-    total_input_tokens INTEGER DEFAULT 0,
-    total_output_tokens INTEGER DEFAULT 0,
-    total_cache_creation_tokens INTEGER DEFAULT 0,
-    total_cache_read_tokens INTEGER DEFAULT 0,
-    
+    total_input_tokens integer DEFAULT 0,
+    total_output_tokens integer DEFAULT 0,
+    total_cache_creation_tokens integer DEFAULT 0,
+    total_cache_read_tokens integer DEFAULT 0,
     -- Cost tracking (in USD cents for precision)
-    estimated_cost_cents INTEGER DEFAULT 0,
-    actual_cost_cents INTEGER DEFAULT 0,
-    
+    estimated_cost_cents integer DEFAULT 0,
+    actual_cost_cents integer DEFAULT 0,
     -- Additional metadata
-    model_name VARCHAR(100),
-    batch_discount_applied BOOLEAN DEFAULT TRUE, -- Batch API gives 50% discount
-    
-    error_message TEXT
+    model_name varchar(100),
+    batch_discount_applied boolean DEFAULT TRUE, -- Batch API gives 50% discount
+    error_message text
 );
 
 -- Indexes for LLM analysis performance
-CREATE INDEX IF NOT EXISTS idx_llm_analysis_objects ON llm_analysis USING GIN (objects);
+CREATE INDEX IF NOT EXISTS idx_llm_analysis_objects ON llm_analysis USING GIN(objects);
+
 CREATE INDEX IF NOT EXISTS idx_llm_analysis_emotional_tone ON llm_analysis(emotional_tone);
+
 CREATE INDEX IF NOT EXISTS idx_llm_analysis_people_count ON llm_analysis(people_count);
+
 CREATE INDEX IF NOT EXISTS idx_llm_analysis_processed_at ON llm_analysis(processed_at);
+
 CREATE INDEX IF NOT EXISTS idx_llm_analysis_batch_id ON llm_analysis(batch_id);
-CREATE INDEX IF NOT EXISTS idx_llm_analysis_analysis ON llm_analysis USING GIN (analysis);
+
+CREATE INDEX IF NOT EXISTS idx_llm_analysis_analysis ON llm_analysis USING GIN(analysis);
+
 CREATE INDEX IF NOT EXISTS idx_batch_jobs_status ON batch_jobs(status);
+
 CREATE INDEX IF NOT EXISTS idx_batch_jobs_submitted_at ON batch_jobs(submitted_at);
+
+-- People table: Named individuals that can appear in photos
+CREATE TABLE IF NOT EXISTS person(
+    id text PRIMARY KEY DEFAULT gen_random_uuid(),
+    name text NOT NULL,
+    created_at timestamp with time zone DEFAULT NOW(),
+    updated_at timestamp with time zone DEFAULT NOW()
+);
+
+-- Faces table: Detected faces in photos with bounding boxes
+CREATE TABLE IF NOT EXISTS face(
+    id text PRIMARY KEY DEFAULT gen_random_uuid(),
+    photo_id text NOT NULL,
+    -- Bounding box coordinates (normalized 0.0-1.0 or pixel values)
+    bbox_x real NOT NULL, -- X coordinate of top-left corner
+    bbox_y real NOT NULL, -- Y coordinate of top-left corner
+    bbox_width real NOT NULL, -- Width of bounding box
+    bbox_height real NOT NULL, -- Height of bounding box
+    -- Detection metadata
+    person_id text, -- Nullable reference to identified person
+    confidence DECIMAL(3, 2) NOT NULL DEFAULT 0, -- Detection confidence 0.00-1.00
+    FOREIGN KEY (photo_id) REFERENCES photos(id) ON DELETE CASCADE,
+    FOREIGN KEY (person_id) REFERENCES person(id) ON DELETE SET NULL
+);
+
+-- Indexes for face detection performance
+CREATE INDEX IF NOT EXISTS idx_face_photo_id ON face(photo_id);
+
+CREATE INDEX IF NOT EXISTS idx_face_person_id ON face(person_id);
+
+CREATE INDEX IF NOT EXISTS idx_face_confidence ON face(confidence);
+
+CREATE INDEX IF NOT EXISTS idx_person_name ON person(name);
+
+-- Face-level embeddings (for clustering & recognition)
+CREATE TABLE IF NOT EXISTS face_embedding(
+    face_id text PRIMARY KEY REFERENCES face(id),
+    embedding vector(512) NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS face_embedding_idx ON face_embedding USING ivfflat(embedding vector_cosine_ops);
+

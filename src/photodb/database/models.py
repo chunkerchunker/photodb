@@ -162,6 +162,80 @@ class LLMAnalysis:
 
 
 @dataclass
+class Person:
+    id: str
+    name: str
+    created_at: datetime
+    updated_at: datetime
+
+    @classmethod
+    def create(cls, name: str) -> "Person":
+        """Create a new person record."""
+        now = datetime.now()
+        return cls(
+            id=str(uuid.uuid4()),
+            name=name,
+            created_at=now,
+            updated_at=now,
+        )
+
+    def to_dict(self) -> Dict[str, Any]:
+        return {
+            "id": self.id,
+            "name": self.name,
+            "created_at": self.created_at.isoformat(),
+            "updated_at": self.updated_at.isoformat(),
+        }
+
+
+@dataclass
+class Face:
+    id: str
+    photo_id: str
+    bbox_x: float
+    bbox_y: float
+    bbox_width: float
+    bbox_height: float
+    person_id: Optional[str]
+    confidence: float
+
+    @classmethod
+    def create(
+        cls,
+        photo_id: str,
+        bbox_x: float,
+        bbox_y: float,
+        bbox_width: float,
+        bbox_height: float,
+        confidence: float,
+        person_id: Optional[str] = None,
+    ) -> "Face":
+        """Create a new face detection record."""
+        return cls(
+            id=str(uuid.uuid4()),
+            photo_id=photo_id,
+            bbox_x=bbox_x,
+            bbox_y=bbox_y,
+            bbox_width=bbox_width,
+            bbox_height=bbox_height,
+            person_id=person_id,
+            confidence=confidence,
+        )
+
+    def to_dict(self) -> Dict[str, Any]:
+        return {
+            "id": self.id,
+            "photo_id": self.photo_id,
+            "bbox_x": self.bbox_x,
+            "bbox_y": self.bbox_y,
+            "bbox_width": self.bbox_width,
+            "bbox_height": self.bbox_height,
+            "person_id": self.person_id,
+            "confidence": self.confidence,
+        }
+
+
+@dataclass
 class BatchJob:
     id: str
     provider_batch_id: str

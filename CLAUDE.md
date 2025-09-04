@@ -8,8 +8,9 @@ PhotoDB is a personal photo indexing pipeline built with Python and PostgreSQL. 
 
 ### Key Components
 
-- **CLI**: Two separate executables
-  - `process-photos` (`src/photodb/cli_process.py`): Photo processing pipeline
+- **CLI**: Three separate executables
+  - `process-local` (`src/photodb/cli_local.py`): Local photo processing (normalize, metadata extraction)
+  - `enrich-photos` (`src/photodb/cli_enrich.py`): Remote LLM-based enrichment with batch processing
   - `photodb-web` (`src/photodb/cli_web.py`): Web server for browsing photos
 - **Processors (`src/photodb/processors.py`)**: Orchestrates parallel photo processing using ThreadPoolExecutor
 - **Stages (`src/photodb/stages/`)**: Processing pipeline stages (normalize, metadata, enrich, stats)
@@ -23,12 +24,15 @@ PhotoDB is a personal photo indexing pipeline built with Python and PostgreSQL. 
 
 ### Processing Pipeline
 
-Photos flow through stages sequentially but can be processed in parallel:
+Photos flow through stages sequentially but can be processed in parallel. The pipeline is split into local and remote processing:
+
+**Local Processing (`process-local`):**
 
 1. **Normalize**: File organization and path standardization
 2. **Metadata**: EXIF extraction and metadata parsing
-3. **Enrich**: Additional data enhancement
-4. **Stats**: Statistical analysis and metrics
+
+**Remote Processing (`enrich-photos`):**
+3. **Enrich**: LLM-based analysis and enrichment using batch processing
 
 Each stage tracks its processing status per photo, allowing for granular recovery and reprocessing.
 
@@ -50,25 +54,49 @@ uv run <command>           # Run command in project environment
 
 ### Running the Application
 
-#### Photo Processing
+#### Local Photo Processing
+
 ```bash
 # Basic usage
-uv run process-photos /path/to/photos
+uv run process-local /path/to/photos
 
-# With parallel processing (recommended)
-uv run process-photos /path/to/photos --parallel 500
+# With parallel processing (recommended for local stages)
+uv run process-local /path/to/photos --parallel 500
 
-# Specific stage only
-uv run process-photos /path/to/photos --stage metadata
+# Specific stage only (normalize or metadata)
+uv run process-local /path/to/photos --stage metadata
 
 # Force reprocessing
-uv run process-photos /path/to/photos --force
+uv run process-local /path/to/photos --force
 
 # Dry run to see what would be processed
-uv run process-photos /path/to/photos --dry-run
+uv run process-local /path/to/photos --dry-run
+```
+
+#### Remote Enrichment Processing
+
+```bash
+# Basic usage (processes in batches)
+uv run enrich-photos /path/to/photos
+
+# Force reprocessing
+uv run enrich-photos /path/to/photos --force
+
+# Check status of running batches
+uv run enrich-photos --check-batches
+
+# Check and wait for batch completion
+uv run enrich-photos --check-batches --wait
+
+# Retry failed enrichment
+uv run enrich-photos /path/to/photos --retry-failed
+
+# Disable batch mode (process one at a time)
+uv run enrich-photos /path/to/photos --no-batch
 ```
 
 #### Web Server
+
 ```bash
 # Start the photo browsing web server
 uv run photodb-web

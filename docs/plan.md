@@ -10,9 +10,21 @@ A separate process, outside of this pipeline, ingests the raw photos into a dire
 
 Environment variables are described in [.env](/.env).
 
-A `process_photos` CLI is the overall entry point to the pipeline.  The program takes as input either a directory path or a single image path.  Images may be of any standard format, including jpeg, png, and heic.  If the input is a directory path, then the program scans the directory structure for any new images (as described below) and processes them individually.  Ingest paths are relative to the `INGEST_PATH` env var.
+The processing pipeline has been split into two separate CLIs to handle local and remote processing:
 
-The following stages should be implemented as separate modules that can be called indepedently (allowing for reprocessing as needed).
+- `process-local`: Local processing stages (normalize and metadata extraction) that can run with high parallelism
+- `enrich-photos`: Remote LLM-based enrichment that uses batch processing
+
+Both programs take as input either a directory path or a single image path.  Images may be of any standard format, including jpeg, png, and heic.  If the input is a directory path, then the program scans the directory structure for any new images (as described below) and processes them individually.  Ingest paths are relative to the `INGEST_PATH` env var.
+
+The following stages are implemented as separate modules that can be called independently (allowing for reprocessing as needed). Stages are grouped by processing type:
+
+**Local Processing (process-local CLI):**
+- Stage 1: Normalize photo
+- Stage 2: Extract basic metadata
+
+**Remote Processing (enrich-photos CLI):**
+- Stage 3: Extract LLM-based metadata (enrich)
 
 Generally, each stage has a way to detect if it has been run for the input photo.  Stages will skip reprocessing unless a `force` parameter is specified.
 

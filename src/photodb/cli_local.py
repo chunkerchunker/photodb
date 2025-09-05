@@ -19,7 +19,7 @@ load_dotenv(os.getenv("ENV_FILE", "./.env"))
 @click.option("--force", is_flag=True, help="Force reprocessing of already processed photos")
 @click.option(
     "--stage",
-    type=click.Choice(["all", "normalize", "metadata"]),
+    type=click.Choice(["all", "normalize", "metadata", "faces"]),
     default="all",
     help="Specific stage to run",
 )
@@ -49,7 +49,7 @@ def main(
     """
     Process photos locally from PATH (file or directory).
     
-    This tool handles local processing stages (normalize and metadata extraction)
+    This tool handles local processing stages (normalize, metadata extraction, and face detection)
     with support for parallel processing.
 
     PATH can be:
@@ -61,6 +61,7 @@ def main(
         process-local /path/to/photo.jpg
         process-local /path/to/directory
         process-local . --recursive --pattern "*.heic" --parallel 500
+        process-local /path/to/directory --stage faces --parallel 100
     """
     if quiet:
         log_level = logging.WARNING

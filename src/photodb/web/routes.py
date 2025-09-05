@@ -74,6 +74,24 @@ def photo_detail(photo_id):
     if not photo:
         abort(404, f"Photo {photo_id} not found")
 
+    # Get face data for this photo
+    faces = queries.get_faces_for_photo(photo_id)
+    photo["faces"] = faces
+    photo["face_count"] = len(faces)
+    
+    # Get image dimensions for proper bounding box scaling
+    if faces and photo.get("normalized_path"):
+        try:
+            from PIL import Image
+            img_path = os.path.join(os.getenv("IMG_PATH", "./photos/processed"), photo["normalized_path"])
+            if os.path.exists(img_path):
+                with Image.open(img_path) as img:
+                    photo["image_width"] = img.width
+                    photo["image_height"] = img.height
+        except Exception:
+            # If we can't get dimensions, we'll handle it in the frontend
+            pass
+
     photo["filename_only"] = os.path.basename(photo["filename"])
 
     if photo.get("analysis"):
@@ -82,7 +100,7 @@ def photo_detail(photo_id):
                 photo["analysis_formatted"] = json.dumps(json.loads(photo["analysis"]), indent=2)
             else:
                 photo["analysis_formatted"] = json.dumps(photo["analysis"], indent=2)
-        except:
+        except (json.JSONDecodeError, TypeError):
             photo["analysis_formatted"] = str(photo.get("analysis", ""))
 
     if photo.get("metadata_extra"):
@@ -93,7 +111,7 @@ def photo_detail(photo_id):
                 )
             else:
                 photo["metadata_formatted"] = json.dumps(photo["metadata_extra"], indent=2)
-        except:
+        except (json.JSONDecodeError, TypeError):
             photo["metadata_formatted"] = str(photo.get("metadata_extra", ""))
 
     if photo.get("captured_at"):

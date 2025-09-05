@@ -149,7 +149,7 @@ CREATE INDEX IF NOT EXISTS idx_person_name ON person(name);
 
 -- Face-level embeddings (for clustering & recognition)
 CREATE TABLE IF NOT EXISTS face_embedding(
-    face_id text PRIMARY KEY REFERENCES face(id),
+    face_id text PRIMARY KEY REFERENCES face(id) ON DELETE CASCADE,
     embedding vector(512) NOT NULL
 );
 

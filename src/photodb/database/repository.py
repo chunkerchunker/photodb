@@ -538,3 +538,43 @@ class PhotoRepository:
         with self.pool.transaction() as conn:
             with conn.cursor() as cursor:
                 cursor.execute("DELETE FROM face WHERE photo_id = %s", (photo_id,))
+
+    # Face embedding methods
+
+    def save_face_embedding(self, face_id: str, embedding: List[float]) -> None:
+        """Save face embedding using pgvector."""
+        with self.pool.transaction() as conn:
+            with conn.cursor() as cursor:
+                cursor.execute(
+                    """INSERT INTO face_embedding (face_id, embedding)
+                       VALUES (%s, %s)
+                       ON CONFLICT (face_id) 
+                       DO UPDATE SET embedding = EXCLUDED.embedding""",
+                    (face_id, embedding)
+                )
+
+    def get_face_embedding(self, face_id: str) -> Optional[List[float]]:
+        """Get face embedding by face ID."""
+        with self.pool.get_connection() as conn:
+            with conn.cursor() as cursor:
+                cursor.execute(
+                    "SELECT embedding FROM face_embedding WHERE face_id = %s",
+                    (face_id,)
+                )
+                row = cursor.fetchone()
+                return list(row[0]) if row else None
+
+    def find_similar_faces(self, query_embedding: List[float], threshold: float = 0.6, limit: int = 10) -> List[tuple]:
+        """Find similar faces using pgvector cosine similarity."""
+        with self.pool.get_connection() as conn:
+            with conn.cursor() as cursor:
+                cursor.execute(
+                    """SELECT f.id, f.photo_id, f.confidence, 1 - (fe.embedding <=> %s) as similarity
+                       FROM face f
+                       JOIN face_embedding fe ON f.id = fe.face_id
+                       WHERE 1 - (fe.embedding <=> %s) >= %s
+                       ORDER BY similarity DESC
+                       LIMIT %s""",
+                    (query_embedding, query_embedding, threshold, limit)
+                )
+                return cursor.fetchall()

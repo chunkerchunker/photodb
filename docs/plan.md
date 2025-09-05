@@ -20,11 +20,14 @@ Both programs take as input either a directory path or a single image path.  Ima
 The following stages are implemented as separate modules that can be called independently (allowing for reprocessing as needed). Stages are grouped by processing type:
 
 **Local Processing (process-local CLI):**
+
 - Stage 1: Normalize photo
 - Stage 2: Extract basic metadata
+- Stage 3: Detect faces
 
 **Remote Processing (enrich-photos CLI):**
-- Stage 3: Extract LLM-based metadata (enrich)
+
+- Stage R1: Extract LLM-based metadata (enrich)
 
 Generally, each stage has a way to detect if it has been run for the input photo.  Stages will skip reprocessing unless a `force` parameter is specified.
 
@@ -36,11 +39,11 @@ A photo has been processed by this stage if it has a corresponding row in the `p
 
 Normalization:
 
-* Generate a UUID for the photo.
-* If the photo exceeds the dimensions below, resize it smaller, preserving aspect ratio.
-* Convert to png if required.
-* Store normalized photo in `IMG_PATH`/{id}.png
-* create corresponding row in `photos` (or update created_at if reprocessing).
+- Generate a UUID for the photo.
+- If the photo exceeds the dimensions below, resize it smaller, preserving aspect ratio.
+- Convert to png if required.
+- Store normalized photo in `IMG_PATH`/{id}.png
+- create corresponding row in `photos` (or update created_at if reprocessing).
 
 Maximum dimensions (use closest match aspect ratio for determining max dimensions):
 
@@ -60,7 +63,11 @@ A photo has been processed by this stage if it has a corresponding row in the `m
 
 Extract all available EXIF/TIFF/IFD metadata from the ingest photo and create a corresponding `metadata` row.  All metadata is stored in the `extra` column.  Captured-at timestamp and location are also stored in their own columns.
 
-## Stage 3: Extract LLM-based metadata
+## Stage 3: Detect faces
+
+use facenet utility in src/utils/face_extractor.py to extract faces, confidences, and embeddings, and save to db.
+
+## Stage R1: Extract LLM-based metadata
 
 This stage sends the normalized photo and complete exif data to an LLM for advanced metadata extraction using the prompt info in [analyze_photo.md](../prompts/analyze_photo.md).
 

@@ -2,6 +2,27 @@
 
 {% block title %}PhotoDB - {{ photo.filename_only }}{% endblock %}
 
+{% block head %}
+<style>
+    h5[data-bs-toggle="collapse"] {
+        cursor: pointer;
+        user-select: none;
+    }
+    h5[data-bs-toggle="collapse"]:hover {
+        background-color: rgba(0,0,0,0.05);
+        border-radius: 0.25rem;
+        padding: 0.25rem 0.5rem;
+        margin: -0.25rem -0.5rem;
+    }
+    .collapse-icon {
+        transition: transform 0.2s;
+    }
+    h5[aria-expanded="false"] .collapse-icon {
+        transform: rotate(-90deg);
+    }
+</style>
+{% endblock %}
+
 {% block breadcrumb %}
 <nav aria-label="breadcrumb">
     <ol class="breadcrumb container mt-3">
@@ -18,14 +39,47 @@
 {% block content %}
 <div class="row">
     <div class="col-lg-7">
-        <img src="/api/image/{{ photo.id }}" 
-             alt="{{ photo.filename_only }}"
-             class="main-image mb-3">
+        <div class="position-relative">
+            <img src="/api/image/{{ photo.id }}" 
+                 alt="{{ photo.filename_only }}"
+                 class="main-image mb-3"
+                 id="photo-image">
+            <!-- Face bounding boxes overlay -->
+            <div id="face-overlay" class="position-absolute" style="top: 0; left: 0; display: none;">
+                {% for face in photo.faces %}
+                <div class="face-bbox" 
+                     data-face-id="{{ face.id }}"
+                     data-original-x="{{ face.bbox_x }}"
+                     data-original-y="{{ face.bbox_y }}"
+                     data-original-width="{{ face.bbox_width }}"
+                     data-original-height="{{ face.bbox_height }}"
+                     style="position: absolute; 
+                            border: 2px solid #ff0000; 
+                            background: rgba(255, 0, 0, 0.1);">
+                    <span class="badge bg-danger position-absolute face-label" style="top: -25px; left: 0; font-size: 0.7rem;">
+                        Face {{ loop.index }}
+                        {% if face.person_name %}
+                        <br>{{ face.person_name }}
+                        {% endif %}
+                        <br>{{ "%.1f"|format(face.confidence * 100) }}%
+                    </span>
+                </div>
+                {% endfor %}
+            </div>
+        </div>
     </div>
     
     <div class="col-lg-5">
         <div class="metadata-section">
-            <h5><i class="bi bi-info-circle"></i> Basic Information</h5>
+            <h5 class="d-flex justify-content-between align-items-center" 
+                data-bs-toggle="collapse" 
+                data-bs-target="#basic-info-collapse" 
+                role="button"
+                id="basic-info-header">
+                <span><i class="bi bi-info-circle"></i> Basic Information</span>
+                <i class="bi bi-chevron-down collapse-icon"></i>
+            </h5>
+            <div class="collapse show" id="basic-info-collapse">
             <table class="table table-sm">
                 <tr>
                     <th>Filename:</th>
@@ -56,23 +110,84 @@
                 </tr>
                 {% endif %}
             </table>
+            </div>
         </div>
         
         {% if photo.latitude and photo.longitude %}
         <div class="metadata-section">
-            <h5><i class="bi bi-geo-alt"></i> Location</h5>
-            <p>Latitude: {{ photo.latitude }}<br>
-               Longitude: {{ photo.longitude }}</p>
-            <a href="https://www.google.com/maps?q={{ photo.latitude }},{{ photo.longitude }}" 
-               target="_blank" class="btn btn-sm btn-outline-primary">
-                <i class="bi bi-map"></i> View on Map
-            </a>
+            <h5 class="d-flex justify-content-between align-items-center" 
+                data-bs-toggle="collapse" 
+                data-bs-target="#location-collapse" 
+                role="button"
+                id="location-header">
+                <span><i class="bi bi-geo-alt"></i> Location</span>
+                <i class="bi bi-chevron-down collapse-icon"></i>
+            </h5>
+            <div class="collapse show" id="location-collapse">
+                <p>Latitude: {{ photo.latitude }}<br>
+                   Longitude: {{ photo.longitude }}</p>
+                <a href="https://www.google.com/maps?q={{ photo.latitude }},{{ photo.longitude }}" 
+                   target="_blank" class="btn btn-sm btn-outline-primary">
+                    <i class="bi bi-map"></i> View on Map
+                </a>
+            </div>
+        </div>
+        {% endif %}
+        
+        {% if photo.face_count > 0 %}
+        <div class="metadata-section">
+            <h5 class="d-flex justify-content-between align-items-center" 
+                data-bs-toggle="collapse" 
+                data-bs-target="#faces-collapse" 
+                role="button"
+                id="faces-header">
+                <span><i class="bi bi-person-circle"></i> Face Detection</span>
+                <i class="bi bi-chevron-down collapse-icon"></i>
+            </h5>
+            <div class="collapse show" id="faces-collapse">
+                <p><strong>Faces Detected:</strong> {{ photo.face_count }}</p>
+                
+                <div class="form-check mb-3">
+                <input class="form-check-input" type="checkbox" id="show-faces-checkbox">
+                <label class="form-check-label" for="show-faces-checkbox">
+                    Show face bounding boxes
+                    <small class="text-muted">(preference saved)</small>
+                </label>
+            </div>
+            
+            {% if photo.faces %}
+            <div class="faces-list">
+                <h6>Face Details:</h6>
+                {% for face in photo.faces %}
+                <div class="face-item mb-2 p-2 border rounded d-flex justify-content-between align-items-center">
+                    <div>
+                        <strong>Face {{ loop.index }}:</strong>
+                        {% if face.person_name %}
+                        <span class="badge bg-primary">{{ face.person_name }}</span>
+                        {% else %}
+                        <span class="badge bg-secondary">Unknown</span>
+                        {% endif %}
+                    </div>
+                    <small class="text-muted">{{ "%.1f"|format(face.confidence * 100) }}%</small>
+                </div>
+                {% endfor %}
+            </div>
+            {% endif %}
+            </div>
         </div>
         {% endif %}
         
         {% if photo.description or photo.emotional_tone or photo.objects %}
         <div class="metadata-section">
-            <h5><i class="bi bi-robot"></i> AI Analysis Summary</h5>
+            <h5 class="d-flex justify-content-between align-items-center" 
+                data-bs-toggle="collapse" 
+                data-bs-target="#ai-analysis-collapse" 
+                role="button"
+                id="ai-analysis-header">
+                <span><i class="bi bi-robot"></i> AI Analysis Summary</span>
+                <i class="bi bi-chevron-down collapse-icon"></i>
+            </h5>
+            <div class="collapse show" id="ai-analysis-collapse">
             {% if photo.description %}
             <p><strong>Description:</strong> {{ photo.description }}</p>
             {% endif %}
@@ -101,6 +216,7 @@
                 {% endif %}
             </p>
             {% endif %}
+            </div>
         </div>
         {% endif %}
     </div>
@@ -122,4 +238,148 @@
     </details>
 </div>
 {% endif %}
+
+<script>
+document.addEventListener('DOMContentLoaded', function() {
+    // Handle collapsible sections with localStorage
+    const collapsibleSections = [
+        { id: 'basic-info', header: 'basic-info-header' },
+        { id: 'location', header: 'location-header' },
+        { id: 'faces', header: 'faces-header' },
+        { id: 'ai-analysis', header: 'ai-analysis-header' }
+    ];
+    
+    collapsibleSections.forEach(section => {
+        const collapseElement = document.getElementById(section.id + '-collapse');
+        const headerElement = document.getElementById(section.header);
+        
+        if (collapseElement && headerElement) {
+            // Load saved state from localStorage
+            const savedState = localStorage.getItem('section_' + section.id);
+            if (savedState !== null) {
+                if (savedState === 'collapsed') {
+                    collapseElement.classList.remove('show');
+                    headerElement.setAttribute('aria-expanded', 'false');
+                } else {
+                    collapseElement.classList.add('show');
+                    headerElement.setAttribute('aria-expanded', 'true');
+                }
+            } else {
+                // Default to expanded
+                headerElement.setAttribute('aria-expanded', 'true');
+            }
+            
+            // Save state when toggled
+            collapseElement.addEventListener('shown.bs.collapse', function() {
+                localStorage.setItem('section_' + section.id, 'expanded');
+                headerElement.setAttribute('aria-expanded', 'true');
+            });
+            
+            collapseElement.addEventListener('hidden.bs.collapse', function() {
+                localStorage.setItem('section_' + section.id, 'collapsed');
+                headerElement.setAttribute('aria-expanded', 'false');
+            });
+        }
+    });
+    
+    // Face detection checkbox handling
+    const showFacesCheckbox = document.getElementById('show-faces-checkbox');
+    const faceOverlay = document.getElementById('face-overlay');
+    const photoImage = document.getElementById('photo-image');
+    
+    if (showFacesCheckbox && faceOverlay && photoImage) {
+        // Load saved preference from localStorage
+        const savedState = localStorage.getItem('showFaceBoundingBoxes');
+        if (savedState !== null) {
+            showFacesCheckbox.checked = savedState === 'true';
+        } else {
+            // Default to unchecked if no preference saved
+            showFacesCheckbox.checked = false;
+        }
+        
+        function updateFaceOverlay() {
+            // Save the preference to localStorage
+            localStorage.setItem('showFaceBoundingBoxes', showFacesCheckbox.checked);
+            
+            if (showFacesCheckbox.checked) {
+                // Wait for image to load to get actual dimensions
+                if (photoImage.complete) {
+                    scaleFaceBoundingBoxes();
+                    faceOverlay.style.display = 'block';
+                } else {
+                    photoImage.addEventListener('load', function() {
+                        scaleFaceBoundingBoxes();
+                        faceOverlay.style.display = 'block';
+                    });
+                }
+            } else {
+                faceOverlay.style.display = 'none';
+            }
+        }
+        
+        function scaleFaceBoundingBoxes() {
+            // Get the actual displayed image dimensions
+            const displayWidth = photoImage.clientWidth;
+            const displayHeight = photoImage.clientHeight;
+            
+            // Get original image dimensions from server data
+            const originalWidth = {{ photo.image_width|default(displayWidth) }};
+            const originalHeight = {{ photo.image_height|default(displayHeight) }};
+            
+            // Calculate scaling factors
+            const scaleX = displayWidth / originalWidth;
+            const scaleY = displayHeight / originalHeight;
+            
+            // Scale the overlay to match the image
+            faceOverlay.style.width = displayWidth + 'px';
+            faceOverlay.style.height = displayHeight + 'px';
+            
+            // Scale each face bounding box
+            const faceBboxes = faceOverlay.querySelectorAll('.face-bbox');
+            faceBboxes.forEach(function(bbox) {
+                const originalX = parseFloat(bbox.dataset.originalX);
+                const originalY = parseFloat(bbox.dataset.originalY);
+                const originalBboxWidth = parseFloat(bbox.dataset.originalWidth);
+                const originalBboxHeight = parseFloat(bbox.dataset.originalHeight);
+                
+                // Apply scaling
+                const scaledX = originalX * scaleX;
+                const scaledY = originalY * scaleY;
+                const scaledWidth = originalBboxWidth * scaleX;
+                const scaledHeight = originalBboxHeight * scaleY;
+                
+                // Update bounding box position and size
+                bbox.style.left = scaledX + 'px';
+                bbox.style.top = scaledY + 'px';
+                bbox.style.width = scaledWidth + 'px';
+                bbox.style.height = scaledHeight + 'px';
+                
+                // Adjust label position if it goes outside the image
+                const label = bbox.querySelector('.face-label');
+                if (label) {
+                    if (scaledY < 25) {
+                        label.style.top = '0px';
+                    } else {
+                        label.style.top = '-25px';
+                    }
+                }
+            });
+        }
+        
+        showFacesCheckbox.addEventListener('change', updateFaceOverlay);
+        
+        // Apply saved state on page load
+        if (showFacesCheckbox.checked) {
+            updateFaceOverlay();
+        }
+        
+        // Handle window resize
+        window.addEventListener('resize', function() {
+            if (showFacesCheckbox.checked) {
+                scaleFaceBoundingBoxes();
+            }
+        });
+    }
+});
+</script>
 {% endblock %}

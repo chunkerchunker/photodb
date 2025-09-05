@@ -8,6 +8,7 @@ from ..database.repository import PhotoRepository
 from ..database.connection import ConnectionPool
 from ..stages.normalize import NormalizeStage
 from ..stages.metadata import MetadataStage
+from ..stages.faces import FacesStage
 
 logger = logging.getLogger(__name__)
 
@@ -38,17 +39,18 @@ class LocalProcessor(BaseProcessor):
         else:
             self.connection_pool = None
 
-        # Only create normalize and metadata stages
+        # Create all local processing stages
         self.stages = {
             "normalize": NormalizeStage(repository, config),
             "metadata": MetadataStage(repository, config),
+            "faces": FacesStage(repository, config),
         }
 
     def _get_stages(self, stage: str) -> List[str]:
-        """Get list of stages to run (limited to normalize and metadata)."""
+        """Get list of stages to run (normalize, metadata, and faces)."""
         if stage == "all":
-            return ["normalize", "metadata"]
-        elif stage in ["normalize", "metadata"]:
+            return ["normalize", "metadata", "faces"]
+        elif stage in ["normalize", "metadata", "faces"]:
             return [stage]
         else:
             raise ValueError(f"Invalid stage for LocalProcessor: {stage}")
@@ -170,6 +172,9 @@ class LocalProcessor(BaseProcessor):
                     else None,
                     "metadata": MetadataStage(pooled_repo, self.config)
                     if "metadata" in stages
+                    else None,
+                    "faces": FacesStage(pooled_repo, self.config)
+                    if "faces" in stages
                     else None,
                 }
 

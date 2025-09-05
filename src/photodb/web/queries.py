@@ -136,6 +136,23 @@ class PhotoQueries:
 
                 return result
 
+    def get_faces_for_photo(self, photo_id: str) -> List[Dict[str, Any]]:
+        """Get all faces detected in a photo with their bounding boxes."""
+        query = """
+            SELECT f.id, f.bbox_x, f.bbox_y, f.bbox_width, f.bbox_height,
+                   f.confidence, f.person_id, p.name as person_name
+            FROM face f
+            LEFT JOIN person p ON f.person_id = p.id
+            WHERE f.photo_id = %s
+            ORDER BY f.confidence DESC
+        """
+        
+        with self.db.get_connection() as conn:
+            with conn.cursor() as cursor:
+                cursor.execute(query, (photo_id,))
+                columns = [col[0] for col in cursor.description]
+                return [dict(zip(columns, row)) for row in cursor.fetchall()]
+
     def get_photo_by_id(self, photo_id: str) -> Optional[Dict[str, Any]]:
         query = """
             SELECT id, filename, normalized_path

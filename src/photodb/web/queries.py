@@ -95,7 +95,7 @@ class PhotoQueries:
                 cursor.execute(query, (year, month))
                 return cursor.fetchone()[0]
 
-    def get_photo_details(self, photo_id: str) -> Optional[Dict[str, Any]]:
+    def get_photo_details(self, photo_id: int) -> Optional[Dict[str, Any]]:
         query = """
             SELECT p.id, p.filename, p.normalized_path, 
                    p.created_at as photo_created_at, p.updated_at as photo_updated_at,
@@ -136,7 +136,7 @@ class PhotoQueries:
 
                 return result
 
-    def get_faces_for_photo(self, photo_id: str) -> List[Dict[str, Any]]:
+    def get_faces_for_photo(self, photo_id: int) -> List[Dict[str, Any]]:
         """Get all faces detected in a photo with their bounding boxes."""
         query = """
             SELECT f.id, f.bbox_x, f.bbox_y, f.bbox_width, f.bbox_height,
@@ -153,7 +153,7 @@ class PhotoQueries:
                 columns = [col[0] for col in cursor.description]
                 return [dict(zip(columns, row)) for row in cursor.fetchall()]
 
-    def get_photo_by_id(self, photo_id: str) -> Optional[Dict[str, Any]]:
+    def get_photo_by_id(self, photo_id: int) -> Optional[Dict[str, Any]]:
         query = """
             SELECT id, filename, normalized_path
             FROM photo

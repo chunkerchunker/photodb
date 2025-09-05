@@ -28,7 +28,7 @@ class NormalizeStage(BaseStage):
         try:
             self.output_dir.mkdir(parents=True, exist_ok=True)
 
-            output_filename = f"{photo.id}.png"
+            output_filename = f"{self._generate_photo_id(Path(photo.filename))}.png"
             output_path = self.output_dir / output_filename
 
             # Open image using ImageHandler (orientation applied at save time)

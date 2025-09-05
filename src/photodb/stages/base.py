@@ -1,3 +1,4 @@
+import hashlib
 from abc import ABC, abstractmethod
 from pathlib import Path
 from typing import Optional
@@ -45,6 +46,7 @@ class BaseStage(ABC):
         try:
             # Quick DB operation: get or create photo
             photo = self._get_or_create_photo(file_path)
+            assert photo.id
 
             # Quick DB write: mark as processing
             self._update_status(photo.id, "processing")
@@ -63,7 +65,7 @@ class BaseStage(ABC):
 
         except Exception as e:
             logger.error(f"Failed to process {file_path} through {self.stage_name}: {e}")
-            if photo:
+            if photo and photo.id:
                 self._update_status(photo.id, "failed", str(e))
             raise
 
@@ -73,12 +75,9 @@ class BaseStage(ABC):
         photo = self.repository.get_photo_by_filename(filename)
 
         if not photo:
-            photo = Photo(
-                id=self._generate_photo_id(file_path),
+            photo = Photo.create(
                 filename=filename,
                 normalized_path="",  # Will be set by normalize stage
-                created_at=datetime.now(),
-                updated_at=datetime.now(),
             )
             self.repository.create_photo(photo)
             logger.debug(f"Created new photo record: {photo.id}")
@@ -87,11 +86,9 @@ class BaseStage(ABC):
 
     def _generate_photo_id(self, file_path: Path) -> str:
         """Generate a unique photo ID."""
-        import hashlib
-
         return hashlib.sha256(str(file_path.resolve()).encode()).hexdigest()[:16]
 
-    def _update_status(self, photo_id: str, status: str, error_message: Optional[str] = None):
+    def _update_status(self, photo_id: int, status: str, error_message: Optional[str] = None):
         """Update processing status for this stage."""
         processing_status = ProcessingStatus(
             photo_id=photo_id,

@@ -2,16 +2,16 @@ CREATE EXTENSION IF NOT EXISTS vector;
 
 -- Photo table: Core photo records
 CREATE TABLE IF NOT EXISTS photo(
-    id text PRIMARY KEY DEFAULT gen_random_uuid(),
+    id bigserial PRIMARY KEY,
     filename text NOT NULL UNIQUE, -- Relative path from INGEST_PATH
-    normalized_path text NOT NULL, -- Path to normalized image in IMG_PATH
+    normalized_path text UNIQUE, -- Path to normalized image in IMG_PATH
     created_at timestamp DEFAULT CURRENT_TIMESTAMP,
     updated_at timestamp DEFAULT CURRENT_TIMESTAMP
 );
 
 -- Metadata table: Extracted photo metadata
 CREATE TABLE IF NOT EXISTS metadata(
-    photo_id text PRIMARY KEY,
+    photo_id bigint PRIMARY KEY,
     captured_at timestamp, -- When photo was taken
     latitude real,
     longitude real,
@@ -22,7 +22,7 @@ CREATE TABLE IF NOT EXISTS metadata(
 
 -- Processing status table: Track processing stages
 CREATE TABLE IF NOT EXISTS processing_status(
-    photo_id text NOT NULL,
+    photo_id bigint NOT NULL,
     stage text NOT NULL, -- 'normalize', 'metadata', etc.
     status text NOT NULL, -- 'pending', 'processing', 'completed', 'failed'
     processed_at timestamp,
@@ -45,8 +45,8 @@ CREATE INDEX IF NOT EXISTS idx_metadata_extra ON metadata USING GIN(extra);
 
 -- LLM Analysis table: Store LLM-based photo analysis results
 CREATE TABLE IF NOT EXISTS llm_analysis(
-    id text PRIMARY KEY DEFAULT gen_random_uuid(),
-    photo_id text NOT NULL UNIQUE,
+    id bigserial PRIMARY KEY,
+    photo_id bigint NOT NULL UNIQUE,
     -- LLM processing metadata
     model_name varchar(100) NOT NULL,
     model_version varchar(50),
@@ -74,7 +74,7 @@ CREATE TABLE IF NOT EXISTS llm_analysis(
 
 -- Batch Job table: Track LLM batch processing jobs
 CREATE TABLE IF NOT EXISTS batch_job(
-    id text PRIMARY KEY DEFAULT gen_random_uuid(),
+    id bigserial PRIMARY KEY,
     provider_batch_id varchar(255) UNIQUE NOT NULL,
     status varchar(20) NOT NULL, -- submitted, processing, completed, failed
     submitted_at timestamp with time zone DEFAULT NOW(),
@@ -82,7 +82,7 @@ CREATE TABLE IF NOT EXISTS batch_job(
     photo_count integer NOT NULL,
     processed_count integer DEFAULT 0,
     failed_count integer DEFAULT 0,
-    photo_ids text[] NOT NULL, -- Array of photo IDs in the batch
+    photo_ids bigint[] NOT NULL, -- Array of photo IDs in the batch
     -- Token usage tracking
     total_input_tokens integer DEFAULT 0,
     total_output_tokens integer DEFAULT 0,
@@ -116,7 +116,7 @@ CREATE INDEX IF NOT EXISTS idx_batch_job_submitted_at ON batch_job(submitted_at)
 
 -- People table: Named individuals that can appear in photos
 CREATE TABLE IF NOT EXISTS person(
-    id text PRIMARY KEY DEFAULT gen_random_uuid(),
+    id bigserial PRIMARY KEY,
     name text NOT NULL,
     created_at timestamp with time zone DEFAULT NOW(),
     updated_at timestamp with time zone DEFAULT NOW()
@@ -124,15 +124,15 @@ CREATE TABLE IF NOT EXISTS person(
 
 -- Faces table: Detected faces in photos with bounding boxes
 CREATE TABLE IF NOT EXISTS face(
-    id text PRIMARY KEY DEFAULT gen_random_uuid(),
-    photo_id text NOT NULL,
+    id bigserial PRIMARY KEY,
+    photo_id bigint NOT NULL,
     -- Bounding box coordinates (normalized 0.0-1.0 or pixel values)
     bbox_x real NOT NULL, -- X coordinate of top-left corner
     bbox_y real NOT NULL, -- Y coordinate of top-left corner
     bbox_width real NOT NULL, -- Width of bounding box
     bbox_height real NOT NULL, -- Height of bounding box
     -- Detection metadata
-    person_id text, -- Nullable reference to identified person
+    person_id bigint, -- Nullable reference to identified person
     confidence DECIMAL(3, 2) NOT NULL DEFAULT 0, -- Detection confidence 0.00-1.00
     FOREIGN KEY (photo_id) REFERENCES photo(id) ON DELETE CASCADE,
     FOREIGN KEY (person_id) REFERENCES person(id) ON DELETE SET NULL
@@ -149,7 +149,7 @@ CREATE INDEX IF NOT EXISTS idx_person_name ON person(name);
 
 -- Face-level embeddings (for clustering & recognition)
 CREATE TABLE IF NOT EXISTS face_embedding(
-    face_id text PRIMARY KEY REFERENCES face(id) ON DELETE CASCADE,
+    face_id bigint PRIMARY KEY REFERENCES face(id) ON DELETE CASCADE,
     embedding vector(512) NOT NULL
 );
 

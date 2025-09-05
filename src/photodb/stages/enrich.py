@@ -540,7 +540,7 @@ class EnrichStage(BaseStage):
             return None
 
     def _process_bedrock_batch_results(
-        self, job_arn: str, photo_ids: List[str], job_response: dict
+        self, job_arn: str, photo_ids: List[int], job_response: dict
     ) -> int:
         """Process completed Bedrock batch results."""
         try:
@@ -835,7 +835,7 @@ class EnrichStage(BaseStage):
         # Return cost in cents (rounded)
         return round(total_cost_cents)
 
-    def _process_instructor_batch_results(self, batch_id: str, photo_ids: List[str]) -> int:
+    def _process_instructor_batch_results(self, batch_id: str, photo_ids: List[int]) -> int:
         """Process completed Instructor batch results and save to database."""
         try:
             if not self.batch_processor:

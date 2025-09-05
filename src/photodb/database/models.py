@@ -2,14 +2,13 @@ from dataclasses import dataclass
 from datetime import datetime
 from typing import Optional, Dict, Any, List
 import json
-import uuid
 
 
 @dataclass
 class Photo:
-    id: str
+    id: Optional[int]
     filename: str
-    normalized_path: str
+    normalized_path: str | None
     created_at: datetime
     updated_at: datetime
 
@@ -18,7 +17,7 @@ class Photo:
         """Create a new photo record."""
         now = datetime.now()
         return cls(
-            id=str(uuid.uuid4()),
+            id=None,  # Will be assigned by database
             filename=filename,
             normalized_path=normalized_path,
             created_at=now,
@@ -37,7 +36,7 @@ class Photo:
 
 @dataclass
 class Metadata:
-    photo_id: str
+    photo_id: int
     captured_at: Optional[datetime]
     latitude: Optional[float]
     longitude: Optional[float]
@@ -45,7 +44,7 @@ class Metadata:
     created_at: datetime
 
     @classmethod
-    def create(cls, photo_id: str, **kwargs) -> "Metadata":
+    def create(cls, photo_id: int, **kwargs) -> "Metadata":
         """Create metadata record from extracted data."""
         return cls(
             photo_id=photo_id,
@@ -69,7 +68,7 @@ class Metadata:
 
 @dataclass
 class ProcessingStatus:
-    photo_id: str
+    photo_id: int
     stage: str
     status: str  # 'pending', 'processing', 'completed', 'failed'
     processed_at: Optional[datetime]
@@ -87,8 +86,8 @@ class ProcessingStatus:
 
 @dataclass
 class LLMAnalysis:
-    id: str
-    photo_id: str
+    id: Optional[int]
+    photo_id: int
     model_name: str
     model_version: Optional[str]
     processed_at: datetime
@@ -112,11 +111,11 @@ class LLMAnalysis:
 
     @classmethod
     def create(
-        cls, photo_id: str, model_name: str, analysis: Dict[str, Any], **kwargs
+        cls, photo_id: int, model_name: str, analysis: Dict[str, Any], **kwargs
     ) -> "LLMAnalysis":
         """Create LLM analysis record from processed data."""
         return cls(
-            id=str(uuid.uuid4()),
+            id=None,  # Will be assigned by database
             photo_id=photo_id,
             model_name=model_name,
             model_version=kwargs.get("model_version"),
@@ -163,7 +162,7 @@ class LLMAnalysis:
 
 @dataclass
 class Person:
-    id: str
+    id: Optional[int]
     name: str
     created_at: datetime
     updated_at: datetime
@@ -173,7 +172,7 @@ class Person:
         """Create a new person record."""
         now = datetime.now()
         return cls(
-            id=str(uuid.uuid4()),
+            id=None,  # Will be assigned by database
             name=name,
             created_at=now,
             updated_at=now,
@@ -190,29 +189,29 @@ class Person:
 
 @dataclass
 class Face:
-    id: str
-    photo_id: str
+    id: Optional[int]
+    photo_id: int
     bbox_x: float
     bbox_y: float
     bbox_width: float
     bbox_height: float
-    person_id: Optional[str]
+    person_id: Optional[int]
     confidence: float
 
     @classmethod
     def create(
         cls,
-        photo_id: str,
+        photo_id: int,
         bbox_x: float,
         bbox_y: float,
         bbox_width: float,
         bbox_height: float,
         confidence: float,
-        person_id: Optional[str] = None,
+        person_id: Optional[int] = None,
     ) -> "Face":
         """Create a new face detection record."""
         return cls(
-            id=str(uuid.uuid4()),
+            id=None,  # Will be assigned by database
             photo_id=photo_id,
             bbox_x=bbox_x,
             bbox_y=bbox_y,
@@ -237,7 +236,7 @@ class Face:
 
 @dataclass
 class BatchJob:
-    id: str
+    id: Optional[int]
     provider_batch_id: str
     status: str  # 'submitted', 'processing', 'completed', 'failed'
     submitted_at: datetime
@@ -245,7 +244,7 @@ class BatchJob:
     photo_count: int
     processed_count: int
     failed_count: int
-    photo_ids: List[str]
+    photo_ids: List[int]
 
     # Token usage tracking
     total_input_tokens: int = 0
@@ -265,11 +264,11 @@ class BatchJob:
 
     @classmethod
     def create(
-        cls, provider_batch_id: str, photo_ids: List[str], model_name: Optional[str] = None
+        cls, provider_batch_id: str, photo_ids: List[int], model_name: Optional[str] = None
     ) -> "BatchJob":
         """Create new batch job record."""
         return cls(
-            id=str(uuid.uuid4()),
+            id=None,  # Will be assigned by database
             provider_batch_id=provider_batch_id,
             status="submitted",
             submitted_at=datetime.now(),

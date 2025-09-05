@@ -68,7 +68,7 @@ def month_view(year, month):
     )
 
 
-@bp.route("/photo/<photo_id>")
+@bp.route("/photo/<int:photo_id>")
 def photo_detail(photo_id):
     photo = queries.get_photo_details(photo_id)
     if not photo:
@@ -124,7 +124,7 @@ def photo_detail(photo_id):
     return render_template("photo.html", photo=photo)
 
 
-@bp.route("/api/image/<photo_id>")
+@bp.route("/api/image/<int:photo_id>")
 def serve_photo(photo_id):
     photo = queries.get_photo_by_id(photo_id)
     if not photo:

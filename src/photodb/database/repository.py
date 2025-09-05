@@ -19,16 +19,16 @@ class PhotoRepository:
         with self.pool.transaction() as conn:
             with conn.cursor() as cursor:
                 cursor.execute(
-                    """INSERT INTO photo (id, filename, normalized_path, created_at, updated_at)
-                       VALUES (%s, %s, %s, %s, %s)""",
+                    """INSERT INTO photo (filename, normalized_path, created_at, updated_at)
+                       VALUES (%s, %s, %s, %s) RETURNING id""",
                     (
-                        photo.id,
                         photo.filename,
                         photo.normalized_path,
                         photo.created_at,
                         photo.updated_at,
                     ),
                 )
+                photo.id = cursor.fetchone()[0]
 
     def get_photo_by_filename(self, filename: str) -> Optional[Photo]:
         """Get photo by filename."""
@@ -41,7 +41,7 @@ class PhotoRepository:
                     return Photo(**dict(row))  # type: ignore[arg-type]
                 return None
 
-    def get_photo_by_id(self, photo_id: str) -> Optional[Photo]:
+    def get_photo_by_id(self, photo_id: int) -> Optional[Photo]:
         """Get photo by ID."""
         with self.pool.get_connection() as conn:
             with conn.cursor(cursor_factory=RealDictCursor) as cursor:
@@ -89,7 +89,7 @@ class PhotoRepository:
                     ),
                 )
 
-    def get_metadata(self, photo_id: str) -> Optional[Metadata]:
+    def get_metadata(self, photo_id: int) -> Optional[Metadata]:
         """Get metadata for a photo."""
         with self.pool.get_connection() as conn:
             with conn.cursor(cursor_factory=RealDictCursor) as cursor:
@@ -125,7 +125,7 @@ class PhotoRepository:
                     ),
                 )
 
-    def get_processing_status(self, photo_id: str, stage: str) -> Optional[ProcessingStatus]:
+    def get_processing_status(self, photo_id: int, stage: str) -> Optional[ProcessingStatus]:
         """Get processing status for a specific stage."""
         with self.pool.get_connection() as conn:
             with conn.cursor(cursor_factory=RealDictCursor) as cursor:
@@ -140,7 +140,7 @@ class PhotoRepository:
                     return ProcessingStatus(**dict(row))  # type: ignore[arg-type]
                 return None
 
-    def has_been_processed(self, photo_id: str, stage: str) -> bool:
+    def has_been_processed(self, photo_id: int, stage: str) -> bool:
         """Check if a photo has been processed for a specific stage."""
         status = self.get_processing_status(photo_id, stage)
         return status is not None and status.status == "completed"
@@ -199,12 +199,12 @@ class PhotoRepository:
             with conn.cursor() as cursor:
                 cursor.execute(
                     """INSERT INTO llm_analysis 
-                       (id, photo_id, model_name, model_version, processed_at, batch_id,
+                       (photo_id, model_name, model_version, processed_at, batch_id,
                         analysis, description, objects, people_count, location_description,
                         emotional_tone, confidence_score, processing_duration_ms,
                         input_tokens, output_tokens, cache_creation_tokens, cache_read_tokens,
                         error_message)
-                       VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                       VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
                        ON CONFLICT (photo_id) 
                        DO UPDATE SET 
                            model_name = EXCLUDED.model_name,
@@ -223,9 +223,9 @@ class PhotoRepository:
                            output_tokens = EXCLUDED.output_tokens,
                            cache_creation_tokens = EXCLUDED.cache_creation_tokens,
                            cache_read_tokens = EXCLUDED.cache_read_tokens,
-                           error_message = EXCLUDED.error_message""",
+                           error_message = EXCLUDED.error_message
+                       RETURNING id""",
                     (
-                        analysis.id,
                         analysis.photo_id,
                         analysis.model_name,
                         analysis.model_version,
@@ -246,8 +246,12 @@ class PhotoRepository:
                         analysis.error_message,
                     ),
                 )
+                if analysis.id is None:
+                    result = cursor.fetchone()
+                    if result:
+                        analysis.id = result[0]
 
-    def get_llm_analysis(self, photo_id: str) -> Optional[LLMAnalysis]:
+    def get_llm_analysis(self, photo_id: int) -> Optional[LLMAnalysis]:
         """Get LLM analysis for a photo."""
         with self.pool.get_connection() as conn:
             with conn.cursor(cursor_factory=RealDictCursor) as cursor:
@@ -261,7 +265,7 @@ class PhotoRepository:
                     return LLMAnalysis(**dict(row))  # type: ignore[arg-type]
                 return None
 
-    def has_llm_analysis(self, photo_id: str) -> bool:
+    def has_llm_analysis(self, photo_id: int) -> bool:
         """Check if a photo has LLM analysis."""
         analysis = self.get_llm_analysis(photo_id)
         return analysis is not None and analysis.error_message is None
@@ -272,7 +276,7 @@ class PhotoRepository:
             with conn.cursor(cursor_factory=RealDictCursor) as cursor:
                 cursor.execute(
                     """SELECT p.* FROM photo p
-                       WHERE p.normalized_path != ''
+                       WHERE p.normalized_path IS NOT NULL
                        AND NOT EXISTS (
                            SELECT 1 FROM llm_analysis la 
                            WHERE la.photo_id = p.id AND la.error_message IS NULL
@@ -292,14 +296,13 @@ class PhotoRepository:
             with conn.cursor() as cursor:
                 cursor.execute(
                     """INSERT INTO batch_job 
-                       (id, provider_batch_id, status, submitted_at, completed_at,
+                       (provider_batch_id, status, submitted_at, completed_at,
                         photo_count, processed_count, failed_count, photo_ids,
                         total_input_tokens, total_output_tokens, total_cache_creation_tokens, total_cache_read_tokens,
                         estimated_cost_cents, actual_cost_cents, model_name, batch_discount_applied,
                         error_message)
-                       VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)""",
+                       VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s) RETURNING id""",
                     (
-                        batch_job.id,
                         batch_job.provider_batch_id,
                         batch_job.status,
                         batch_job.submitted_at,
@@ -319,6 +322,7 @@ class PhotoRepository:
                         batch_job.error_message,
                     ),
                 )
+                batch_job.id = cursor.fetchone()[0]
 
     def get_batch_job_by_provider_id(self, provider_batch_id: str) -> Optional[BatchJob]:
         """Get batch job by provider batch ID."""
@@ -393,17 +397,17 @@ class PhotoRepository:
         with self.pool.transaction() as conn:
             with conn.cursor() as cursor:
                 cursor.execute(
-                    """INSERT INTO person (id, name, created_at, updated_at)
-                       VALUES (%s, %s, %s, %s)""",
+                    """INSERT INTO person (name, created_at, updated_at)
+                       VALUES (%s, %s, %s) RETURNING id""",
                     (
-                        person.id,
                         person.name,
                         person.created_at,
                         person.updated_at,
                     ),
                 )
+                person.id = cursor.fetchone()[0]
 
-    def get_person_by_id(self, person_id: str) -> Optional[Person]:
+    def get_person_by_id(self, person_id: int) -> Optional[Person]:
         """Get person by ID."""
         with self.pool.get_connection() as conn:
             with conn.cursor(cursor_factory=RealDictCursor) as cursor:
@@ -454,11 +458,10 @@ class PhotoRepository:
             with conn.cursor() as cursor:
                 cursor.execute(
                     """INSERT INTO face 
-                       (id, photo_id, bbox_x, bbox_y, bbox_width, bbox_height, 
+                       (photo_id, bbox_x, bbox_y, bbox_width, bbox_height, 
                         person_id, confidence)
-                       VALUES (%s, %s, %s, %s, %s, %s, %s, %s)""",
+                       VALUES (%s, %s, %s, %s, %s, %s, %s) RETURNING id""",
                     (
-                        face.id,
                         face.photo_id,
                         face.bbox_x,
                         face.bbox_y,
@@ -468,8 +471,9 @@ class PhotoRepository:
                         face.confidence,
                     ),
                 )
+                face.id = cursor.fetchone()[0]
 
-    def get_face_by_id(self, face_id: str) -> Optional[Face]:
+    def get_face_by_id(self, face_id: int) -> Optional[Face]:
         """Get face by ID."""
         with self.pool.get_connection() as conn:
             with conn.cursor(cursor_factory=RealDictCursor) as cursor:
@@ -480,7 +484,7 @@ class PhotoRepository:
                     return Face(**dict(row))  # type: ignore[arg-type]
                 return None
 
-    def get_faces_for_photo(self, photo_id: str) -> List[Face]:
+    def get_faces_for_photo(self, photo_id: int) -> List[Face]:
         """Get all faces detected in a photo."""
         with self.pool.get_connection() as conn:
             with conn.cursor(cursor_factory=RealDictCursor) as cursor:
@@ -494,7 +498,7 @@ class PhotoRepository:
 
                 return [Face(**dict(row)) for row in rows]  # type: ignore[arg-type]
 
-    def get_faces_for_person(self, person_id: str) -> List[Face]:
+    def get_faces_for_person(self, person_id: int) -> List[Face]:
         """Get all faces identified as a specific person."""
         with self.pool.get_connection() as conn:
             with conn.cursor(cursor_factory=RealDictCursor) as cursor:
@@ -508,7 +512,7 @@ class PhotoRepository:
 
                 return [Face(**dict(row)) for row in rows]  # type: ignore[arg-type]
 
-    def update_face_person(self, face_id: str, person_id: Optional[str]) -> None:
+    def update_face_person(self, face_id: int, person_id: Optional[int]) -> None:
         """Update the person association for a face."""
         with self.pool.transaction() as conn:
             with conn.cursor() as cursor:
@@ -519,7 +523,7 @@ class PhotoRepository:
                     (person_id, face_id),
                 )
 
-    def get_photos_with_person(self, person_id: str) -> List[Photo]:
+    def get_photos_with_person(self, person_id: int) -> List[Photo]:
         """Get all photos containing a specific person."""
         with self.pool.get_connection() as conn:
             with conn.cursor(cursor_factory=RealDictCursor) as cursor:
@@ -533,7 +537,7 @@ class PhotoRepository:
 
                 return [Photo(**dict(row)) for row in rows]  # type: ignore[arg-type]
 
-    def delete_faces_for_photo(self, photo_id: str) -> None:
+    def delete_faces_for_photo(self, photo_id: int) -> None:
         """Delete all face detections for a photo."""
         with self.pool.transaction() as conn:
             with conn.cursor() as cursor:
@@ -541,7 +545,7 @@ class PhotoRepository:
 
     # Face embedding methods
 
-    def save_face_embedding(self, face_id: str, embedding: List[float]) -> None:
+    def save_face_embedding(self, face_id: int, embedding: List[float]) -> None:
         """Save face embedding using pgvector."""
         with self.pool.transaction() as conn:
             with conn.cursor() as cursor:
@@ -550,21 +554,22 @@ class PhotoRepository:
                        VALUES (%s, %s)
                        ON CONFLICT (face_id) 
                        DO UPDATE SET embedding = EXCLUDED.embedding""",
-                    (face_id, embedding)
+                    (face_id, embedding),
                 )
 
-    def get_face_embedding(self, face_id: str) -> Optional[List[float]]:
+    def get_face_embedding(self, face_id: int) -> Optional[List[float]]:
         """Get face embedding by face ID."""
         with self.pool.get_connection() as conn:
             with conn.cursor() as cursor:
                 cursor.execute(
-                    "SELECT embedding FROM face_embedding WHERE face_id = %s",
-                    (face_id,)
+                    "SELECT embedding FROM face_embedding WHERE face_id = %s", (face_id,)
                 )
                 row = cursor.fetchone()
                 return list(row[0]) if row else None
 
-    def find_similar_faces(self, query_embedding: List[float], threshold: float = 0.6, limit: int = 10) -> List[tuple]:
+    def find_similar_faces(
+        self, query_embedding: List[float], threshold: float = 0.6, limit: int = 10
+    ) -> List[tuple]:
         """Find similar faces using pgvector cosine similarity."""
         with self.pool.get_connection() as conn:
             with conn.cursor() as cursor:
@@ -575,6 +580,6 @@ class PhotoRepository:
                        WHERE 1 - (fe.embedding <=> %s) >= %s
                        ORDER BY similarity DESC
                        LIMIT %s""",
-                    (query_embedding, query_embedding, threshold, limit)
+                    (query_embedding, query_embedding, threshold, limit),
                 )
                 return cursor.fetchall()

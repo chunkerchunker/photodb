@@ -546,106 +546,21 @@ class EnrichStage(BaseStage):
         try:
             import boto3
 
-            # Download results from S3
-            s3_bucket = self.config.get("BEDROCK_BATCH_S3_BUCKET")
-            if not s3_bucket:
-                logger.error("BEDROCK_BATCH_S3_BUCKET not configured")
-                return 0
-
             s3_client = boto3.client("s3")
 
-            # Extract job name from ARN for S3 path
-            # The ARN format should be: arn:aws:bedrock:region:account:model-invocation-job/job-name
-            logger.debug(f"Batch job ARN: {job_arn}")
-            job_name = job_arn.split("/")[-1]
-            logger.debug(f"Extracted job name: {job_name}")
+            output_data_config = job_response.get("outputDataConfig", {})
+            s3Uri = output_data_config.get("s3OutputDataConfig", {}).get("s3Uri", "")
+            if not s3Uri.startswith("s3://"):
+                logger.error(f"Invalid S3 URI in job response: {s3Uri}")
+                return 0
 
-            # The output path should match what we used in job creation
-            # We used: f"batch-output/{batch_name}/" where batch_name was f"photodb-batch-{timestamp}"
-            # But the job name in the ARN might be different, so let's try both patterns
-            output_prefix = f"batch-output/{job_name}/"
-            logger.debug(f"S3 output prefix: {output_prefix}")
+            _, _, bucket_and_prefix = s3Uri.partition("s3://")
+            s3_bucket, _, output_prefix = bucket_and_prefix.partition("/")
 
-            # List output files - try the expected path first
             logger.debug(f"Looking for output files with prefix: {output_prefix}")
             response = s3_client.list_objects_v2(Bucket=s3_bucket, Prefix=output_prefix)
 
             processed_count = 0
-
-            if "Contents" in response:
-                logger.info(
-                    f"Found {len(response['Contents'])} output files with prefix {output_prefix}"
-                )
-                for obj_info in response["Contents"]:
-                    logger.debug(f"Output file: {obj_info['Key']} (size: {obj_info['Size']})")
-            else:
-                # If not found, try to see what's actually in the bucket
-                logger.warning(f"No output files found with prefix {output_prefix}")
-                logger.debug("Listing all objects in batch-output/ to see what's there...")
-
-                try:
-                    all_output_response = s3_client.list_objects_v2(
-                        Bucket=s3_bucket, Prefix="batch-output/"
-                    )
-
-                    if "Contents" in all_output_response:
-                        logger.info(
-                            f"Found {len(all_output_response['Contents'])} files in batch-output/:"
-                        )
-                        for obj_info in all_output_response["Contents"]:
-                            logger.info(f"  - {obj_info['Key']} (size: {obj_info['Size']})")
-
-                        # Try to find files that match our job name pattern
-                        # Bedrock output files end with .out, not .jsonl
-                        matching_files = []
-                        for obj in all_output_response["Contents"]:
-                            # Look for files containing the job name and ending with .jsonl.out
-                            if (
-                                job_name in obj["Key"]
-                                and (
-                                    obj["Key"].endswith(".jsonl.out") or obj["Key"].endswith(".out")
-                                )
-                                and obj["Size"] > 0
-                            ):  # Skip empty files/directories
-                                logger.info(f"Found matching output file: {obj['Key']}")
-                                matching_files.append(obj)
-
-                        if matching_files:
-                            response = {"Contents": matching_files}
-                            logger.info(f"Will process {len(matching_files)} output files")
-                        else:
-                            logger.error(f"No matching .out files found for job {job_name}")
-                    else:
-                        logger.error("No files found in batch-output/ at all")
-                        # Try listing the entire bucket to see what's there
-                        logger.debug("Listing entire bucket to see available files...")
-                        try:
-                            all_bucket_response = s3_client.list_objects_v2(Bucket=s3_bucket)
-                            if "Contents" in all_bucket_response:
-                                logger.info(
-                                    f"Found {len(all_bucket_response['Contents'])} total files in bucket:"
-                                )
-                                for obj_info in all_bucket_response["Contents"][
-                                    :20
-                                ]:  # Show first 20 files
-                                    logger.info(f"  - {obj_info['Key']} (size: {obj_info['Size']})")
-                                if len(all_bucket_response["Contents"]) > 20:
-                                    logger.info(
-                                        f"  ... and {len(all_bucket_response['Contents']) - 20} more files"
-                                    )
-                            else:
-                                logger.error("Bucket is completely empty")
-                        except Exception as e:
-                            logger.error(f"Error listing entire bucket: {e}")
-                        return 0
-
-                except Exception as e:
-                    logger.error(f"Error listing bucket contents: {e}")
-                    return 0
-
-                if "Contents" not in response:
-                    logger.error(f"Still no output files found for job {job_name}")
-                    return 0
 
             if "Contents" in response:
                 for obj in response["Contents"]:

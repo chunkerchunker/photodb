@@ -1,7 +1,7 @@
 CREATE EXTENSION IF NOT EXISTS vector;
 
--- Photos table: Core photo records
-CREATE TABLE IF NOT EXISTS photos(
+-- Photo table: Core photo records
+CREATE TABLE IF NOT EXISTS photo(
     id text PRIMARY KEY DEFAULT gen_random_uuid(),
     filename text NOT NULL UNIQUE, -- Relative path from INGEST_PATH
     normalized_path text NOT NULL, -- Path to normalized image in IMG_PATH
@@ -17,7 +17,7 @@ CREATE TABLE IF NOT EXISTS metadata(
     longitude real,
     extra jsonb, -- All EXIF/TIFF/IFD metadata as JSONB (PostgreSQL native JSON)
     created_at timestamp DEFAULT CURRENT_TIMESTAMP,
-    FOREIGN KEY (photo_id) REFERENCES photos(id) ON DELETE CASCADE
+    FOREIGN KEY (photo_id) REFERENCES photo(id) ON DELETE CASCADE
 );
 
 -- Processing status table: Track processing stages
@@ -28,11 +28,11 @@ CREATE TABLE IF NOT EXISTS processing_status(
     processed_at timestamp,
     error_message text,
     PRIMARY KEY (photo_id, stage),
-    FOREIGN KEY (photo_id) REFERENCES photos(id) ON DELETE CASCADE
+    FOREIGN KEY (photo_id) REFERENCES photo(id) ON DELETE CASCADE
 );
 
 -- Indexes for performance
-CREATE INDEX IF NOT EXISTS idx_photos_filename ON photos(filename);
+CREATE INDEX IF NOT EXISTS idx_photo_filename ON photo(filename);
 
 CREATE INDEX IF NOT EXISTS idx_metadata_captured_at ON metadata(captured_at);
 
@@ -69,11 +69,11 @@ CREATE TABLE IF NOT EXISTS llm_analysis(
     cache_creation_tokens integer,
     cache_read_tokens integer,
     error_message text, -- If processing failed
-    FOREIGN KEY (photo_id) REFERENCES photos(id) ON DELETE CASCADE
+    FOREIGN KEY (photo_id) REFERENCES photo(id) ON DELETE CASCADE
 );
 
--- Batch Jobs table: Track LLM batch processing jobs
-CREATE TABLE IF NOT EXISTS batch_jobs(
+-- Batch Job table: Track LLM batch processing jobs
+CREATE TABLE IF NOT EXISTS batch_job(
     id text PRIMARY KEY DEFAULT gen_random_uuid(),
     provider_batch_id varchar(255) UNIQUE NOT NULL,
     status varchar(20) NOT NULL, -- submitted, processing, completed, failed
@@ -110,9 +110,9 @@ CREATE INDEX IF NOT EXISTS idx_llm_analysis_batch_id ON llm_analysis(batch_id);
 
 CREATE INDEX IF NOT EXISTS idx_llm_analysis_analysis ON llm_analysis USING GIN(analysis);
 
-CREATE INDEX IF NOT EXISTS idx_batch_jobs_status ON batch_jobs(status);
+CREATE INDEX IF NOT EXISTS idx_batch_job_status ON batch_job(status);
 
-CREATE INDEX IF NOT EXISTS idx_batch_jobs_submitted_at ON batch_jobs(submitted_at);
+CREATE INDEX IF NOT EXISTS idx_batch_job_submitted_at ON batch_job(submitted_at);
 
 -- People table: Named individuals that can appear in photos
 CREATE TABLE IF NOT EXISTS person(
@@ -134,7 +134,7 @@ CREATE TABLE IF NOT EXISTS face(
     -- Detection metadata
     person_id text, -- Nullable reference to identified person
     confidence DECIMAL(3, 2) NOT NULL DEFAULT 0, -- Detection confidence 0.00-1.00
-    FOREIGN KEY (photo_id) REFERENCES photos(id) ON DELETE CASCADE,
+    FOREIGN KEY (photo_id) REFERENCES photo(id) ON DELETE CASCADE,
     FOREIGN KEY (person_id) REFERENCES person(id) ON DELETE SET NULL
 );
 

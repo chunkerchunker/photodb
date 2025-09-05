@@ -96,7 +96,7 @@ Create a simple Flask-based web application for browsing the PhotoDB collection 
 #### Image Serving
 ```python
 # src/photodb/web/images.py
-- Read image path from photos.normalized_path
+- Read image path from photo.normalized_path
 - Serve the normalized image directly (no resizing)
 - Use Flask's send_file() for efficient serving
 - Set appropriate cache headers
@@ -159,7 +159,7 @@ ORDER BY month;
 
 -- Photos by month
 SELECT p.*, m.*, la.description, la.analysis
-FROM photos p
+FROM photo p
 JOIN metadata m ON p.id = m.photo_id
 LEFT JOIN llm_analysis la ON p.id = la.photo_id
 WHERE EXTRACT(YEAR FROM m.captured_at) = :year
@@ -168,7 +168,7 @@ ORDER BY m.captured_at;
 
 -- Photo details
 SELECT p.*, m.*, la.*, ps.*
-FROM photos p
+FROM photo p
 JOIN metadata m ON p.id = m.photo_id
 LEFT JOIN llm_analysis la ON p.id = la.photo_id
 LEFT JOIN processing_status ps ON p.id = ps.photo_id

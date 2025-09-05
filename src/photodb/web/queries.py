@@ -13,7 +13,7 @@ class PhotoQueries:
                    COUNT(*)::int as photo_count,
                    MIN(p.id) as sample_photo_id
             FROM metadata m
-            JOIN photos p ON p.id = m.photo_id
+            JOIN photo p ON p.id = m.photo_id
             WHERE m.captured_at IS NOT NULL
             GROUP BY year
             ORDER BY year DESC
@@ -47,7 +47,7 @@ class PhotoQueries:
                 for month_data in months:
                     sample_query = """
                         SELECT p.id
-                        FROM photos p
+                        FROM photo p
                         JOIN metadata m ON p.id = m.photo_id
                         WHERE EXTRACT(YEAR FROM m.captured_at) = %s
                           AND EXTRACT(MONTH FROM m.captured_at) = %s
@@ -67,7 +67,7 @@ class PhotoQueries:
                    m.captured_at, m.latitude, m.longitude,
                    la.description, la.emotional_tone,
                    la.objects, la.people_count
-            FROM photos p
+            FROM photo p
             JOIN metadata m ON p.id = m.photo_id
             LEFT JOIN llm_analysis la ON p.id = la.photo_id
             WHERE EXTRACT(YEAR FROM m.captured_at) = %s
@@ -105,7 +105,7 @@ class PhotoQueries:
                    la.location_description, la.emotional_tone,
                    la.model_name, la.processed_at as analysis_processed_at,
                    la.confidence_score
-            FROM photos p
+            FROM photo p
             LEFT JOIN metadata m ON p.id = m.photo_id
             LEFT JOIN llm_analysis la ON p.id = la.photo_id
             WHERE p.id = %s
@@ -156,7 +156,7 @@ class PhotoQueries:
     def get_photo_by_id(self, photo_id: str) -> Optional[Dict[str, Any]]:
         query = """
             SELECT id, filename, normalized_path
-            FROM photos
+            FROM photo
             WHERE id = %s
         """
 

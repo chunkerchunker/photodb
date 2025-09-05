@@ -19,7 +19,7 @@ class PhotoRepository:
         with self.pool.transaction() as conn:
             with conn.cursor() as cursor:
                 cursor.execute(
-                    """INSERT INTO photos (id, filename, normalized_path, created_at, updated_at)
+                    """INSERT INTO photo (id, filename, normalized_path, created_at, updated_at)
                        VALUES (%s, %s, %s, %s, %s)""",
                     (
                         photo.id,
@@ -34,7 +34,7 @@ class PhotoRepository:
         """Get photo by filename."""
         with self.pool.get_connection() as conn:
             with conn.cursor(cursor_factory=RealDictCursor) as cursor:
-                cursor.execute("SELECT * FROM photos WHERE filename = %s", (filename,))
+                cursor.execute("SELECT * FROM photo WHERE filename = %s", (filename,))
                 row = cursor.fetchone()
 
                 if row:
@@ -45,7 +45,7 @@ class PhotoRepository:
         """Get photo by ID."""
         with self.pool.get_connection() as conn:
             with conn.cursor(cursor_factory=RealDictCursor) as cursor:
-                cursor.execute("SELECT * FROM photos WHERE id = %s", (photo_id,))
+                cursor.execute("SELECT * FROM photo WHERE id = %s", (photo_id,))
                 row = cursor.fetchone()
 
                 if row:
@@ -58,7 +58,7 @@ class PhotoRepository:
         with self.pool.transaction() as conn:
             with conn.cursor() as cursor:
                 cursor.execute(
-                    """UPDATE photos 
+                    """UPDATE photo 
                        SET normalized_path = %s, updated_at = %s
                        WHERE id = %s""",
                     (photo.normalized_path, photo.updated_at, photo.id),
@@ -150,7 +150,7 @@ class PhotoRepository:
         with self.pool.get_connection() as conn:
             with conn.cursor(cursor_factory=RealDictCursor) as cursor:
                 cursor.execute(
-                    """SELECT p.* FROM photos p
+                    """SELECT p.* FROM photo p
                        LEFT JOIN processing_status ps 
                        ON p.id = ps.photo_id AND ps.stage = %s
                        WHERE ps.status IS NULL OR ps.status != 'completed'
@@ -167,7 +167,7 @@ class PhotoRepository:
             with conn.cursor(cursor_factory=RealDictCursor) as cursor:
                 cursor.execute(
                     """SELECT p.*, ps.error_message, ps.processed_at 
-                       FROM photos p
+                       FROM photo p
                        JOIN processing_status ps ON p.id = ps.photo_id
                        WHERE ps.stage = %s AND ps.status = 'failed'""",
                     (stage,),
@@ -271,7 +271,7 @@ class PhotoRepository:
         with self.pool.get_connection() as conn:
             with conn.cursor(cursor_factory=RealDictCursor) as cursor:
                 cursor.execute(
-                    """SELECT p.* FROM photos p
+                    """SELECT p.* FROM photo p
                        WHERE p.normalized_path != ''
                        AND NOT EXISTS (
                            SELECT 1 FROM llm_analysis la 
@@ -291,7 +291,7 @@ class PhotoRepository:
         with self.pool.transaction() as conn:
             with conn.cursor() as cursor:
                 cursor.execute(
-                    """INSERT INTO batch_jobs 
+                    """INSERT INTO batch_job 
                        (id, provider_batch_id, status, submitted_at, completed_at,
                         photo_count, processed_count, failed_count, photo_ids,
                         total_input_tokens, total_output_tokens, total_cache_creation_tokens, total_cache_read_tokens,
@@ -325,7 +325,7 @@ class PhotoRepository:
         with self.pool.get_connection() as conn:
             with conn.cursor(cursor_factory=RealDictCursor) as cursor:
                 cursor.execute(
-                    "SELECT * FROM batch_jobs WHERE provider_batch_id = %s", (provider_batch_id,)
+                    "SELECT * FROM batch_job WHERE provider_batch_id = %s", (provider_batch_id,)
                 )
                 row = cursor.fetchone()
 
@@ -342,7 +342,7 @@ class PhotoRepository:
         with self.pool.transaction() as conn:
             with conn.cursor() as cursor:
                 cursor.execute(
-                    """UPDATE batch_jobs 
+                    """UPDATE batch_job 
                        SET status = %s, completed_at = %s, processed_count = %s,
                            failed_count = %s, 
                            total_input_tokens = %s, total_output_tokens = %s,
@@ -371,7 +371,7 @@ class PhotoRepository:
         with self.pool.get_connection() as conn:
             with conn.cursor(cursor_factory=RealDictCursor) as cursor:
                 cursor.execute(
-                    """SELECT * FROM batch_jobs 
+                    """SELECT * FROM batch_job 
                        WHERE status IN ('submitted', 'processing')
                        ORDER BY submitted_at"""
                 )
@@ -524,7 +524,7 @@ class PhotoRepository:
         with self.pool.get_connection() as conn:
             with conn.cursor(cursor_factory=RealDictCursor) as cursor:
                 cursor.execute(
-                    """SELECT DISTINCT p.* FROM photos p
+                    """SELECT DISTINCT p.* FROM photo p
                        JOIN face f ON p.id = f.photo_id
                        WHERE f.person_id = %s""",
                     (person_id,),

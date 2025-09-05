@@ -1,5 +1,5 @@
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Optional, Dict, Any, List
 import json
 
@@ -15,7 +15,7 @@ class Photo:
     @classmethod
     def create(cls, filename: str, normalized_path: str) -> "Photo":
         """Create a new photo record."""
-        now = datetime.now()
+        now = datetime.now(timezone.utc)
         return cls(
             id=None,  # Will be assigned by database
             filename=filename,
@@ -29,8 +29,8 @@ class Photo:
             "id": self.id,
             "filename": self.filename,
             "normalized_path": self.normalized_path,
-            "created_at": self.created_at.isoformat(),
-            "updated_at": self.updated_at.isoformat(),
+            "created_at": self.created_at,
+            "updated_at": self.updated_at,
         }
 
 
@@ -52,17 +52,17 @@ class Metadata:
             latitude=kwargs.get("latitude"),
             longitude=kwargs.get("longitude"),
             extra=kwargs.get("extra", {}),
-            created_at=datetime.now(),
+            created_at=datetime.now(timezone.utc),
         )
 
     def to_dict(self) -> Dict[str, Any]:
         return {
             "photo_id": self.photo_id,
-            "captured_at": self.captured_at.isoformat() if self.captured_at else None,
+            "captured_at": self.captured_at,
             "latitude": self.latitude,
             "longitude": self.longitude,
             "extra": json.dumps(self.extra),
-            "created_at": self.created_at.isoformat(),
+            "created_at": self.created_at,
         }
 
 
@@ -79,7 +79,7 @@ class ProcessingStatus:
             "photo_id": self.photo_id,
             "stage": self.stage,
             "status": self.status,
-            "processed_at": self.processed_at.isoformat() if self.processed_at else None,
+            "processed_at": self.processed_at,
             "error_message": self.error_message,
         }
 
@@ -119,7 +119,7 @@ class LLMAnalysis:
             photo_id=photo_id,
             model_name=model_name,
             model_version=kwargs.get("model_version"),
-            processed_at=datetime.now(),
+            processed_at=datetime.now(timezone.utc),
             batch_id=kwargs.get("batch_id"),
             analysis=analysis,
             description=kwargs.get("description"),
@@ -142,7 +142,7 @@ class LLMAnalysis:
             "photo_id": self.photo_id,
             "model_name": self.model_name,
             "model_version": self.model_version,
-            "processed_at": self.processed_at.isoformat(),
+            "processed_at": self.processed_at,
             "batch_id": self.batch_id,
             "analysis": json.dumps(self.analysis),
             "description": self.description,
@@ -170,7 +170,7 @@ class Person:
     @classmethod
     def create(cls, name: str) -> "Person":
         """Create a new person record."""
-        now = datetime.now()
+        now = datetime.now(timezone.utc)
         return cls(
             id=None,  # Will be assigned by database
             name=name,
@@ -182,8 +182,8 @@ class Person:
         return {
             "id": self.id,
             "name": self.name,
-            "created_at": self.created_at.isoformat(),
-            "updated_at": self.updated_at.isoformat(),
+            "created_at": self.created_at,
+            "updated_at": self.updated_at,
         }
 
 
@@ -271,7 +271,7 @@ class BatchJob:
             id=None,  # Will be assigned by database
             provider_batch_id=provider_batch_id,
             status="submitted",
-            submitted_at=datetime.now(),
+            submitted_at=datetime.now(timezone.utc),
             completed_at=None,
             photo_count=len(photo_ids),
             processed_count=0,
@@ -285,8 +285,8 @@ class BatchJob:
             "id": self.id,
             "provider_batch_id": self.provider_batch_id,
             "status": self.status,
-            "submitted_at": self.submitted_at.isoformat(),
-            "completed_at": self.completed_at.isoformat() if self.completed_at else None,
+            "submitted_at": self.submitted_at,
+            "completed_at": self.completed_at,
             "photo_count": self.photo_count,
             "processed_count": self.processed_count,
             "failed_count": self.failed_count,

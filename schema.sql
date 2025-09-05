@@ -5,18 +5,18 @@ CREATE TABLE IF NOT EXISTS photo(
     id bigserial PRIMARY KEY,
     filename text NOT NULL UNIQUE, -- Relative path from INGEST_PATH
     normalized_path text UNIQUE, -- Path to normalized image in IMG_PATH
-    created_at timestamp DEFAULT CURRENT_TIMESTAMP,
-    updated_at timestamp DEFAULT CURRENT_TIMESTAMP
+    created_at timestamptz DEFAULT now(),
+    updated_at timestamptz DEFAULT now()
 );
 
 -- Metadata table: Extracted photo metadata
 CREATE TABLE IF NOT EXISTS metadata(
     photo_id bigint PRIMARY KEY,
-    captured_at timestamp, -- When photo was taken
+    captured_at timestamptz, -- When photo was taken
     latitude real,
     longitude real,
     extra jsonb, -- All EXIF/TIFF/IFD metadata as JSONB (PostgreSQL native JSON)
-    created_at timestamp DEFAULT CURRENT_TIMESTAMP,
+    created_at timestamptz DEFAULT now(),
     FOREIGN KEY (photo_id) REFERENCES photo(id) ON DELETE CASCADE
 );
 
@@ -25,7 +25,7 @@ CREATE TABLE IF NOT EXISTS processing_status(
     photo_id bigint NOT NULL,
     stage text NOT NULL, -- 'normalize', 'metadata', etc.
     status text NOT NULL, -- 'pending', 'processing', 'completed', 'failed'
-    processed_at timestamp,
+    processed_at timestamptz,
     error_message text,
     PRIMARY KEY (photo_id, stage),
     FOREIGN KEY (photo_id) REFERENCES photo(id) ON DELETE CASCADE

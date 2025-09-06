@@ -67,6 +67,10 @@ Extract all available EXIF/TIFF/IFD metadata from the ingest photo and create a 
 
 use facenet utility in src/utils/face_extractor.py to extract faces, confidences, and embeddings, and save to db.
 
+## Stage 4: Cluster faces
+
+use embeddings to cluster faces based on cosine similarity.
+
 ## Stage R1: Extract LLM-based metadata
 
 This stage sends the normalized photo and complete exif data to an LLM for advanced metadata extraction using the prompt info in [analyze_photo.md](../prompts/analyze_photo.md).

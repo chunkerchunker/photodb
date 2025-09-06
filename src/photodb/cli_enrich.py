@@ -91,60 +91,60 @@ def main(
 
         # Create PostgreSQL connection pool
         # For enrich, we don't need as many connections since we're not doing parallel processing
-        connection_pool = ConnectionPool(
+        with ConnectionPool(
             connection_string=config_data.get("DATABASE_URL"), min_conn=2, max_conn=10
-        )
-        logger.info("Created connection pool for enrich processing")
-        repository = PhotoRepository(connection_pool)
+        ) as connection_pool:
+            logger.info("Created connection pool for enrich processing")
+            repository = PhotoRepository(connection_pool)
 
-        # Handle batch checking mode
-        if check_batches:
-            handle_batch_checking(repository, config_data, wait, logger)
-            sys.exit(0)
+            # Handle batch checking mode
+            if check_batches:
+                handle_batch_checking(repository, config_data, wait, logger)
+                sys.exit(0)
 
-        if not path:
-            logger.error("PATH argument is required when not using --check-batches")
-            sys.exit(1)
+            if not path:
+                logger.error("PATH argument is required when not using --check-batches")
+                sys.exit(1)
 
-        # Type narrowing: path is guaranteed to be str after the check above
-        assert path is not None
-        input_path = resolve_path(path, config_data["INGEST_PATH"])
+            # Type narrowing: path is guaranteed to be str after the check above
+            assert path is not None
+            input_path = resolve_path(path, config_data["INGEST_PATH"])
 
-        if not input_path.exists():
-            logger.error(f"Path does not exist: {input_path}")
-            sys.exit(1)
+            if not input_path.exists():
+                logger.error(f"Path does not exist: {input_path}")
+                sys.exit(1)
 
-        # Determine batch mode settings
-        use_batch_mode = not no_batch and not dry_run
+            # Determine batch mode settings
+            use_batch_mode = not no_batch and not dry_run
 
-        if use_batch_mode:
-            logger.info(f"Using batch mode with batch size: {config_data['BATCH_SIZE']}")
-        else:
-            logger.info("Batch mode disabled for enrich stage")
+            if use_batch_mode:
+                logger.info(f"Using batch mode with batch size: {config_data['BATCH_SIZE']}")
+            else:
+                logger.info("Batch mode disabled for enrich stage")
 
-        # Create batch processor for enrich stage
-        processor = BatchProcessor(
-            repository=repository,
-            config=config_data,
-            force=force or retry_failed,
-            dry_run=dry_run,
-            max_photos=max_photos,
-            batch_mode=use_batch_mode,
-            async_batch=not no_async,
-        )
-
-        if input_path.is_file():
-            logger.info(f"Processing single file: {input_path}")
-            result = processor.process_file(input_path, "enrich")
-        else:
-            logger.info(f"Processing directory: {input_path}")
-            result = processor.process_directory(
-                input_path, stage="enrich", recursive=recursive, pattern=pattern
+            # Create batch processor for enrich stage
+            processor = BatchProcessor(
+                repository=repository,
+                config=config_data,
+                force=force or retry_failed,
+                dry_run=dry_run,
+                max_photos=max_photos,
+                batch_mode=use_batch_mode,
+                async_batch=not no_async,
             )
 
-        report_results(result, logger)
+            if input_path.is_file():
+                logger.info(f"Processing single file: {input_path}")
+                result = processor.process_file(input_path, "enrich")
+            else:
+                logger.info(f"Processing directory: {input_path}")
+                result = processor.process_directory(
+                    input_path, stage="enrich", recursive=recursive, pattern=pattern
+                )
 
-        sys.exit(0 if result.success else 1)
+            report_results(result, logger)
+
+            sys.exit(0 if result.success else 1)
 
     except KeyboardInterrupt:
         logger.info("Processing interrupted by user")

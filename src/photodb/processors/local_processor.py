@@ -9,6 +9,7 @@ from ..database.connection import ConnectionPool
 from ..stages.normalize import NormalizeStage
 from ..stages.metadata import MetadataStage
 from ..stages.faces import FacesStage
+from ..stages.clustering import ClusteringStage
 
 logger = logging.getLogger(__name__)
 
@@ -44,13 +45,27 @@ class LocalProcessor(BaseProcessor):
             "normalize": NormalizeStage(repository, config),
             "metadata": MetadataStage(repository, config),
             "faces": FacesStage(repository, config),
+            "clustering": ClusteringStage(repository, config),
         }
 
+    def close(self):
+        """Clean up resources, including connection pool."""
+        if self.connection_pool:
+            self.connection_pool.close_all()
+
+    def __enter__(self):
+        """Enter context manager."""
+        return self
+
+    def __exit__(self, exc_type, exc_val, exc_tb):
+        """Exit context manager and cleanup."""
+        self.close()
+
     def _get_stages(self, stage: str) -> List[str]:
-        """Get list of stages to run (normalize, metadata, and faces)."""
+        """Get list of stages to run (normalize, metadata, faces, and clustering)."""
         if stage == "all":
-            return ["normalize", "metadata", "faces"]
-        elif stage in ["normalize", "metadata", "faces"]:
+            return ["normalize", "metadata", "faces", "clustering"]
+        elif stage in ["normalize", "metadata", "faces", "clustering"]:
             return [stage]
         else:
             raise ValueError(f"Invalid stage for LocalProcessor: {stage}")
@@ -92,6 +107,8 @@ class LocalProcessor(BaseProcessor):
                 if stage_obj.should_process(file_path, self.force):
                     logger.debug(f"Running {stage_name} on {file_path}")
                     try:
+                        # Set force flag on stage object for clustering logic
+                        stage_obj.force = self.force
                         stage_obj.process(file_path)
 
                         # Check if the stage actually succeeded by looking at processing status
@@ -175,6 +192,9 @@ class LocalProcessor(BaseProcessor):
                     else None,
                     "faces": FacesStage(pooled_repo, self.config)
                     if "faces" in stages
+                    else None,
+                    "clustering": ClusteringStage(pooled_repo, self.config)
+                    if "clustering" in stages
                     else None,
                 }
 

@@ -151,7 +151,6 @@
                 <input class="form-check-input" type="checkbox" id="show-faces-checkbox">
                 <label class="form-check-label" for="show-faces-checkbox">
                     Show face bounding boxes
-                    <small class="text-muted">(preference saved)</small>
                 </label>
             </div>
             
@@ -164,6 +163,8 @@
                         <strong>Face {{ loop.index }}:</strong>
                         {% if face.person_name %}
                         <span class="badge bg-primary">{{ face.person_name }}</span>
+                        {% elif face.cluster_id %}
+                        <span class="badge bg-info">Cluster {{ face.cluster_id }}</span>
                         {% else %}
                         <span class="badge bg-secondary">Unknown</span>
                         {% endif %}

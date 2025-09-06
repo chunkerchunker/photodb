@@ -114,7 +114,7 @@ CREATE INDEX IF NOT EXISTS idx_batch_job_status ON batch_job(status);
 
 CREATE INDEX IF NOT EXISTS idx_batch_job_submitted_at ON batch_job(submitted_at);
 
--- People table: Named individuals that can appear in photos
+-- People table: Named individuals that can appear in photos (whether detected or manually assigned)
 CREATE TABLE IF NOT EXISTS person(
     id bigserial PRIMARY KEY,
     name text NOT NULL,
@@ -131,9 +131,13 @@ CREATE TABLE IF NOT EXISTS face(
     bbox_y real NOT NULL, -- Y coordinate of top-left corner
     bbox_width real NOT NULL, -- Width of bounding box
     bbox_height real NOT NULL, -- Height of bounding box
+    confidence DECIMAL(3, 2) NOT NULL DEFAULT 0, -- Face detection confidence 0.00-1.00
     -- Detection metadata
-    person_id bigint, -- Nullable reference to identified person
-    confidence DECIMAL(3, 2) NOT NULL DEFAULT 0, -- Detection confidence 0.00-1.00
+    person_id bigint,
+    -- Clustering fields
+    cluster_status text CHECK (cluster_status IN ('auto', 'pending', 'manual')) DEFAULT NULL,
+    cluster_id bigint REFERENCES "cluster"(id) ON DELETE SET NULL,
+    cluster_confidence DECIMAL(3, 2) DEFAULT 0, -- Cluster assignment confidence 0.00-1.00
     FOREIGN KEY (photo_id) REFERENCES photo(id) ON DELETE CASCADE,
     FOREIGN KEY (person_id) REFERENCES person(id) ON DELETE SET NULL
 );
@@ -145,6 +149,10 @@ CREATE INDEX IF NOT EXISTS idx_face_person_id ON face(person_id);
 
 CREATE INDEX IF NOT EXISTS idx_face_confidence ON face(confidence);
 
+CREATE INDEX IF NOT EXISTS idx_face_cluster_status ON face(cluster_status);
+
+CREATE INDEX IF NOT EXISTS idx_face_cluster_id ON face(cluster_id);
+
 CREATE INDEX IF NOT EXISTS idx_person_name ON person(name);
 
 -- Face-level embeddings (for clustering & recognition)
@@ -153,5 +161,35 @@ CREATE TABLE IF NOT EXISTS face_embedding(
     embedding vector(512) NOT NULL
 );
 
-CREATE INDEX IF NOT EXISTS face_embedding_idx ON face_embedding USING ivfflat(embedding vector_cosine_ops);
+CREATE INDEX IF NOT EXISTS face_embedding_idx ON face_embedding USING ivfflat(embedding vector_cosine_ops) WITH (lists = 100);
+
+-- Group of faces belonging to the same person
+CREATE TABLE IF NOT EXISTS "cluster"(
+    id bigserial PRIMARY KEY,
+    face_count bigint DEFAULT 0,
+    representative_face_id bigint REFERENCES face(id),
+    centroid VECTOR(512),
+    medoid_face_id bigint REFERENCES face(id),
+    person_id bigint REFERENCES person(id),
+    created_at timestamptz DEFAULT now(),
+    updated_at timestamptz DEFAULT now(),
+    FOREIGN KEY (person_id) REFERENCES person(id) ON DELETE SET NULL
+);
+
+-- Tracks potential cluster assignments requiring review
+CREATE TABLE IF NOT EXISTS face_match_candidate(
+    candidate_id bigserial PRIMARY KEY,
+    face_id bigint REFERENCES face(id),
+    cluster_id bigint REFERENCES "cluster"(id) ON DELETE CASCADE,
+    similarity float NOT NULL,
+    status text CHECK (status IN ('pending', 'accepted', 'rejected')) DEFAULT 'pending',
+    created_at timestamp DEFAULT now()
+);
+
+-- Indexes for clustering performance
+CREATE INDEX IF NOT EXISTS idx_cluster_centroid ON "cluster" USING ivfflat(centroid vector_cosine_ops) WITH (lists = 100);
+
+CREATE INDEX IF NOT EXISTS idx_face_match_candidate_face ON face_match_candidate(face_id);
+
+CREATE INDEX IF NOT EXISTS idx_face_match_candidate_status ON face_match_candidate(status);
 

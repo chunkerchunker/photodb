@@ -2,10 +2,10 @@ from typing import Optional, List, Dict, Any
 from datetime import datetime
 import json
 import logging
-from psycopg2.extras import RealDictCursor
+from psycopg.rows import dict_row
 
 from .connection import ConnectionPool
-from .models import Photo, Metadata, ProcessingStatus, LLMAnalysis, BatchJob, Person, Face
+from .models import Photo, Metadata, ProcessingStatus, LLMAnalysis, BatchJob, Person, Face, Cluster, FaceMatchCandidate
 
 logger = logging.getLogger(__name__)
 
@@ -33,7 +33,7 @@ class PhotoRepository:
     def get_photo_by_filename(self, filename: str) -> Optional[Photo]:
         """Get photo by filename."""
         with self.pool.get_connection() as conn:
-            with conn.cursor(cursor_factory=RealDictCursor) as cursor:
+            with conn.cursor(row_factory=dict_row) as cursor:
                 cursor.execute("SELECT * FROM photo WHERE filename = %s", (filename,))
                 row = cursor.fetchone()
 
@@ -44,7 +44,7 @@ class PhotoRepository:
     def get_photo_by_id(self, photo_id: int) -> Optional[Photo]:
         """Get photo by ID."""
         with self.pool.get_connection() as conn:
-            with conn.cursor(cursor_factory=RealDictCursor) as cursor:
+            with conn.cursor(row_factory=dict_row) as cursor:
                 cursor.execute("SELECT * FROM photo WHERE id = %s", (photo_id,))
                 row = cursor.fetchone()
 
@@ -92,7 +92,7 @@ class PhotoRepository:
     def get_metadata(self, photo_id: int) -> Optional[Metadata]:
         """Get metadata for a photo."""
         with self.pool.get_connection() as conn:
-            with conn.cursor(cursor_factory=RealDictCursor) as cursor:
+            with conn.cursor(row_factory=dict_row) as cursor:
                 cursor.execute("SELECT * FROM metadata WHERE photo_id = %s", (photo_id,))
                 row = cursor.fetchone()
 
@@ -128,7 +128,7 @@ class PhotoRepository:
     def get_processing_status(self, photo_id: int, stage: str) -> Optional[ProcessingStatus]:
         """Get processing status for a specific stage."""
         with self.pool.get_connection() as conn:
-            with conn.cursor(cursor_factory=RealDictCursor) as cursor:
+            with conn.cursor(row_factory=dict_row) as cursor:
                 cursor.execute(
                     """SELECT * FROM processing_status 
                        WHERE photo_id = %s AND stage = %s""",
@@ -148,7 +148,7 @@ class PhotoRepository:
     def get_unprocessed_photos(self, stage: str, limit: int = 100) -> List[Photo]:
         """Get photos that haven't been processed for a specific stage."""
         with self.pool.get_connection() as conn:
-            with conn.cursor(cursor_factory=RealDictCursor) as cursor:
+            with conn.cursor(row_factory=dict_row) as cursor:
                 cursor.execute(
                     """SELECT p.* FROM photo p
                        LEFT JOIN processing_status ps 
@@ -164,7 +164,7 @@ class PhotoRepository:
     def get_failed_photos(self, stage: str) -> List[Dict[str, Any]]:
         """Get photos that failed processing for a specific stage."""
         with self.pool.get_connection() as conn:
-            with conn.cursor(cursor_factory=RealDictCursor) as cursor:
+            with conn.cursor(row_factory=dict_row) as cursor:
                 cursor.execute(
                     """SELECT p.*, ps.error_message, ps.processed_at 
                        FROM photo p
@@ -179,7 +179,7 @@ class PhotoRepository:
     def get_photo_count_by_status(self, stage: str) -> Dict[str, int]:
         """Get count of photos by processing status for a stage."""
         with self.pool.get_connection() as conn:
-            with conn.cursor(cursor_factory=RealDictCursor) as cursor:
+            with conn.cursor(row_factory=dict_row) as cursor:
                 cursor.execute(
                     """SELECT status, COUNT(*) as count 
                        FROM processing_status
@@ -254,7 +254,7 @@ class PhotoRepository:
     def get_llm_analysis(self, photo_id: int) -> Optional[LLMAnalysis]:
         """Get LLM analysis for a photo."""
         with self.pool.get_connection() as conn:
-            with conn.cursor(cursor_factory=RealDictCursor) as cursor:
+            with conn.cursor(row_factory=dict_row) as cursor:
                 cursor.execute("SELECT * FROM llm_analysis WHERE photo_id = %s", (photo_id,))
                 row = cursor.fetchone()
 
@@ -273,7 +273,7 @@ class PhotoRepository:
     def get_photos_for_llm_analysis(self, limit: int = 100) -> List[Photo]:
         """Get photos that need LLM analysis (have normalized image but no analysis)."""
         with self.pool.get_connection() as conn:
-            with conn.cursor(cursor_factory=RealDictCursor) as cursor:
+            with conn.cursor(row_factory=dict_row) as cursor:
                 cursor.execute(
                     """SELECT p.* FROM photo p
                        WHERE p.normalized_path IS NOT NULL
@@ -327,7 +327,7 @@ class PhotoRepository:
     def get_batch_job_by_provider_id(self, provider_batch_id: str) -> Optional[BatchJob]:
         """Get batch job by provider batch ID."""
         with self.pool.get_connection() as conn:
-            with conn.cursor(cursor_factory=RealDictCursor) as cursor:
+            with conn.cursor(row_factory=dict_row) as cursor:
                 cursor.execute(
                     "SELECT * FROM batch_job WHERE provider_batch_id = %s", (provider_batch_id,)
                 )
@@ -373,7 +373,7 @@ class PhotoRepository:
     def get_active_batch_jobs(self) -> List[BatchJob]:
         """Get all batch jobs that are still processing."""
         with self.pool.get_connection() as conn:
-            with conn.cursor(cursor_factory=RealDictCursor) as cursor:
+            with conn.cursor(row_factory=dict_row) as cursor:
                 cursor.execute(
                     """SELECT * FROM batch_job 
                        WHERE status IN ('submitted', 'processing')
@@ -410,7 +410,7 @@ class PhotoRepository:
     def get_person_by_id(self, person_id: int) -> Optional[Person]:
         """Get person by ID."""
         with self.pool.get_connection() as conn:
-            with conn.cursor(cursor_factory=RealDictCursor) as cursor:
+            with conn.cursor(row_factory=dict_row) as cursor:
                 cursor.execute("SELECT * FROM person WHERE id = %s", (person_id,))
                 row = cursor.fetchone()
 
@@ -421,7 +421,7 @@ class PhotoRepository:
     def get_person_by_name(self, name: str) -> Optional[Person]:
         """Get person by name."""
         with self.pool.get_connection() as conn:
-            with conn.cursor(cursor_factory=RealDictCursor) as cursor:
+            with conn.cursor(row_factory=dict_row) as cursor:
                 cursor.execute("SELECT * FROM person WHERE name = %s", (name,))
                 row = cursor.fetchone()
 
@@ -444,7 +444,7 @@ class PhotoRepository:
     def list_people(self) -> List[Person]:
         """List all people."""
         with self.pool.get_connection() as conn:
-            with conn.cursor(cursor_factory=RealDictCursor) as cursor:
+            with conn.cursor(row_factory=dict_row) as cursor:
                 cursor.execute("SELECT * FROM person ORDER BY name")
                 rows = cursor.fetchall()
 
@@ -476,7 +476,7 @@ class PhotoRepository:
     def get_face_by_id(self, face_id: int) -> Optional[Face]:
         """Get face by ID."""
         with self.pool.get_connection() as conn:
-            with conn.cursor(cursor_factory=RealDictCursor) as cursor:
+            with conn.cursor(row_factory=dict_row) as cursor:
                 cursor.execute("SELECT * FROM face WHERE id = %s", (face_id,))
                 row = cursor.fetchone()
 
@@ -487,7 +487,7 @@ class PhotoRepository:
     def get_faces_for_photo(self, photo_id: int) -> List[Face]:
         """Get all faces detected in a photo."""
         with self.pool.get_connection() as conn:
-            with conn.cursor(cursor_factory=RealDictCursor) as cursor:
+            with conn.cursor(row_factory=dict_row) as cursor:
                 cursor.execute(
                     """SELECT * FROM face 
                        WHERE photo_id = %s 
@@ -501,7 +501,7 @@ class PhotoRepository:
     def get_faces_for_person(self, person_id: int) -> List[Face]:
         """Get all faces identified as a specific person."""
         with self.pool.get_connection() as conn:
-            with conn.cursor(cursor_factory=RealDictCursor) as cursor:
+            with conn.cursor(row_factory=dict_row) as cursor:
                 cursor.execute(
                     """SELECT * FROM face 
                        WHERE person_id = %s 
@@ -526,7 +526,7 @@ class PhotoRepository:
     def get_photos_with_person(self, person_id: int) -> List[Photo]:
         """Get all photos containing a specific person."""
         with self.pool.get_connection() as conn:
-            with conn.cursor(cursor_factory=RealDictCursor) as cursor:
+            with conn.cursor(row_factory=dict_row) as cursor:
                 cursor.execute(
                     """SELECT DISTINCT p.* FROM photo p
                        JOIN face f ON p.id = f.photo_id
@@ -583,3 +583,141 @@ class PhotoRepository:
                     (query_embedding, query_embedding, threshold, limit),
                 )
                 return cursor.fetchall()
+
+    # Clustering methods
+
+    def get_unclustered_faces_for_photo(self, photo_id: int) -> List[Dict[str, Any]]:
+        """Get all unclustered faces for a photo with embeddings."""
+        with self.pool.get_connection() as conn:
+            with conn.cursor(row_factory=dict_row) as cursor:
+                cursor.execute(
+                    """SELECT f.*, fe.embedding
+                       FROM face f
+                       LEFT JOIN face_embedding fe ON f.id = fe.face_id
+                       WHERE f.photo_id = %s 
+                         AND f.cluster_id IS NULL 
+                         AND f.cluster_status IS NULL
+                       ORDER BY f.id""",
+                    (photo_id,),
+                )
+                rows = cursor.fetchall()
+                return [dict(row) for row in rows]
+
+    def get_all_faces_with_embeddings_for_photo(self, photo_id: int) -> List[Dict[str, Any]]:
+        """Get all faces with embeddings for a photo (for force reprocessing)."""
+        with self.pool.get_connection() as conn:
+            with conn.cursor(row_factory=dict_row) as cursor:
+                cursor.execute(
+                    """SELECT f.*, fe.embedding
+                       FROM face f
+                       LEFT JOIN face_embedding fe ON f.id = fe.face_id
+                       WHERE f.photo_id = %s 
+                         AND fe.embedding IS NOT NULL
+                       ORDER BY f.id""",
+                    (photo_id,),
+                )
+                rows = cursor.fetchall()
+                return [dict(row) for row in rows]
+
+    def find_nearest_clusters(self, embedding, limit: int = 10) -> List[tuple]:
+        """Find nearest clusters using cosine distance."""
+        with self.pool.get_connection() as conn:
+            with conn.cursor() as cursor:
+                cursor.execute(
+                    """SELECT id, centroid <=> %s AS distance
+                       FROM cluster
+                       WHERE centroid IS NOT NULL
+                       ORDER BY centroid <=> %s
+                       LIMIT %s""",
+                    (embedding, embedding, limit),
+                )
+                return cursor.fetchall()
+
+    def create_cluster(
+        self,
+        centroid,
+        representative_face_id: int,
+        medoid_face_id: int,
+        face_count: int = 1,
+    ) -> int:
+        """Create a new cluster and return its ID."""
+        with self.pool.transaction() as conn:
+            with conn.cursor() as cursor:
+                cursor.execute(
+                    """INSERT INTO cluster 
+                       (face_count, representative_face_id, centroid, medoid_face_id, 
+                        created_at, updated_at)
+                       VALUES (%s, %s, %s, %s, NOW(), NOW())
+                       RETURNING id""",
+                    (face_count, representative_face_id, centroid, medoid_face_id),
+                )
+                return cursor.fetchone()[0]
+
+    def update_face_cluster(
+        self,
+        face_id: int,
+        cluster_id: int,
+        cluster_confidence: float,
+        cluster_status: str,
+    ) -> None:
+        """Update face cluster assignment."""
+        with self.pool.transaction() as conn:
+            with conn.cursor() as cursor:
+                cursor.execute(
+                    """UPDATE face 
+                       SET cluster_id = %s, 
+                           cluster_confidence = %s, 
+                           cluster_status = %s
+                       WHERE id = %s""",
+                    (cluster_id, cluster_confidence, cluster_status, face_id),
+                )
+
+    def update_face_cluster_status(self, face_id: int, cluster_status: str) -> None:
+        """Update only the cluster status for a face."""
+        with self.pool.transaction() as conn:
+            with conn.cursor() as cursor:
+                cursor.execute(
+                    """UPDATE face 
+                       SET cluster_status = %s
+                       WHERE id = %s""",
+                    (cluster_status, face_id),
+                )
+
+    def create_face_match_candidates(self, candidates: List[tuple]) -> None:
+        """Create multiple face match candidate records."""
+        with self.pool.transaction() as conn:
+            with conn.cursor() as cursor:
+                cursor.executemany(
+                    """INSERT INTO face_match_candidate 
+                       (face_id, cluster_id, similarity, status, created_at)
+                       VALUES (%s, %s, %s, 'pending', NOW())""",
+                    candidates,
+                )
+
+    def get_cluster_by_id(self, cluster_id: int) -> Optional[Cluster]:
+        """Get cluster by ID."""
+        with self.pool.get_connection() as conn:
+            with conn.cursor(row_factory=dict_row) as cursor:
+                cursor.execute("SELECT * FROM cluster WHERE id = %s", (cluster_id,))
+                row = cursor.fetchone()
+
+                if row:
+                    return Cluster(**dict(row))  # type: ignore[arg-type]
+                return None
+
+    def update_cluster_centroid(
+        self, cluster_id: int, centroid, face_count: int
+    ) -> None:
+        """Update cluster centroid and face count."""
+        with self.pool.transaction() as conn:
+            with conn.cursor() as cursor:
+                cursor.execute(
+                    """UPDATE cluster 
+                       SET centroid = %s, face_count = %s, updated_at = NOW()
+                       WHERE id = %s""",
+                    (centroid, face_count, cluster_id),
+                )
+
+    def get_connection(self):
+        """Get a database connection for transaction management."""
+        return self.pool.get_connection()

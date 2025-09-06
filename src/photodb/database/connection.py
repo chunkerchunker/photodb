@@ -1,12 +1,20 @@
-import psycopg2
-from psycopg2 import pool
+import psycopg
+from psycopg import sql
+from psycopg_pool import ConnectionPool as PsycopgPool
 import os
 from pathlib import Path
 from contextlib import contextmanager
 from typing import Optional, Generator, Any
 import logging
+import numpy as np
+from pgvector.psycopg import register_vector
 
 logger = logging.getLogger(__name__)
+
+
+def setup_vector_adapter(conn):
+    """Set up pgvector adapter for a connection."""
+    register_vector(conn)
 
 
 class Connection:
@@ -41,7 +49,8 @@ class Connection:
         """Get a database connection with proper cleanup."""
         conn = None
         try:
-            conn = psycopg2.connect(self.connection_string)
+            conn = psycopg.connect(self.connection_string)
+            setup_vector_adapter(conn)
             yield conn
         finally:
             if conn:
@@ -75,14 +84,25 @@ class ConnectionPool:
             "DATABASE_URL", "postgresql://localhost/photodb"
         )
 
-        # PostgreSQL can handle many more connections than SQLite
-        # Typical PostgreSQL can handle 100-200 connections easily
-        self.pool = pool.ThreadedConnectionPool(min_conn, max_conn, self.connection_string)
+        self.pool = PsycopgPool(
+            self.connection_string,
+            min_size=min_conn,
+            max_size=max_conn,
+            configure=setup_vector_adapter,
+        )
 
         logger.info(
             f"PostgreSQL connection pool initialized with {min_conn}-{max_conn} connections"
         )
         self._init_database()
+
+    def __enter__(self):
+        """Enter context manager."""
+        return self
+
+    def __exit__(self, exc_type, exc_val, exc_tb):
+        """Exit context manager and close pool."""
+        self.close_all()
 
     def _init_database(self):
         """Initialize database with schema."""
@@ -101,57 +121,19 @@ class ConnectionPool:
 
     @contextmanager
     def get_connection(self) -> Generator[Any, None, None]:
-        """Get a connection from the pool with timeout and retry logic."""
-        conn = None
-        max_retries = 100
-        retry_delay = 0.1  # 100ms
-
-        for attempt in range(max_retries):
-            try:
-                # Try to get a connection from the pool
-                # getconn will block if no connections are available
-                conn = self.pool.getconn()
-                if conn:
-                    try:
-                        yield conn
-                    except Exception:
-                        # If there's an exception, make sure we still return the connection
-                        raise
-                    finally:
-                        # Always return connection to pool, even on exception
-                        try:
-                            self.pool.putconn(conn)
-                        except Exception as e:
-                            logger.error(f"Failed to return connection to pool: {e}")
-                    return
-                else:
-                    raise Exception("Failed to get connection from pool")
-            except pool.PoolError as e:
-                if attempt < max_retries - 1:
-                    logger.debug(
-                        f"Connection pool exhausted, waiting... (attempt {attempt + 1}/{max_retries})"
-                    )
-                    import time
-
-                    time.sleep(retry_delay)
-                    continue
-                else:
-                    raise Exception(f"Could not get connection after {max_retries} attempts: {e}")
+        """Get a connection from the pool."""
+        with self.pool.connection() as conn:
+            yield conn
 
     @contextmanager
     def transaction(self) -> Generator[Any, None, None]:
         """Execute operations within a transaction using pooled connection."""
-        with self.get_connection() as conn:
-            try:
+        with self.pool.connection() as conn:
+            with conn.transaction():
                 yield conn
-                conn.commit()
-            except Exception as e:
-                conn.rollback()
-                logger.error(f"Transaction rolled back: {e}")
-                raise
 
     def close_all(self):
         """Close all connections in the pool."""
         if self.pool:
-            self.pool.closeall()
+            self.pool.close()
             logger.info("All connections closed")

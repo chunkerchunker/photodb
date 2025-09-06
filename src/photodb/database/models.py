@@ -197,6 +197,10 @@ class Face:
     bbox_height: float
     person_id: Optional[int]
     confidence: float
+    # Clustering fields
+    cluster_status: Optional[str] = None  # 'auto', 'pending', 'manual'
+    cluster_id: Optional[int] = None
+    cluster_confidence: Optional[float] = None
 
     @classmethod
     def create(
@@ -208,6 +212,9 @@ class Face:
         bbox_height: float,
         confidence: float,
         person_id: Optional[int] = None,
+        cluster_status: Optional[str] = None,
+        cluster_id: Optional[int] = None,
+        cluster_confidence: Optional[float] = None,
     ) -> "Face":
         """Create a new face detection record."""
         return cls(
@@ -219,6 +226,9 @@ class Face:
             bbox_height=bbox_height,
             person_id=person_id,
             confidence=confidence,
+            cluster_status=cluster_status,
+            cluster_id=cluster_id,
+            cluster_confidence=cluster_confidence,
         )
 
     def to_dict(self) -> Dict[str, Any]:
@@ -231,6 +241,93 @@ class Face:
             "bbox_height": self.bbox_height,
             "person_id": self.person_id,
             "confidence": self.confidence,
+            "cluster_status": self.cluster_status,
+            "cluster_id": self.cluster_id,
+            "cluster_confidence": self.cluster_confidence,
+        }
+
+
+@dataclass
+class Cluster:
+    id: Optional[int]
+    face_count: int
+    representative_face_id: Optional[int]
+    centroid: Optional[List[float]]  # 512-dimensional vector
+    medoid_face_id: Optional[int]
+    person_id: Optional[int]
+    created_at: datetime
+    updated_at: datetime
+
+    @classmethod
+    def create(
+        cls,
+        face_count: int = 0,
+        representative_face_id: Optional[int] = None,
+        centroid: Optional[List[float]] = None,
+        medoid_face_id: Optional[int] = None,
+        person_id: Optional[int] = None,
+    ) -> "Cluster":
+        """Create a new cluster record."""
+        now = datetime.now(timezone.utc)
+        return cls(
+            id=None,  # Will be assigned by database
+            face_count=face_count,
+            representative_face_id=representative_face_id,
+            centroid=centroid,
+            medoid_face_id=medoid_face_id,
+            person_id=person_id,
+            created_at=now,
+            updated_at=now,
+        )
+
+    def to_dict(self) -> Dict[str, Any]:
+        return {
+            "id": self.id,
+            "face_count": self.face_count,
+            "representative_face_id": self.representative_face_id,
+            "centroid": self.centroid,
+            "medoid_face_id": self.medoid_face_id,
+            "person_id": self.person_id,
+            "created_at": self.created_at,
+            "updated_at": self.updated_at,
+        }
+
+
+@dataclass
+class FaceMatchCandidate:
+    candidate_id: Optional[int]
+    face_id: int
+    cluster_id: int
+    similarity: float
+    status: str  # 'pending', 'accepted', 'rejected'
+    created_at: datetime
+
+    @classmethod
+    def create(
+        cls,
+        face_id: int,
+        cluster_id: int,
+        similarity: float,
+        status: str = "pending",
+    ) -> "FaceMatchCandidate":
+        """Create a new face match candidate record."""
+        return cls(
+            candidate_id=None,  # Will be assigned by database
+            face_id=face_id,
+            cluster_id=cluster_id,
+            similarity=similarity,
+            status=status,
+            created_at=datetime.now(timezone.utc),
+        )
+
+    def to_dict(self) -> Dict[str, Any]:
+        return {
+            "candidate_id": self.candidate_id,
+            "face_id": self.face_id,
+            "cluster_id": self.cluster_id,
+            "similarity": self.similarity,
+            "status": self.status,
+            "created_at": self.created_at,
         }
 
 

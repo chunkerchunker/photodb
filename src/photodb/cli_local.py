@@ -19,7 +19,7 @@ load_dotenv(os.getenv("ENV_FILE", "./.env"))
 @click.option("--force", is_flag=True, help="Force reprocessing of already processed photos")
 @click.option(
     "--stage",
-    type=click.Choice(["all", "normalize", "metadata", "faces"]),
+    type=click.Choice(["all", "normalize", "metadata", "faces", "clustering"]),
     default="all",
     help="Specific stage to run",
 )
@@ -78,42 +78,45 @@ def main(
         # Create PostgreSQL connection pool
         # Limit connections to avoid exceeding PostgreSQL's max_connections (typically 100)
         max_connections = min(parallel, 50)  # Use at most 50 connections
-        connection_pool = ConnectionPool(
-            connection_string=config_data.get("DATABASE_URL"), min_conn=2, max_conn=max_connections
-        )
-        logger.info(
-            f"Created connection pool with max {max_connections} connections for {parallel} workers"
-        )
-        repository = PhotoRepository(connection_pool)
-
-        input_path = resolve_path(path, config_data["INGEST_PATH"])
-
-        if not input_path.exists():
-            logger.error(f"Path does not exist: {input_path}")
-            sys.exit(1)
-
-        # Create local processor for parallel processing
-        processor = LocalProcessor(
-            repository=repository,
-            config=config_data,
-            force=force,
-            dry_run=dry_run,
-            parallel=parallel,
-            max_photos=max_photos,
-        )
-
-        if input_path.is_file():
-            logger.info(f"Processing single file: {input_path}")
-            result = processor.process_file(input_path, stage)
-        else:
-            logger.info(f"Processing directory: {input_path}")
-            result = processor.process_directory(
-                input_path, stage=stage, recursive=recursive, pattern=pattern
+        min_connections = min(2, max_connections)  # Ensure min_conn <= max_conn
+        with ConnectionPool(
+            connection_string=config_data.get("DATABASE_URL"), 
+            min_conn=min_connections, 
+            max_conn=max_connections
+        ) as connection_pool:
+            logger.info(
+                f"Created connection pool with max {max_connections} connections for {parallel} workers"
             )
+            repository = PhotoRepository(connection_pool)
 
-        report_results(result, logger)
+            input_path = resolve_path(path, config_data["INGEST_PATH"])
 
-        sys.exit(0 if result.success else 1)
+            if not input_path.exists():
+                logger.error(f"Path does not exist: {input_path}")
+                sys.exit(1)
+
+            # Create local processor for parallel processing
+            with LocalProcessor(
+                repository=repository,
+                config=config_data,
+                force=force,
+                dry_run=dry_run,
+                parallel=parallel,
+                max_photos=max_photos,
+            ) as processor:
+
+                if input_path.is_file():
+                    logger.info(f"Processing single file: {input_path}")
+                    result = processor.process_file(input_path, stage)
+                else:
+                    logger.info(f"Processing directory: {input_path}")
+                    result = processor.process_directory(
+                        input_path, stage=stage, recursive=recursive, pattern=pattern
+                    )
+
+            report_results(result, logger)
+
+            sys.exit(0 if result.success else 1)
 
     except KeyboardInterrupt:
         logger.info("Processing interrupted by user")

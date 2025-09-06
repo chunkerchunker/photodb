@@ -137,10 +137,11 @@ class PhotoQueries:
                 return result
 
     def get_faces_for_photo(self, photo_id: int) -> List[Dict[str, Any]]:
-        """Get all faces detected in a photo with their bounding boxes."""
+        """Get all faces detected in a photo with their bounding boxes and clustering info."""
         query = """
             SELECT f.id, f.bbox_x, f.bbox_y, f.bbox_width, f.bbox_height,
-                   f.confidence, f.person_id, p.name as person_name
+                   f.confidence, f.person_id, p.name as person_name,
+                   f.cluster_id, f.cluster_status, f.cluster_confidence
             FROM face f
             LEFT JOIN person p ON f.person_id = p.id
             WHERE f.photo_id = %s

@@ -270,3 +270,38 @@ export async function getPhotoById(photoId: number) {
   const result = await pool.query(query, [photoId]);
   return result.rows[0] || null;
 }
+
+export async function getClusters(limit = 50, offset = 0) {
+  await initDatabase();
+
+  const query = `
+    SELECT c.id, c.face_count, c.representative_face_id,
+           f.bbox_x, f.bbox_y, f.bbox_width, f.bbox_height,
+           p.id as photo_id, p.normalized_path, p.filename,
+           p.normalized_width, p.normalized_height,
+           per.name as person_name
+    FROM cluster c
+    LEFT JOIN face f ON c.representative_face_id = f.id
+    LEFT JOIN photo p ON f.photo_id = p.id
+    LEFT JOIN person per ON c.person_id = per.id
+    WHERE c.face_count > 0
+    ORDER BY c.face_count DESC, c.id
+    LIMIT $1 OFFSET $2
+  `;
+
+  const result = await pool.query(query, [limit, offset]);
+  return result.rows;
+}
+
+export async function getClustersCount() {
+  await initDatabase();
+
+  const query = `
+    SELECT COUNT(*) as count
+    FROM cluster
+    WHERE face_count > 0
+  `;
+
+  const result = await pool.query(query);
+  return parseInt(result.rows[0].count, 10);
+}

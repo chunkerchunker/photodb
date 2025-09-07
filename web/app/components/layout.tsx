@@ -1,4 +1,4 @@
-import { Camera } from "lucide-react";
+import { Camera, Users } from "lucide-react";
 import { Link } from "react-router";
 
 interface LayoutProps {
@@ -10,11 +10,21 @@ export function Layout({ children }: LayoutProps) {
     <div className="min-h-screen bg-gray-50">
       <nav className="bg-gray-900 text-white">
         <div className="container mx-auto px-4">
-          <div className="flex items-center h-16">
+          <div className="flex items-center justify-between h-16">
             <Link to="/" className="flex items-center space-x-2 text-xl font-bold hover:text-gray-300">
               <Camera className="h-6 w-6" />
               <span>PhotoDB</span>
             </Link>
+            <div className="flex items-center space-x-6">
+              <Link to="/" className="flex items-center space-x-1 hover:text-gray-300 transition-colors">
+                <Camera className="h-4 w-4" />
+                <span>Photos</span>
+              </Link>
+              <Link to="/clusters" className="flex items-center space-x-1 hover:text-gray-300 transition-colors">
+                <Users className="h-4 w-4" />
+                <span>Clusters</span>
+              </Link>
+            </div>
           </div>
         </div>
       </nav>

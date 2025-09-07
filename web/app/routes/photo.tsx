@@ -400,7 +400,6 @@ export default function PhotoDetail({ loaderData }: Route.ComponentProps) {
                       {photo.model_name && (
                         <div className="text-xs text-gray-500">
                           Model: {photo.model_name}
-                          {photo.confidence_score && ` | Confidence: ${photo.confidence_score.toFixed(2)}`}
                         </div>
                       )}
                     </CardContent>

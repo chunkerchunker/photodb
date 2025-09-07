@@ -193,7 +193,7 @@ export async function getPhotoDetails(photoId: number) {
 
   const photo = result.rows[0];
 
-  // Get faces for this photo
+  // Get faces for this photo with match candidates
   const facesQuery = `
     SELECT f.id, f.bbox_x, f.bbox_y, f.bbox_width, f.bbox_height,
            f.confidence, f.person_id, p.name as person_name,
@@ -205,6 +205,25 @@ export async function getPhotoDetails(photoId: number) {
   `;
 
   const facesResult = await pool.query(facesQuery, [photoId]);
+
+  // Get face match candidates for each face
+  for (const face of facesResult.rows) {
+    const candidatesQuery = `
+      SELECT fmc.cluster_id, fmc.similarity, fmc.status,
+             c.person_id, per.name as person_name,
+             c.face_count
+      FROM face_match_candidate fmc
+      LEFT JOIN "cluster" c ON fmc.cluster_id = c.id
+      LEFT JOIN person per ON c.person_id = per.id
+      WHERE fmc.face_id = $1 AND fmc.status = 'pending'
+      ORDER BY fmc.similarity DESC
+      LIMIT 3
+    `;
+
+    const candidatesResult = await pool.query(candidatesQuery, [face.id]);
+    face.match_candidates = candidatesResult.rows;
+  }
+
   photo.faces = facesResult.rows;
   photo.face_count = facesResult.rows.length;
 

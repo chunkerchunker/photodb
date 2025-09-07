@@ -305,3 +305,49 @@ export async function getClustersCount() {
   const result = await pool.query(query);
   return parseInt(result.rows[0].count, 10);
 }
+
+export async function getClusterDetails(clusterId: string) {
+  await initDatabase();
+
+  const query = `
+    SELECT c.id, c.face_count, c.representative_face_id,
+           per.name as person_name
+    FROM cluster c
+    LEFT JOIN person per ON c.person_id = per.id
+    WHERE c.id = $1
+  `;
+
+  const result = await pool.query(query, [clusterId]);
+  return result.rows[0] || null;
+}
+
+export async function getClusterFaces(clusterId: string, limit = 24, offset = 0) {
+  await initDatabase();
+
+  const query = `
+    SELECT f.id, f.bbox_x, f.bbox_y, f.bbox_width, f.bbox_height,
+           f.confidence, f.photo_id,
+           p.normalized_path, p.filename, p.normalized_width, p.normalized_height
+    FROM face f
+    JOIN photo p ON f.photo_id = p.id
+    WHERE f.cluster_id = $1
+    ORDER BY f.confidence DESC, f.id
+    LIMIT $2 OFFSET $3
+  `;
+
+  const result = await pool.query(query, [clusterId, limit, offset]);
+  return result.rows;
+}
+
+export async function getClusterFacesCount(clusterId: string) {
+  await initDatabase();
+
+  const query = `
+    SELECT COUNT(*) as count
+    FROM face
+    WHERE cluster_id = $1
+  `;
+
+  const result = await pool.query(query, [clusterId]);
+  return parseInt(result.rows[0].count, 10);
+}

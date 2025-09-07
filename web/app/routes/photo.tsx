@@ -1,6 +1,7 @@
 import { useMeasure } from "@react-hookz/web";
 import { Bot, Camera, ChevronDown, Code, ExternalLink, Info, MapPin, Users } from "lucide-react";
 import { useEffect, useState } from "react";
+import { Link } from "react-router";
 import { Breadcrumb } from "~/components/breadcrumb";
 import { Layout } from "~/components/layout";
 import { Badge } from "~/components/ui/badge";
@@ -328,7 +329,11 @@ export default function PhotoDetail({ loaderData }: Route.ComponentProps) {
                                 {face.person_name ? (
                                   <Badge variant="default">{face.person_name}</Badge>
                                 ) : face.cluster_id ? (
-                                  <Badge variant="secondary">Cluster {face.cluster_id}</Badge>
+                                  <Link to={`/cluster/${face.cluster_id}`}>
+                                    <Badge variant="secondary" className="hover:bg-secondary/80 cursor-pointer">
+                                      Cluster {face.cluster_id}
+                                    </Badge>
+                                  </Link>
                                 ) : (
                                   <Badge variant="outline">Unknown</Badge>
                                 )}

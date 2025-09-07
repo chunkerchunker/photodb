@@ -93,11 +93,9 @@ export default function ClustersView({ loaderData }: Route.ComponentProps) {
 					<>
 						<div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-6 gap-4">
 							{clusters.map((cluster) => (
-								<Card
-									key={cluster.id}
-									className="hover:shadow-lg transition-shadow"
-								>
-									<CardContent className="p-4">
+								<Link to={`/cluster/${cluster.id}`} key={cluster.id}>
+									<Card className="hover:shadow-lg transition-shadow h-full">
+										<CardContent className="p-4">
 										<div className="text-center space-y-3">
 											{cluster.photo_id &&
 											cluster.bbox_x !== null &&
@@ -120,13 +118,6 @@ export default function ClustersView({ loaderData }: Route.ComponentProps) {
 														)}
 														loading="lazy"
 													/>
-													<Link
-														to={`/photo/${cluster.photo_id}`}
-														className="absolute inset-0 bg-opacity-0 hover:bg-opacity-10 transition-opacity rounded-lg flex items-center justify-center"
-														title={`View photo ${cluster.photo_id}`}
-													>
-														<span className="sr-only">View photo</span>
-													</Link>
 												</div>
 											) : (
 												<div className="w-full h-32 bg-gray-200 rounded-lg flex items-center justify-center">
@@ -154,6 +145,7 @@ export default function ClustersView({ loaderData }: Route.ComponentProps) {
 										</div>
 									</CardContent>
 								</Card>
+							</Link>
 							))}
 						</div>
 

@@ -19,11 +19,16 @@ class PhotoRepository:
         with self.pool.transaction() as conn:
             with conn.cursor() as cursor:
                 cursor.execute(
-                    """INSERT INTO photo (filename, normalized_path, created_at, updated_at)
-                       VALUES (%s, %s, %s, %s) RETURNING id""",
+                    """INSERT INTO photo (filename, normalized_path, width, height, 
+                                         normalized_width, normalized_height, created_at, updated_at)
+                       VALUES (%s, %s, %s, %s, %s, %s, %s, %s) RETURNING id""",
                     (
                         photo.filename,
                         photo.normalized_path,
+                        photo.width,
+                        photo.height,
+                        photo.normalized_width,
+                        photo.normalized_height,
                         photo.created_at,
                         photo.updated_at,
                     ),
@@ -59,9 +64,11 @@ class PhotoRepository:
             with conn.cursor() as cursor:
                 cursor.execute(
                     """UPDATE photo 
-                       SET normalized_path = %s, updated_at = %s
+                       SET normalized_path = %s, width = %s, height = %s,
+                           normalized_width = %s, normalized_height = %s, updated_at = %s
                        WHERE id = %s""",
-                    (photo.normalized_path, photo.updated_at, photo.id),
+                    (photo.normalized_path, photo.width, photo.height,
+                     photo.normalized_width, photo.normalized_height, photo.updated_at, photo.id),
                 )
 
     def create_metadata(self, metadata: Metadata) -> None:

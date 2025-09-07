@@ -173,6 +173,7 @@ export async function getPhotoDetails(photoId: number) {
   const query = `
     SELECT p.id, p.filename, p.normalized_path, 
            p.created_at as photo_created_at, p.updated_at as photo_updated_at,
+           p.width, p.height, p.normalized_width, p.normalized_height,
            m.captured_at, m.latitude, m.longitude, 
            m.extra as metadata_extra,
            la.description, la.analysis, la.objects, la.people_count,
@@ -250,22 +251,9 @@ export async function getPhotoDetails(photoId: number) {
     photo.month_name = monthNames[photo.month];
   }
 
-  // Try to get image dimensions if we have faces
-  if (photo.faces.length > 0 && photo.normalized_path) {
-    try {
-      const sharp = await import("sharp");
-      const imagePath = photo.normalized_path;
-      if (fs.existsSync(imagePath)) {
-        const metadata = await sharp.default(imagePath).metadata();
-        photo.image_width = metadata.width || null;
-        photo.image_height = metadata.height || null;
-      }
-    } catch (error) {
-      console.warn("Could not get image dimensions:", error);
-      photo.image_width = null;
-      photo.image_height = null;
-    }
-  }
+  // Set image dimensions from metadata table
+  photo.image_width = photo.normalized_width || null;
+  photo.image_height = photo.normalized_height || null;
 
   return photo;
 }

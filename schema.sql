@@ -5,6 +5,10 @@ CREATE TABLE IF NOT EXISTS photo(
     id bigserial PRIMARY KEY,
     filename text NOT NULL UNIQUE, -- Relative path from INGEST_PATH
     normalized_path text UNIQUE, -- Path to normalized image in IMG_PATH
+    width integer, -- Original image width in pixels
+    height integer, -- Original image height in pixels
+    normalized_width integer, -- Normalized image width in pixels
+    normalized_height integer, -- Normalized image height in pixels
     created_at timestamptz DEFAULT now(),
     updated_at timestamptz DEFAULT now()
 );

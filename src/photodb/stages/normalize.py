@@ -35,6 +35,10 @@ class NormalizeStage(BaseStage):
             image = ImageHandler.open_image(file_path)
             original_size = (image.width, image.height)
 
+            # Store original dimensions
+            photo.width = original_size[0]
+            photo.height = original_size[1]
+
             logger.debug(f"Original size: {original_size[0]}x{original_size[1]}")
 
             # Calculate resize dimensions using ImageHandler
@@ -44,8 +48,14 @@ class NormalizeStage(BaseStage):
             if new_size and new_size != original_size:
                 logger.debug(f"Resizing to: {new_size[0]}x{new_size[1]}")
                 image = ImageHandler.resize_image(image, new_size)
+                # Store normalized dimensions
+                photo.normalized_width = new_size[0]
+                photo.normalized_height = new_size[1]
             else:
                 logger.debug("No resize needed")
+                # No resize, so normalized dimensions are same as original
+                photo.normalized_width = photo.width
+                photo.normalized_height = photo.height
 
             # Save as PNG using ImageHandler (this is the slow part!)
             ImageHandler.save_as_png(image, output_path, optimize=True, original_path=file_path)

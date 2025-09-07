@@ -9,6 +9,10 @@ class Photo:
     id: Optional[int]
     filename: str
     normalized_path: str | None
+    width: Optional[int]
+    height: Optional[int]
+    normalized_width: Optional[int]
+    normalized_height: Optional[int]
     created_at: datetime
     updated_at: datetime
 
@@ -20,6 +24,10 @@ class Photo:
             id=None,  # Will be assigned by database
             filename=filename,
             normalized_path=normalized_path,
+            width=None,
+            height=None,
+            normalized_width=None,
+            normalized_height=None,
             created_at=now,
             updated_at=now,
         )
@@ -29,6 +37,10 @@ class Photo:
             "id": self.id,
             "filename": self.filename,
             "normalized_path": self.normalized_path,
+            "width": self.width,
+            "height": self.height,
+            "normalized_width": self.normalized_width,
+            "normalized_height": self.normalized_height,
             "created_at": self.created_at,
             "updated_at": self.updated_at,
         }

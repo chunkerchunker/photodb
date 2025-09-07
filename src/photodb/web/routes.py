@@ -78,12 +78,15 @@ def photo_detail(photo_id):
     faces = queries.get_faces_for_photo(photo_id)
     photo["faces"] = faces
     photo["face_count"] = len(faces)
-    
+
     # Get image dimensions for proper bounding box scaling
     if faces and photo.get("normalized_path"):
         try:
             from PIL import Image
-            img_path = os.path.join(os.getenv("IMG_PATH", "./photos/processed"), photo["normalized_path"])
+
+            img_path = os.path.join(
+                os.getenv("IMG_PATH", "./photos/processed"), photo["normalized_path"]
+            )
             if os.path.exists(img_path):
                 with Image.open(img_path) as img:
                     photo["image_width"] = img.width

@@ -8,21 +8,22 @@ dotenv.config({ path: path.join(process.cwd(), "..", ".env") });
 
 // Create a connection pool
 const pool = new Pool({
-  connectionString: process.env.DATABASE_URL || "postgresql://localhost/photodb",
-  max: 20,
-  idleTimeoutMillis: 30000,
-  connectionTimeoutMillis: 2000,
+	connectionString:
+		process.env.DATABASE_URL || "postgresql://localhost/photodb",
+	max: 20,
+	idleTimeoutMillis: 30000,
+	connectionTimeoutMillis: 2000,
 });
 
 // Initialize database on first connection
 let dbInitialized = false;
 
 async function initDatabase() {
-  if (dbInitialized) return;
+	if (dbInitialized) return;
 
-  try {
-    // Check if tables exist first
-    const result = await pool.query(`
+	try {
+		// Check if tables exist first
+		const result = await pool.query(`
       SELECT EXISTS (
         SELECT FROM information_schema.tables 
         WHERE table_schema = 'public' 
@@ -30,28 +31,28 @@ async function initDatabase() {
       );
     `);
 
-    if (!result.rows[0].exists) {
-      // Try to find and run schema.sql
-      const schemaPath = path.join(process.cwd(), "..", "schema.sql");
-      if (fs.existsSync(schemaPath)) {
-        const schema = fs.readFileSync(schemaPath, "utf-8");
-        await pool.query(schema);
-        console.log("Database schema initialized");
-      }
-    }
+		if (!result.rows[0].exists) {
+			// Try to find and run schema.sql
+			const schemaPath = path.join(process.cwd(), "..", "schema.sql");
+			if (fs.existsSync(schemaPath)) {
+				const schema = fs.readFileSync(schemaPath, "utf-8");
+				await pool.query(schema);
+				console.log("Database schema initialized");
+			}
+		}
 
-    dbInitialized = true;
-  } catch (error) {
-    console.error("Failed to initialize database:", error);
-  }
+		dbInitialized = true;
+	} catch (error) {
+		console.error("Failed to initialize database:", error);
+	}
 }
 
 // Query functions that match the Python PhotoQueries class
 
 export async function getYearsWithPhotos() {
-  await initDatabase();
+	await initDatabase();
 
-  const query = `
+	const query = `
     SELECT EXTRACT(YEAR FROM m.captured_at)::int as year,
            COUNT(*)::int as photo_count,
            MIN(p.id) as sample_photo_id
@@ -62,14 +63,14 @@ export async function getYearsWithPhotos() {
     ORDER BY year DESC
   `;
 
-  const result = await pool.query(query);
-  return result.rows;
+	const result = await pool.query(query);
+	return result.rows;
 }
 
 export async function getMonthsInYear(year: number) {
-  await initDatabase();
+	await initDatabase();
 
-  const query = `
+	const query = `
     SELECT EXTRACT(MONTH FROM m.captured_at)::int as month,
            COUNT(*)::int as photo_count
     FROM metadata m
@@ -79,12 +80,12 @@ export async function getMonthsInYear(year: number) {
     ORDER BY month
   `;
 
-  const result = await pool.query(query, [year]);
-  const months = result.rows;
+	const result = await pool.query(query, [year]);
+	const months = result.rows;
 
-  // Get sample photo IDs for each month
-  for (const monthData of months) {
-    const sampleQuery = `
+	// Get sample photo IDs for each month
+	for (const monthData of months) {
+		const sampleQuery = `
       SELECT p.id
       FROM photo p
       JOIN metadata m ON p.id = m.photo_id
@@ -93,37 +94,42 @@ export async function getMonthsInYear(year: number) {
       ORDER BY m.captured_at
       LIMIT 4
     `;
-    const sampleResult = await pool.query(sampleQuery, [year, monthData.month]);
-    monthData.sample_photo_ids = sampleResult.rows.map((row) => row.id);
-  }
+		const sampleResult = await pool.query(sampleQuery, [year, monthData.month]);
+		monthData.sample_photo_ids = sampleResult.rows.map((row) => row.id);
+	}
 
-  // Add month names
-  const monthNames = [
-    "",
-    "January",
-    "February",
-    "March",
-    "April",
-    "May",
-    "June",
-    "July",
-    "August",
-    "September",
-    "October",
-    "November",
-    "December",
-  ];
+	// Add month names
+	const monthNames = [
+		"",
+		"January",
+		"February",
+		"March",
+		"April",
+		"May",
+		"June",
+		"July",
+		"August",
+		"September",
+		"October",
+		"November",
+		"December",
+	];
 
-  return months.map((m) => ({
-    ...m,
-    month_name: monthNames[m.month],
-  }));
+	return months.map((m) => ({
+		...m,
+		month_name: monthNames[m.month],
+	}));
 }
 
-export async function getPhotosByMonth(year: number, month: number, limit = 100, offset = 0) {
-  await initDatabase();
+export async function getPhotosByMonth(
+	year: number,
+	month: number,
+	limit = 100,
+	offset = 0,
+) {
+	await initDatabase();
 
-  const query = `
+	const query = `
     SELECT p.id, p.filename, p.normalized_path,
            m.captured_at, m.latitude, m.longitude,
            la.description, la.emotional_tone,
@@ -137,40 +143,40 @@ export async function getPhotosByMonth(year: number, month: number, limit = 100,
     LIMIT $3 OFFSET $4
   `;
 
-  const result = await pool.query(query, [year, month, limit, offset]);
+	const result = await pool.query(query, [year, month, limit, offset]);
 
-  // Process photos to add computed fields
-  const photos = result.rows.map((photo) => ({
-    ...photo,
-    filename_only: path.basename(photo.filename),
-    short_description: photo.description
-      ? photo.description.length > 50
-        ? `${photo.description.substring(0, 47)}...`
-        : photo.description
-      : null,
-  }));
+	// Process photos to add computed fields
+	const photos = result.rows.map((photo) => ({
+		...photo,
+		filename_only: path.basename(photo.filename),
+		short_description: photo.description
+			? photo.description.length > 50
+				? `${photo.description.substring(0, 47)}...`
+				: photo.description
+			: null,
+	}));
 
-  return photos;
+	return photos;
 }
 
 export async function getPhotoCountByMonth(year: number, month: number) {
-  await initDatabase();
+	await initDatabase();
 
-  const query = `
+	const query = `
     SELECT COUNT(*) as count
     FROM metadata m
     WHERE EXTRACT(YEAR FROM m.captured_at) = $1
       AND EXTRACT(MONTH FROM m.captured_at) = $2
   `;
 
-  const result = await pool.query(query, [year, month]);
-  return parseInt(result.rows[0].count, 10);
+	const result = await pool.query(query, [year, month]);
+	return parseInt(result.rows[0].count, 10);
 }
 
 export async function getPhotoDetails(photoId: number) {
-  await initDatabase();
+	await initDatabase();
 
-  const query = `
+	const query = `
     SELECT p.id, p.filename, p.normalized_path, 
            p.created_at as photo_created_at, p.updated_at as photo_updated_at,
            p.width, p.height, p.normalized_width, p.normalized_height,
@@ -186,15 +192,15 @@ export async function getPhotoDetails(photoId: number) {
     WHERE p.id = $1
   `;
 
-  const result = await pool.query(query, [photoId]);
-  if (result.rows.length === 0) {
-    return null;
-  }
+	const result = await pool.query(query, [photoId]);
+	if (result.rows.length === 0) {
+		return null;
+	}
 
-  const photo = result.rows[0];
+	const photo = result.rows[0];
 
-  // Get faces for this photo with match candidates
-  const facesQuery = `
+	// Get faces for this photo with match candidates
+	const facesQuery = `
     SELECT f.id, f.bbox_x, f.bbox_y, f.bbox_width, f.bbox_height,
            f.confidence, f.person_id, p.name as person_name,
            f.cluster_id, f.cluster_status, f.cluster_confidence
@@ -204,11 +210,11 @@ export async function getPhotoDetails(photoId: number) {
     ORDER BY f.confidence DESC
   `;
 
-  const facesResult = await pool.query(facesQuery, [photoId]);
+	const facesResult = await pool.query(facesQuery, [photoId]);
 
-  // Get face match candidates for each face
-  for (const face of facesResult.rows) {
-    const candidatesQuery = `
+	// Get face match candidates for each face
+	for (const face of facesResult.rows) {
+		const candidatesQuery = `
       SELECT fmc.cluster_id, fmc.similarity, fmc.status,
              c.person_id, per.name as person_name,
              c.face_count
@@ -220,80 +226,80 @@ export async function getPhotoDetails(photoId: number) {
       LIMIT 3
     `;
 
-    const candidatesResult = await pool.query(candidatesQuery, [face.id]);
-    face.match_candidates = candidatesResult.rows;
-  }
+		const candidatesResult = await pool.query(candidatesQuery, [face.id]);
+		face.match_candidates = candidatesResult.rows;
+	}
 
-  photo.faces = facesResult.rows;
-  photo.face_count = facesResult.rows.length;
+	photo.faces = facesResult.rows;
+	photo.face_count = facesResult.rows.length;
 
-  // Add computed fields
-  photo.filename_only = path.basename(photo.filename);
+	// Add computed fields
+	photo.filename_only = path.basename(photo.filename);
 
-  // Format analysis and metadata if present
-  if (photo.analysis) {
-    try {
-      photo.analysis_formatted = JSON.stringify(photo.analysis, null, 2);
-    } catch {
-      photo.analysis_formatted = String(photo.analysis);
-    }
-  }
+	// Format analysis and metadata if present
+	if (photo.analysis) {
+		try {
+			photo.analysis_formatted = JSON.stringify(photo.analysis, null, 2);
+		} catch {
+			photo.analysis_formatted = String(photo.analysis);
+		}
+	}
 
-  if (photo.metadata_extra) {
-    try {
-      photo.metadata_formatted = JSON.stringify(photo.metadata_extra, null, 2);
-    } catch {
-      photo.metadata_formatted = String(photo.metadata_extra);
-    }
-  }
+	if (photo.metadata_extra) {
+		try {
+			photo.metadata_formatted = JSON.stringify(photo.metadata_extra, null, 2);
+		} catch {
+			photo.metadata_formatted = String(photo.metadata_extra);
+		}
+	}
 
-  // Add date fields
-  if (photo.captured_at) {
-    const date = new Date(photo.captured_at);
-    photo.year = date.getFullYear();
-    photo.month = date.getMonth() + 1;
-    const monthNames = [
-      "",
-      "January",
-      "February",
-      "March",
-      "April",
-      "May",
-      "June",
-      "July",
-      "August",
-      "September",
-      "October",
-      "November",
-      "December",
-    ];
-    photo.month_name = monthNames[photo.month];
-  }
+	// Add date fields
+	if (photo.captured_at) {
+		const date = new Date(photo.captured_at);
+		photo.year = date.getFullYear();
+		photo.month = date.getMonth() + 1;
+		const monthNames = [
+			"",
+			"January",
+			"February",
+			"March",
+			"April",
+			"May",
+			"June",
+			"July",
+			"August",
+			"September",
+			"October",
+			"November",
+			"December",
+		];
+		photo.month_name = monthNames[photo.month];
+	}
 
-  // Set image dimensions from metadata table
-  photo.image_width = photo.normalized_width || null;
-  photo.image_height = photo.normalized_height || null;
+	// Set image dimensions from metadata table
+	photo.image_width = photo.normalized_width || null;
+	photo.image_height = photo.normalized_height || null;
 
-  return photo;
+	return photo;
 }
 
 export async function getPhotoById(photoId: number) {
-  await initDatabase();
+	await initDatabase();
 
-  const query = `
+	const query = `
     SELECT id, filename, normalized_path
     FROM photo
     WHERE id = $1
   `;
 
-  const result = await pool.query(query, [photoId]);
-  return result.rows[0] || null;
+	const result = await pool.query(query, [photoId]);
+	return result.rows[0] || null;
 }
 
 export async function getClusters(limit = 50, offset = 0) {
-  await initDatabase();
+	await initDatabase();
 
-  const query = `
+	const query = `
     SELECT c.id, c.face_count, c.representative_face_id,
            f.bbox_x, f.bbox_y, f.bbox_width, f.bbox_height,
            p.id as photo_id, p.normalized_path, p.filename,
@@ -308,27 +314,27 @@ export async function getClusters(limit = 50, offset = 0) {
     LIMIT $1 OFFSET $2
   `;
 
-  const result = await pool.query(query, [limit, offset]);
-  return result.rows;
+	const result = await pool.query(query, [limit, offset]);
+	return result.rows;
 }
 
 export async function getClustersCount() {
-  await initDatabase();
+	await initDatabase();
 
-  const query = `
+	const query = `
     SELECT COUNT(*) as count
     FROM cluster
     WHERE face_count > 0
   `;
 
-  const result = await pool.query(query);
-  return parseInt(result.rows[0].count, 10);
+	const result = await pool.query(query);
+	return parseInt(result.rows[0].count, 10);
 }
 
 export async function getClusterDetails(clusterId: string) {
-  await initDatabase();
+	await initDatabase();
 
-  const query = `
+	const query = `
     SELECT c.id, c.face_count, c.representative_face_id,
            per.name as person_name
     FROM cluster c
@@ -336,37 +342,41 @@ export async function getClusterDetails(clusterId: string) {
     WHERE c.id = $1
   `;
 
-  const result = await pool.query(query, [clusterId]);
-  return result.rows[0] || null;
+	const result = await pool.query(query, [clusterId]);
+	return result.rows[0] || null;
 }
 
-export async function getClusterFaces(clusterId: string, limit = 24, offset = 0) {
-  await initDatabase();
+export async function getClusterFaces(
+	clusterId: string,
+	limit = 24,
+	offset = 0,
+) {
+	await initDatabase();
 
-  const query = `
+	const query = `
     SELECT f.id, f.bbox_x, f.bbox_y, f.bbox_width, f.bbox_height,
-           f.confidence, f.photo_id,
+           f.cluster_confidence, f.photo_id,
            p.normalized_path, p.filename, p.normalized_width, p.normalized_height
     FROM face f
     JOIN photo p ON f.photo_id = p.id
     WHERE f.cluster_id = $1
-    ORDER BY f.confidence DESC, f.id
+    ORDER BY f.cluster_confidence DESC, f.id
     LIMIT $2 OFFSET $3
   `;
 
-  const result = await pool.query(query, [clusterId, limit, offset]);
-  return result.rows;
+	const result = await pool.query(query, [clusterId, limit, offset]);
+	return result.rows;
 }
 
 export async function getClusterFacesCount(clusterId: string) {
-  await initDatabase();
+	await initDatabase();
 
-  const query = `
+	const query = `
     SELECT COUNT(*) as count
     FROM face
     WHERE cluster_id = $1
   `;
 
-  const result = await pool.query(query, [clusterId]);
-  return parseInt(result.rows[0].count, 10);
+	const result = await pool.query(query, [clusterId]);
+	return parseInt(result.rows[0].count, 10);
 }

@@ -8,10 +8,9 @@ PhotoDB is a personal photo indexing pipeline built with Python and PostgreSQL. 
 
 ### Key Components
 
-- **CLI**: Three separate executables
+- **CLI**: Two separate executables
   - `process-local` (`src/photodb/cli_local.py`): Local photo processing (normalize, metadata extraction)
   - `enrich-photos` (`src/photodb/cli_enrich.py`): Remote LLM-based enrichment with batch processing
-  - `photodb-web` (`src/photodb/cli_web.py`): Web server for browsing photos
 - **Processors (`src/photodb/processors.py`)**: Orchestrates parallel photo processing using ThreadPoolExecutor
 - **Stages (`src/photodb/stages/`)**: Processing pipeline stages (normalize, metadata, enrich, stats)
   - All stages inherit from `BaseStage` (`src/photodb/stages/base.py`)
@@ -95,15 +94,6 @@ uv run enrich-photos /path/to/photos --retry-failed
 uv run enrich-photos /path/to/photos --no-batch
 ```
 
-#### Web Server
-
-```bash
-# Start the photo browsing web server
-uv run photodb-web
-
-# With custom port and debug mode
-uv run photodb-web --port 8080 --debug
-```
 
 ### Testing
 

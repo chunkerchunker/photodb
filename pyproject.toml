@@ -15,7 +15,6 @@ dependencies = [
     "anthropic>=0.64.0",
     "instructor>=1.0.0",
     "pydantic>=2.0.0",
-    "flask>=3.0.0",
     "boto3>=1.40.21",
     "piexif>=1.1.3",
     "facenet-pytorch>=2.5.3",
@@ -32,7 +31,6 @@ dev = [
 [project.scripts]
 process-local = "photodb.cli_local:main"
 enrich-photos = "photodb.cli_enrich:main"
-photodb-web = "photodb.cli_web:main"
 
 [build-system]
 requires = ["hatchling"]

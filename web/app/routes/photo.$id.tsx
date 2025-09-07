@@ -10,7 +10,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "~/components/ui/card";
 import { Checkbox } from "~/components/ui/checkbox";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "~/components/ui/collapsible";
 import { getPhotoDetails } from "~/lib/db.server";
-import type { Route } from "./+types/photo";
+import type { Route } from "./+types/photo.$id";
 
 interface Face {
   id: string;
@@ -402,11 +402,7 @@ export default function PhotoDetail({ loaderData }: Route.ComponentProps) {
                           </div>
                         </div>
                       )}
-                      {photo.model_name && (
-                        <div className="text-xs text-gray-500">
-                          Model: {photo.model_name}
-                        </div>
-                      )}
+                      {photo.model_name && <div className="text-xs text-gray-500">Model: {photo.model_name}</div>}
                     </CardContent>
                   </CollapsibleContent>
                 </Collapsible>

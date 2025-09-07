@@ -6,6 +6,6 @@ export default [
   route("cluster/:id", "routes/cluster.$id.tsx"),
   route("year/:year", "routes/year.tsx"),
   route("year/:year/month/:month", "routes/month.tsx"),
-  route("photo/:id", "routes/photo.tsx"),
+  route("photo/:id", "routes/photo.$id.tsx"),
   route("api/image/:id", "routes/api.image.$id.tsx"),
 ] satisfies RouteConfig;

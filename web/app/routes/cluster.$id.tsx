@@ -3,8 +3,8 @@ import { Link } from "react-router";
 import { Breadcrumb } from "~/components/breadcrumb";
 import { Layout } from "~/components/layout";
 import { Pagination } from "~/components/pagination";
-import { Card, CardContent } from "~/components/ui/card";
 import { Badge } from "~/components/ui/badge";
+import { Card, CardContent } from "~/components/ui/card";
 import { getClusterDetails, getClusterFaces, getClusterFacesCount } from "~/lib/db.server";
 import type { Route } from "./+types/cluster.$id";
 
@@ -99,10 +99,7 @@ export default function ClusterDetailView({ loaderData }: Route.ComponentProps) 
     );
   }
 
-  const breadcrumbItems = [
-    { label: "Clusters", href: "/clusters" },
-    { label: `Cluster ${cluster.id}` },
-  ];
+  const breadcrumbItems = [{ label: "Clusters", href: "/clusters" }, { label: `Cluster ${cluster.id}` }];
 
   return (
     <Layout>
@@ -130,16 +127,10 @@ export default function ClusterDetailView({ loaderData }: Route.ComponentProps) 
           <>
             <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-6 gap-4">
               {faces.map((face) => (
-                <Card
-                  key={face.id}
-                  className="hover:shadow-lg transition-shadow"
-                >
+                <Card key={face.id} className="hover:shadow-lg transition-shadow">
                   <CardContent className="p-4">
                     <div className="text-center space-y-3">
-                      {face.photo_id &&
-                      face.bbox_x !== null &&
-                      face.normalized_width &&
-                      face.normalized_height ? (
+                      {face.photo_id && face.bbox_x !== null && face.normalized_width && face.normalized_height ? (
                         <Link to={`/photo/${face.photo_id}`}>
                           <div className="relative w-32 h-32 mx-auto bg-gray-100 rounded-lg border overflow-hidden hover:ring-2 hover:ring-blue-500 transition-all">
                             <img
@@ -167,12 +158,8 @@ export default function ClusterDetailView({ loaderData }: Route.ComponentProps) 
                       )}
 
                       <div className="space-y-1">
-                        <div className="text-sm text-gray-600">
-                          Photo #{face.photo_id}
-                        </div>
-                        <div className="text-xs text-gray-500">
-                          {Math.round(face.confidence * 100)}% confidence
-                        </div>
+                        <div className="text-sm text-gray-600">Photo #{face.photo_id}</div>
+                        <div className="text-xs text-gray-500">{Math.round(face.confidence * 100)}% confidence</div>
                       </div>
                     </div>
                   </CardContent>
@@ -180,18 +167,12 @@ export default function ClusterDetailView({ loaderData }: Route.ComponentProps) 
               ))}
             </div>
 
-            <Pagination
-              currentPage={currentPage}
-              totalPages={totalPages}
-              baseUrl={`/cluster/${cluster.id}`}
-            />
+            <Pagination currentPage={currentPage} totalPages={totalPages} baseUrl={`/cluster/${cluster.id}`} />
           </>
         ) : (
           <div className="text-center py-12">
             <Users className="h-16 w-16 text-gray-400 mx-auto mb-4" />
-            <div className="text-gray-500 text-lg">
-              No faces found in this cluster.
-            </div>
+            <div className="text-gray-500 text-lg">No faces found in this cluster.</div>
           </div>
         )}
       </div>

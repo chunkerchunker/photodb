@@ -171,10 +171,10 @@ CREATE INDEX IF NOT EXISTS face_embedding_idx ON face_embedding USING ivfflat(em
 CREATE TABLE IF NOT EXISTS "cluster"(
     id bigserial PRIMARY KEY,
     face_count bigint DEFAULT 0,
-    representative_face_id bigint REFERENCES face(id),
+    representative_face_id bigint REFERENCES face(id) ON DELETE SET NULL,
     centroid VECTOR(512),
-    medoid_face_id bigint REFERENCES face(id),
-    person_id bigint REFERENCES person(id),
+    medoid_face_id bigint REFERENCES face(id) ON DELETE SET NULL,
+    person_id bigint REFERENCES person(id) ON DELETE SET NULL,
     created_at timestamptz DEFAULT now(),
     updated_at timestamptz DEFAULT now(),
     FOREIGN KEY (person_id) REFERENCES person(id) ON DELETE SET NULL
@@ -183,7 +183,7 @@ CREATE TABLE IF NOT EXISTS "cluster"(
 -- Tracks potential cluster assignments requiring review
 CREATE TABLE IF NOT EXISTS face_match_candidate(
     candidate_id bigserial PRIMARY KEY,
-    face_id bigint REFERENCES face(id),
+    face_id bigint REFERENCES face(id) ON DELETE CASCADE,
     cluster_id bigint REFERENCES "cluster"(id) ON DELETE CASCADE,
     similarity float NOT NULL,
     status text CHECK (status IN ('pending', 'accepted', 'rejected')) DEFAULT 'pending',

@@ -2,6 +2,7 @@
 Stage 3: Face detection and embedding extraction.
 """
 
+import os
 from pathlib import Path
 import logging
 
@@ -19,8 +20,6 @@ class FacesStage(BaseStage):
         super().__init__(repository, config)
 
         # Check if we should force CPU mode due to MPS issues
-        import os
-
         force_cpu = os.getenv("FACE_DETECTION_FORCE_CPU", "false").lower() == "true"
 
         self.face_extractor = FaceExtractor(force_cpu_fallback=force_cpu)
@@ -75,9 +74,23 @@ class FacesStage(BaseStage):
                 # No faces found, but processing succeeded
                 return True
 
+            # Get minimum confidence threshold from environment
+            min_confidence = float(os.getenv("FACE_MIN_CONFIDENCE", "0.85"))
+
+            # Filter faces by confidence threshold
+            filtered_faces = [
+                face_data
+                for face_data in result["faces"]
+                if face_data["confidence"] >= min_confidence
+            ]
+
+            if not filtered_faces:
+                logger.debug(f"No faces above confidence threshold {min_confidence} in {file_path}")
+                return True
+
             # Store detected faces
             faces_saved = 0
-            for face_data in result["faces"]:
+            for face_data in filtered_faces:
                 bbox = face_data["bbox"]
 
                 # Create Face record using existing schema

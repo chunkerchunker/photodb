@@ -157,7 +157,8 @@ export default function PhotoDetail({ loaderData }: Route.ComponentProps) {
     localStorage.setItem("photoDetailSections", JSON.stringify(newStates));
   };
 
-  const updateFaceState = (checked: boolean) => {
+  const updateFaceState = (checked: boolean | "indeterminate") => {
+    if (checked === "indeterminate") return;
     setShowFaces(checked);
     localStorage.setItem("showFaceBoundingBoxes", checked.toString());
   };

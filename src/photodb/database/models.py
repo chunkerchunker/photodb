@@ -1,5 +1,6 @@
 from dataclasses import dataclass
 from datetime import datetime, timezone
+from enum import Enum
 from typing import Optional, Dict, Any, List
 import json
 
@@ -17,7 +18,7 @@ class Photo:
     updated_at: datetime
 
     @classmethod
-    def create(cls, filename: str, normalized_path: str) -> "Photo":
+    def create(cls, filename: str, normalized_path: Optional[str] = None) -> "Photo":
         """Create a new photo record."""
         now = datetime.now(timezone.utc)
         return cls(
@@ -78,11 +79,18 @@ class Metadata:
         }
 
 
+class Status(Enum):
+    PENDING = "pending"
+    PROCESSING = "processing"
+    COMPLETED = "completed"
+    FAILED = "failed"
+
+
 @dataclass
 class ProcessingStatus:
     photo_id: int
     stage: str
-    status: str  # 'pending', 'processing', 'completed', 'failed'
+    status: Status
     processed_at: Optional[datetime]
     error_message: Optional[str]
 

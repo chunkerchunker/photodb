@@ -5,7 +5,18 @@ import logging
 from psycopg.rows import dict_row
 
 from .connection import ConnectionPool
-from .models import Photo, Metadata, ProcessingStatus, LLMAnalysis, BatchJob, Person, Face, Cluster, FaceMatchCandidate
+from .models import (
+    Photo,
+    Metadata,
+    ProcessingStatus,
+    LLMAnalysis,
+    BatchJob,
+    Person,
+    Face,
+    Cluster,
+    FaceMatchCandidate,
+    Status,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -67,8 +78,15 @@ class PhotoRepository:
                        SET normalized_path = %s, width = %s, height = %s,
                            normalized_width = %s, normalized_height = %s, updated_at = %s
                        WHERE id = %s""",
-                    (photo.normalized_path, photo.width, photo.height,
-                     photo.normalized_width, photo.normalized_height, photo.updated_at, photo.id),
+                    (
+                        photo.normalized_path,
+                        photo.width,
+                        photo.height,
+                        photo.normalized_width,
+                        photo.normalized_height,
+                        photo.updated_at,
+                        photo.id,
+                    ),
                 )
 
     def create_metadata(self, metadata: Metadata) -> None:
@@ -146,11 +164,6 @@ class PhotoRepository:
                 if row:
                     return ProcessingStatus(**dict(row))  # type: ignore[arg-type]
                 return None
-
-    def has_been_processed(self, photo_id: int, stage: str) -> bool:
-        """Check if a photo has been processed for a specific stage."""
-        status = self.get_processing_status(photo_id, stage)
-        return status is not None and status.status == "completed"
 
     def get_unprocessed_photos(self, stage: str, limit: int = 100) -> List[Photo]:
         """Get photos that haven't been processed for a specific stage."""
@@ -712,9 +725,7 @@ class PhotoRepository:
                     return Cluster(**dict(row))  # type: ignore[arg-type]
                 return None
 
-    def update_cluster_centroid(
-        self, cluster_id: int, centroid, face_count: int
-    ) -> None:
+    def update_cluster_centroid(self, cluster_id: int, centroid, face_count: int) -> None:
         """Update cluster centroid and face count."""
         with self.pool.transaction() as conn:
             with conn.cursor() as cursor:

@@ -25,26 +25,6 @@ class FacesStage(BaseStage):
         self.face_extractor = FaceExtractor(force_cpu_fallback=force_cpu)
         logger.debug(f"FacesStage initialized with device: {self.face_extractor.device}")
 
-    def should_process(self, file_path: Path, force: bool = False) -> bool:
-        """Check if face detection should be run for this file."""
-        if force:
-            return True
-
-        # Get photo record
-        photo = self.repository.get_photo_by_filename(str(file_path))
-        if not photo:
-            logger.debug(f"No photo record found for {file_path}")
-            return True  # New photo, should process
-
-        # Check if faces have been processed
-        existing_faces = self.repository.get_faces_for_photo(photo.id)
-        should_process = len(existing_faces) == 0
-
-        if not should_process:
-            logger.debug(f"Faces already processed for {file_path}, skipping")
-
-        return should_process
-
     def process_photo(self, photo: Photo, file_path: Path) -> bool:
         """Process face detection for a single photo."""
         try:

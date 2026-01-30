@@ -7,7 +7,7 @@ from datetime import datetime
 
 from photodb.database.repository import PhotoRepository
 
-from ..database.models import Photo, ProcessingStatus
+from ..database.models import Photo, ProcessingStatus, Status
 
 logger = logging.getLogger(__name__)
 
@@ -38,7 +38,8 @@ class BaseStage(ABC):
         if not photo:
             return True
 
-        return not self.repository.has_been_processed(photo.id, self.stage_name)
+        # don't reprocess anything unless forced (including failures)
+        return not self.repository.get_processing_status(photo.id, self.stage_name)
 
     def process(self, file_path: Path) -> None:
         """Process a file through this stage."""
@@ -75,10 +76,7 @@ class BaseStage(ABC):
         photo = self.repository.get_photo_by_filename(filename)
 
         if not photo:
-            photo = Photo.create(
-                filename=filename,
-                normalized_path="",  # Will be set by normalize stage
-            )
+            photo = Photo.create(filename=filename)
             self.repository.create_photo(photo)
             logger.debug(f"Created new photo record: {photo.id}")
 

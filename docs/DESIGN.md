@@ -207,7 +207,8 @@ Constrained incremental clustering for face identity grouping.
 - **Verified clusters**: Protected from auto-merge, use stricter assignment threshold
 
 **Configuration**:
-- `CLUSTERING_THRESHOLD`: Cosine distance threshold (default: 0.45)
+- `CLUSTERING_THRESHOLD`: Cosine distance threshold for assigning to existing clusters (default: 0.45)
+- `POOL_CLUSTERING_THRESHOLD`: Stricter threshold for forming clusters from unassigned pool (default: 70% of CLUSTERING_THRESHOLD)
 - `CLUSTERING_K_NEIGHBORS`: K nearest neighbors to check (default: 5)
 - `UNASSIGNED_CLUSTER_THRESHOLD`: Faces needed to form pool cluster (default: 5)
 - `VERIFIED_THRESHOLD_MULTIPLIER`: Stricter threshold for verified clusters (default: 0.8)
@@ -472,7 +473,8 @@ FACE_MIN_CONFIDENCE=0.85           # Face detection threshold
 FACE_DETECTION_FORCE_CPU=false     # Force CPU for face detection
 
 # Clustering (constrained incremental)
-CLUSTERING_THRESHOLD=0.45          # Face similarity threshold
+CLUSTERING_THRESHOLD=0.45          # Face similarity threshold for existing clusters
+POOL_CLUSTERING_THRESHOLD=0.315    # Stricter threshold for pool clustering (default: 70% of main)
 CLUSTERING_K_NEIGHBORS=5           # K nearest neighbors to check
 UNASSIGNED_CLUSTER_THRESHOLD=5     # Faces needed to form pool cluster
 VERIFIED_THRESHOLD_MULTIPLIER=0.8  # Stricter threshold for verified clusters

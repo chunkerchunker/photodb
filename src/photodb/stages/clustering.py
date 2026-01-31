@@ -26,6 +26,10 @@ class ClusteringStage(BaseStage):
     def __init__(self, repository, config: dict):
         super().__init__(repository, config)
         self.clustering_threshold = float(config.get("CLUSTERING_THRESHOLD", 0.45))
+        # Pool threshold defaults to 70% of main threshold for stricter pool clustering
+        self.pool_clustering_threshold = float(
+            config.get("POOL_CLUSTERING_THRESHOLD", self.clustering_threshold * 0.7)
+        )
         self.k_neighbors = int(config.get("CLUSTERING_K_NEIGHBORS", 5))
         self.unassigned_threshold = int(config.get("UNASSIGNED_CLUSTER_THRESHOLD", 5))
         self.verified_threshold_multiplier = float(
@@ -36,6 +40,7 @@ class ClusteringStage(BaseStage):
         )
         logger.debug(
             f"Initialized ClusteringStage with threshold={self.clustering_threshold}, "
+            f"pool_threshold={self.pool_clustering_threshold}, "
             f"k_neighbors={self.k_neighbors}, unassigned_threshold={self.unassigned_threshold}, "
             f"medoid_recompute_threshold={self.medoid_recompute_threshold}"
         )
@@ -270,8 +275,9 @@ class ClusteringStage(BaseStage):
         logger.debug(f"Face {face_id} added to unassigned pool")
 
         # Check if enough similar unassigned faces to form cluster
+        # Use stricter pool threshold to prevent chaining of dissimilar faces
         similar_unassigned = self.repository.find_similar_unassigned_faces(
-            embedding, threshold=self.clustering_threshold, limit=self.unassigned_threshold
+            embedding, threshold=self.pool_clustering_threshold, limit=self.unassigned_threshold
         )
 
         logger.debug(
@@ -314,10 +320,37 @@ class ClusteringStage(BaseStage):
         if centroid_norm > 0:
             centroid = centroid / centroid_norm
 
-        # Find medoid (face closest to centroid)
+        # Calculate distance from each face to centroid
         distances = [np.linalg.norm(e - centroid) for e in embeddings]
+
+        # Filter to only include faces within threshold of centroid (option 2)
+        # This prevents "chaining" where A→B→C are linked but A and C are dissimilar
+        filtered_faces = [
+            (fid, emb, dist)
+            for fid, emb, dist in zip(valid_face_ids, embeddings, distances)
+            if dist < self.pool_clustering_threshold
+        ]
+
+        if len(filtered_faces) < 2:
+            # Not enough faces close to centroid to form a cluster
+            logger.debug(
+                f"Only {len(filtered_faces)} faces within threshold of centroid, "
+                f"need at least 2 to form cluster"
+            )
+            return None
+
+        # Recalculate centroid with only the filtered faces
+        filtered_ids = [f[0] for f in filtered_faces]
+        filtered_embeddings = [f[1] for f in filtered_faces]
+        centroid = np.mean(filtered_embeddings, axis=0)
+        centroid_norm = np.linalg.norm(centroid)
+        if centroid_norm > 0:
+            centroid = centroid / centroid_norm
+
+        # Recalculate distances and find medoid
+        distances = [np.linalg.norm(e - centroid) for e in filtered_embeddings]
         medoid_idx = int(np.argmin(distances))
-        medoid_face_id = valid_face_ids[medoid_idx]
+        medoid_face_id = filtered_ids[medoid_idx]
 
         # Create cluster with initial count of 0 (will be updated as faces are assigned)
         cluster_id = self.repository.create_cluster(
@@ -327,20 +360,25 @@ class ClusteringStage(BaseStage):
             face_count=0,
         )
 
-        # Assign all faces with lower confidence (pool-formed clusters)
+        # Assign faces with confidence based on distance to centroid (option 3)
         # Track actual assignments since some may fail due to race conditions
         assigned_count = 0
-        for fid in valid_face_ids:
+        for fid, dist in zip(filtered_ids, distances):
             # Remove from old cluster if any (handles force reprocessing)
             self.repository.remove_face_from_cluster(fid, delete_empty_cluster=True)
+            # Calculate confidence from distance (closer = higher confidence)
+            confidence = max(0.0, min(1.0, 1.0 - dist))
             # Only assign if face is still unassigned (prevents race conditions)
             assigned = self.repository.update_face_cluster(
                 face_id=fid,
                 cluster_id=cluster_id,
-                cluster_confidence=0.8,  # Lower confidence for pool-formed clusters
+                cluster_confidence=confidence,
                 cluster_status="auto",
             )
-            logger.debug(f"update_face_cluster(face={fid}, cluster={cluster_id}) returned {assigned}")
+            logger.debug(
+                f"update_face_cluster(face={fid}, cluster={cluster_id}, "
+                f"confidence={confidence:.3f}) returned {assigned}"
+            )
             if assigned:
                 assigned_count += 1
                 self.repository.clear_face_unassigned(fid)

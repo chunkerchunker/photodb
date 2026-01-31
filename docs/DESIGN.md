@@ -187,26 +187,38 @@ Detects faces and extracts embeddings for clustering.
 
 **File**: `src/photodb/stages/clustering.py`
 
-Groups faces into identity clusters using embedding similarity.
+Constrained incremental clustering for face identity grouping.
 
-**Algorithm** (per-face incremental):
+**Algorithm** (per-face with constraints):
 
-1. **Query unclustered faces** with embeddings
-2. **Find nearest clusters** using pgvector IVFFlat index (KNN search)
-3. **Apply decision rules**:
-   - **Rule A** (no match < threshold): Create new cluster
-   - **Rule B** (single match): Assign to cluster, update centroid
-   - **Rule C** (multiple matches): Mark for manual review
+1. **Check must-link constraints** - if face has must-link to clustered face, assign directly
+2. **Find K nearest neighbors** (faces, not clusters) using pgvector
+3. **Calculate core distance confidence** - mean distance to K neighbors
+4. **Filter by cannot-link constraints** - remove forbidden clusters
+5. **Apply decision rules**:
+   - **No valid matches**: Add to unassigned pool
+   - **Single valid cluster**: Assign (stricter threshold for verified clusters)
+   - **Multiple valid clusters**: Mark for manual review
+6. **Unassigned pool**: When enough similar unassigned faces accumulate, form new cluster
+
+**Constraint System**:
+- **Must-link**: Forces faces into same cluster (human override)
+- **Cannot-link**: Prevents faces from sharing cluster (human override)
+- **Verified clusters**: Protected from auto-merge, use stricter assignment threshold
 
 **Configuration**:
 - `CLUSTERING_THRESHOLD`: Cosine distance threshold (default: 0.45)
+- `CLUSTERING_K_NEIGHBORS`: K nearest neighbors to check (default: 5)
+- `UNASSIGNED_CLUSTER_THRESHOLD`: Faces needed to form pool cluster (default: 5)
+- `VERIFIED_THRESHOLD_MULTIPLIER`: Stricter threshold for verified clusters (default: 0.8)
+- `MEDOID_RECOMPUTE_THRESHOLD`: Growth ratio to trigger inline medoid recomputation (default: 0.25)
 
 **Centroid update formula**:
 ```
 new_centroid = (old_centroid * face_count + embedding) / (face_count + 1)
 ```
 
-**Output**: Face cluster assignments + cluster centroids
+**Output**: Face cluster assignments + cluster centroids + constraint records
 
 ### Stage R1: Enrich
 
@@ -286,9 +298,10 @@ person (id, name, created_at, updated_at)
 -- Detected faces
 face (
     id, photo_id, bbox_x, bbox_y, bbox_width, bbox_height,
-    confidence, person_id, cluster_status, cluster_id, cluster_confidence
+    confidence, person_id, cluster_status, cluster_id, cluster_confidence,
+    unassigned_since  -- When added to unassigned pool
 )
--- cluster_status: 'auto' | 'pending' | 'manual'
+-- cluster_status: 'auto' | 'pending' | 'manual' | 'unassigned' | 'constrained'
 
 -- Face embeddings (pgvector)
 face_embedding (
@@ -300,7 +313,8 @@ face_embedding (
 cluster (
     id, face_count, representative_face_id,
     centroid VECTOR(512), medoid_face_id,
-    person_id, created_at, updated_at
+    person_id, verified, verified_at, verified_by,  -- Cluster verification
+    created_at, updated_at
 )
 
 -- Ambiguous face matches for review
@@ -309,6 +323,26 @@ face_match_candidate (
     status, created_at
 )
 -- status: 'pending' | 'accepted' | 'rejected'
+```
+
+### Constraint Tables
+
+```sql
+-- Must-link: forces faces into same cluster
+must_link (
+    id, face_id_1, face_id_2, created_by, created_at
+)
+-- CHECK: face_id_1 < face_id_2 (canonical ordering)
+
+-- Cannot-link: prevents faces from sharing cluster
+cannot_link (
+    id, face_id_1, face_id_2, created_by, created_at
+)
+
+-- Cluster-level cannot-link (prevents cluster merging)
+cluster_cannot_link (
+    id, cluster_id_1, cluster_id_2, created_at
+)
 ```
 
 ### Required Indexes
@@ -386,13 +420,17 @@ class PhotoAnalysisResponse:
 1. **Recompute centroids**: Recalculate cluster centroids from member faces
 2. **Cleanup empty clusters**: Remove clusters with no assigned faces
 3. **Update statistics**: Refresh face_count and other cluster stats
+4. **Propagate must-link constraints**: Transitive closure (A~B, B~C → A~C)
+5. **Merge must-linked clusters**: Merge clusters connected by must-link faces
+6. **Check constraint violations**: Find cannot-link faces in same cluster
 
 ### Weekly Tasks
 
 All daily tasks, plus:
 
-4. **Update medoids**: Find face closest to each cluster centroid
-5. **Merge similar clusters**: Combine clusters with centroid similarity > threshold
+1. **Update medoids**: Find face closest to each cluster centroid
+2. **Merge similar clusters**: Combine clusters with centroid similarity > threshold (respects verified clusters and cannot-link constraints)
+3. **Cleanup unassigned pool**: Create singleton clusters for old unassigned faces
 
 ### Health Checks
 
@@ -406,7 +444,11 @@ All daily tasks, plus:
     "min_cluster_size": int,
     "max_cluster_size": int,
     "total_faces": int,
-    "unclustered_faces": int
+    "unclustered_faces": int,
+    "must_link_count": int,
+    "cannot_link_count": int,
+    "verified_clusters": int,
+    "unassigned_pool_size": int
 }
 ```
 
@@ -428,7 +470,13 @@ BATCH_REQUESTS_PATH=./batch_requests
 RESIZE_SCALE=1.0                   # Image resize multiplier
 FACE_MIN_CONFIDENCE=0.85           # Face detection threshold
 FACE_DETECTION_FORCE_CPU=false     # Force CPU for face detection
+
+# Clustering (constrained incremental)
 CLUSTERING_THRESHOLD=0.45          # Face similarity threshold
+CLUSTERING_K_NEIGHBORS=5           # K nearest neighbors to check
+UNASSIGNED_CLUSTER_THRESHOLD=5     # Faces needed to form pool cluster
+VERIFIED_THRESHOLD_MULTIPLIER=0.8  # Stricter threshold for verified clusters
+MEDOID_RECOMPUTE_THRESHOLD=0.25    # Growth ratio to trigger inline medoid recomputation
 
 # LLM - Anthropic
 LLM_PROVIDER=anthropic

@@ -558,9 +558,25 @@ class PhotoRepository:
                 return [Photo(**dict(row)) for row in rows]  # type: ignore[arg-type]
 
     def delete_faces_for_photo(self, photo_id: int) -> None:
-        """Delete all face detections for a photo."""
+        """Delete all face detections for a photo, updating cluster counts."""
         with self.pool.transaction() as conn:
             with conn.cursor() as cursor:
+                # Decrement face_count for all affected clusters
+                cursor.execute(
+                    """UPDATE cluster
+                       SET face_count = GREATEST(0, face_count - subq.cnt),
+                           updated_at = NOW()
+                       FROM (
+                           SELECT cluster_id, COUNT(*) as cnt
+                           FROM face
+                           WHERE photo_id = %s AND cluster_id IS NOT NULL
+                           GROUP BY cluster_id
+                       ) subq
+                       WHERE cluster.id = subq.cluster_id""",
+                    (photo_id,),
+                )
+
+                # Delete the faces
                 cursor.execute("DELETE FROM face WHERE photo_id = %s", (photo_id,))
 
     # Face embedding methods
@@ -664,12 +680,12 @@ class PhotoRepository:
         with self.pool.transaction() as conn:
             with conn.cursor() as cursor:
                 cursor.execute(
-                    """INSERT INTO cluster 
-                       (face_count, representative_face_id, centroid, medoid_face_id, 
-                        created_at, updated_at)
-                       VALUES (%s, %s, %s, %s, NOW(), NOW())
+                    """INSERT INTO cluster
+                       (face_count, face_count_at_last_medoid, representative_face_id,
+                        centroid, medoid_face_id, created_at, updated_at)
+                       VALUES (%s, %s, %s, %s, %s, NOW(), NOW())
                        RETURNING id""",
-                    (face_count, representative_face_id, centroid, medoid_face_id),
+                    (face_count, face_count, representative_face_id, centroid, medoid_face_id),
                 )
                 return cursor.fetchone()[0]
 
@@ -679,18 +695,199 @@ class PhotoRepository:
         cluster_id: int,
         cluster_confidence: float,
         cluster_status: str,
-    ) -> None:
-        """Update face cluster assignment."""
+    ) -> bool:
+        """
+        Update face cluster assignment (does NOT update cluster counts).
+
+        Only assigns if face is currently unassigned (cluster_id IS NULL).
+        This prevents race conditions in parallel processing.
+
+        Returns:
+            True if face was assigned, False if already assigned to another cluster.
+        """
         with self.pool.transaction() as conn:
             with conn.cursor() as cursor:
+                # Use SELECT FOR UPDATE to lock the row and check state atomically
                 cursor.execute(
-                    """UPDATE face 
-                       SET cluster_id = %s, 
-                           cluster_confidence = %s, 
+                    "SELECT cluster_id FROM face WHERE id = %s FOR UPDATE",
+                    (face_id,),
+                )
+                row = cursor.fetchone()
+                if not row:
+                    logger.warning(f"update_face_cluster: face {face_id} not found")
+                    return False
+
+                current_cluster_id = row[0]
+                if current_cluster_id is not None:
+                    logger.debug(
+                        f"update_face_cluster: face {face_id} already in cluster {current_cluster_id}"
+                    )
+                    return False
+
+                cursor.execute(
+                    """UPDATE face
+                       SET cluster_id = %s,
+                           cluster_confidence = %s,
                            cluster_status = %s
                        WHERE id = %s""",
                     (cluster_id, cluster_confidence, cluster_status, face_id),
                 )
+                return True
+
+    def move_face_to_cluster(
+        self,
+        face_id: int,
+        new_cluster_id: int,
+        cluster_confidence: float,
+        cluster_status: str = "manual",
+        delete_empty_clusters: bool = True,
+    ) -> Optional[int]:
+        """
+        Move a face to a different cluster, updating counts atomically.
+
+        Args:
+            face_id: ID of the face to move
+            new_cluster_id: ID of the destination cluster
+            cluster_confidence: Confidence score for the assignment
+            cluster_status: Status of the assignment (default: 'manual')
+            delete_empty_clusters: If True, delete the old cluster if it becomes empty
+
+        Returns:
+            ID of deleted cluster if one was removed, None otherwise
+        """
+        deleted_cluster_id = None
+
+        with self.pool.transaction() as conn:
+            with conn.cursor() as cursor:
+                # Get current cluster assignment
+                cursor.execute(
+                    "SELECT cluster_id FROM face WHERE id = %s FOR UPDATE",
+                    (face_id,),
+                )
+                row = cursor.fetchone()
+                if not row:
+                    logger.error(f"Face {face_id} not found")
+                    return None
+
+                old_cluster_id = row[0]
+
+                # Update the face
+                cursor.execute(
+                    """UPDATE face
+                       SET cluster_id = %s,
+                           cluster_confidence = %s,
+                           cluster_status = %s,
+                           unassigned_since = NULL
+                       WHERE id = %s""",
+                    (new_cluster_id, cluster_confidence, cluster_status, face_id),
+                )
+
+                # Decrement old cluster count (if face was in a cluster)
+                if old_cluster_id is not None and old_cluster_id != new_cluster_id:
+                    cursor.execute(
+                        """UPDATE cluster
+                           SET face_count = GREATEST(0, face_count - 1),
+                               updated_at = NOW()
+                           WHERE id = %s""",
+                        (old_cluster_id,),
+                    )
+
+                    # Check if old cluster is now empty
+                    if delete_empty_clusters:
+                        cursor.execute(
+                            "SELECT face_count FROM cluster WHERE id = %s",
+                            (old_cluster_id,),
+                        )
+                        count_row = cursor.fetchone()
+                        if count_row and count_row[0] == 0:
+                            cursor.execute(
+                                "DELETE FROM cluster WHERE id = %s",
+                                (old_cluster_id,),
+                            )
+                            deleted_cluster_id = old_cluster_id
+                            logger.info(f"Deleted empty cluster {old_cluster_id}")
+
+                # Increment new cluster count
+                if new_cluster_id is not None:
+                    cursor.execute(
+                        """UPDATE cluster
+                           SET face_count = face_count + 1,
+                               updated_at = NOW()
+                           WHERE id = %s""",
+                        (new_cluster_id,),
+                    )
+
+                conn.commit()
+
+        return deleted_cluster_id
+
+    def remove_face_from_cluster(
+        self,
+        face_id: int,
+        delete_empty_cluster: bool = True,
+    ) -> Optional[int]:
+        """
+        Remove a face from its current cluster.
+
+        Args:
+            face_id: ID of the face to remove
+            delete_empty_cluster: If True, delete the cluster if it becomes empty
+
+        Returns:
+            ID of deleted cluster if one was removed, None otherwise
+        """
+        deleted_cluster_id = None
+
+        with self.pool.transaction() as conn:
+            with conn.cursor() as cursor:
+                # Get current cluster
+                cursor.execute(
+                    "SELECT cluster_id FROM face WHERE id = %s FOR UPDATE",
+                    (face_id,),
+                )
+                row = cursor.fetchone()
+                if not row or row[0] is None:
+                    return None
+
+                old_cluster_id = row[0]
+
+                # Clear face cluster assignment
+                cursor.execute(
+                    """UPDATE face
+                       SET cluster_id = NULL,
+                           cluster_status = NULL,
+                           cluster_confidence = 0
+                       WHERE id = %s""",
+                    (face_id,),
+                )
+
+                # Decrement cluster count
+                cursor.execute(
+                    """UPDATE cluster
+                       SET face_count = GREATEST(0, face_count - 1),
+                           updated_at = NOW()
+                       WHERE id = %s""",
+                    (old_cluster_id,),
+                )
+
+                # Check if cluster is now empty
+                if delete_empty_cluster:
+                    cursor.execute(
+                        "SELECT face_count FROM cluster WHERE id = %s",
+                        (old_cluster_id,),
+                    )
+                    count_row = cursor.fetchone()
+                    if count_row and count_row[0] == 0:
+                        cursor.execute(
+                            "DELETE FROM cluster WHERE id = %s",
+                            (old_cluster_id,),
+                        )
+                        deleted_cluster_id = old_cluster_id
+                        logger.info(f"Deleted empty cluster {old_cluster_id}")
+
+                conn.commit()
+
+        return deleted_cluster_id
 
     def update_face_cluster_status(self, face_id: int, cluster_status: str) -> None:
         """Update only the cluster status for a face."""
@@ -730,12 +927,321 @@ class PhotoRepository:
         with self.pool.transaction() as conn:
             with conn.cursor() as cursor:
                 cursor.execute(
-                    """UPDATE cluster 
+                    """UPDATE cluster
                        SET centroid = %s, face_count = %s, updated_at = NOW()
                        WHERE id = %s""",
                     (centroid, face_count, cluster_id),
                 )
 
+    def update_cluster_face_count(self, cluster_id: int, face_count: int) -> None:
+        """Update cluster face count."""
+        with self.pool.transaction() as conn:
+            with conn.cursor() as cursor:
+                cursor.execute(
+                    """UPDATE cluster
+                       SET face_count = %s,
+                           face_count_at_last_medoid = %s,
+                           updated_at = NOW()
+                       WHERE id = %s""",
+                    (face_count, face_count, cluster_id),
+                )
+
+    def delete_cluster(self, cluster_id: int) -> bool:
+        """Delete a cluster by ID. Returns True if deleted."""
+        with self.pool.transaction() as conn:
+            with conn.cursor() as cursor:
+                cursor.execute("DELETE FROM cluster WHERE id = %s", (cluster_id,))
+                return cursor.rowcount > 0
+
     def get_connection(self):
         """Get a database connection for transaction management."""
         return self.pool.get_connection()
+
+    # Constrained clustering methods
+
+    def find_nearest_faces(self, embedding, limit: int = 5) -> List[Dict[str, Any]]:
+        """Find K nearest clustered faces using pgvector cosine distance."""
+        with self.pool.get_connection() as conn:
+            with conn.cursor(row_factory=dict_row) as cursor:
+                cursor.execute(
+                    """SELECT f.id, f.cluster_id, fe.embedding <=> %s AS distance
+                       FROM face f
+                       JOIN face_embedding fe ON f.id = fe.face_id
+                       WHERE f.cluster_id IS NOT NULL
+                       ORDER BY fe.embedding <=> %s
+                       LIMIT %s""",
+                    (embedding, embedding, limit),
+                )
+                return [dict(row) for row in cursor.fetchall()]
+
+    def get_must_linked_faces(self, face_id: int) -> List[Dict[str, Any]]:
+        """Get faces that must be in same cluster as this face."""
+        with self.pool.get_connection() as conn:
+            with conn.cursor(row_factory=dict_row) as cursor:
+                cursor.execute(
+                    """SELECT f.id, f.cluster_id
+                       FROM face f
+                       JOIN (
+                           SELECT face_id_2 AS linked_id FROM must_link WHERE face_id_1 = %s
+                           UNION
+                           SELECT face_id_1 AS linked_id FROM must_link WHERE face_id_2 = %s
+                       ) ml ON f.id = ml.linked_id""",
+                    (face_id, face_id),
+                )
+                return [dict(row) for row in cursor.fetchall()]
+
+    def get_cannot_linked_faces(self, face_id: int) -> List[Dict[str, Any]]:
+        """Get faces that cannot be in same cluster as this face."""
+        with self.pool.get_connection() as conn:
+            with conn.cursor(row_factory=dict_row) as cursor:
+                cursor.execute(
+                    """SELECT f.id, f.cluster_id
+                       FROM face f
+                       JOIN (
+                           SELECT face_id_2 AS linked_id FROM cannot_link WHERE face_id_1 = %s
+                           UNION
+                           SELECT face_id_1 AS linked_id FROM cannot_link WHERE face_id_2 = %s
+                       ) cl ON f.id = cl.linked_id""",
+                    (face_id, face_id),
+                )
+                return [dict(row) for row in cursor.fetchall()]
+
+    def add_must_link(
+        self, face_id_1: int, face_id_2: int, created_by: str = "human"
+    ) -> Optional[int]:
+        """
+        Add must-link constraint between two faces.
+
+        If both faces are already in different clusters, triggers a merge.
+        Returns the constraint ID or None if already exists.
+        """
+        # Canonical ordering
+        if face_id_1 > face_id_2:
+            face_id_1, face_id_2 = face_id_2, face_id_1
+
+        with self.pool.transaction() as conn:
+            with conn.cursor() as cursor:
+                cursor.execute(
+                    """INSERT INTO must_link (face_id_1, face_id_2, created_by)
+                       VALUES (%s, %s, %s)
+                       ON CONFLICT (face_id_1, face_id_2) DO NOTHING
+                       RETURNING id""",
+                    (face_id_1, face_id_2, created_by),
+                )
+                result = cursor.fetchone()
+                return result[0] if result else None
+
+    def add_cannot_link(
+        self, face_id_1: int, face_id_2: int, created_by: str = "human"
+    ) -> Optional[int]:
+        """
+        Add cannot-link constraint between two faces.
+
+        If faces are in the same cluster, marks cluster for split review.
+        Returns the constraint ID or None if already exists.
+        """
+        # Canonical ordering
+        if face_id_1 > face_id_2:
+            face_id_1, face_id_2 = face_id_2, face_id_1
+
+        with self.pool.transaction() as conn:
+            with conn.cursor() as cursor:
+                cursor.execute(
+                    """INSERT INTO cannot_link (face_id_1, face_id_2, created_by)
+                       VALUES (%s, %s, %s)
+                       ON CONFLICT (face_id_1, face_id_2) DO NOTHING
+                       RETURNING id""",
+                    (face_id_1, face_id_2, created_by),
+                )
+                result = cursor.fetchone()
+
+                if result:
+                    # Check if faces are in same cluster - mark for review
+                    cursor.execute(
+                        """SELECT f1.cluster_id
+                           FROM face f1, face f2
+                           WHERE f1.id = %s AND f2.id = %s
+                             AND f1.cluster_id = f2.cluster_id
+                             AND f1.cluster_id IS NOT NULL""",
+                        (face_id_1, face_id_2),
+                    )
+                    same_cluster = cursor.fetchone()
+                    if same_cluster:
+                        # Mark cluster as needing split
+                        cursor.execute(
+                            """UPDATE cluster
+                               SET verified = false, updated_at = NOW()
+                               WHERE id = %s""",
+                            (same_cluster[0],),
+                        )
+                        logger.warning(
+                            f"Cluster {same_cluster[0]} needs split due to cannot-link constraint"
+                        )
+
+                return result[0] if result else None
+
+    def add_cluster_cannot_link(self, cluster_id_1: int, cluster_id_2: int) -> Optional[int]:
+        """Add cannot-link constraint between two clusters to prevent merging."""
+        # Canonical ordering
+        if cluster_id_1 > cluster_id_2:
+            cluster_id_1, cluster_id_2 = cluster_id_2, cluster_id_1
+
+        with self.pool.transaction() as conn:
+            with conn.cursor() as cursor:
+                cursor.execute(
+                    """INSERT INTO cluster_cannot_link (cluster_id_1, cluster_id_2)
+                       VALUES (%s, %s)
+                       ON CONFLICT (cluster_id_1, cluster_id_2) DO NOTHING
+                       RETURNING id""",
+                    (cluster_id_1, cluster_id_2),
+                )
+                result = cursor.fetchone()
+                return result[0] if result else None
+
+    def has_cluster_cannot_link(self, cluster_id_1: int, cluster_id_2: int) -> bool:
+        """Check if two clusters have a cannot-link constraint."""
+        # Canonical ordering
+        if cluster_id_1 > cluster_id_2:
+            cluster_id_1, cluster_id_2 = cluster_id_2, cluster_id_1
+
+        with self.pool.get_connection() as conn:
+            with conn.cursor() as cursor:
+                cursor.execute(
+                    """SELECT 1 FROM cluster_cannot_link
+                       WHERE cluster_id_1 = %s AND cluster_id_2 = %s""",
+                    (cluster_id_1, cluster_id_2),
+                )
+                return cursor.fetchone() is not None
+
+    def find_similar_unassigned_faces(
+        self, embedding, threshold: float, limit: int
+    ) -> List[Dict[str, Any]]:
+        """Find unassigned faces similar to embedding."""
+        with self.pool.get_connection() as conn:
+            with conn.cursor(row_factory=dict_row) as cursor:
+                cursor.execute(
+                    """SELECT f.id, fe.embedding <=> %s AS distance
+                       FROM face f
+                       JOIN face_embedding fe ON f.id = fe.face_id
+                       WHERE f.cluster_id IS NULL
+                         AND f.cluster_status = 'unassigned'
+                         AND fe.embedding <=> %s < %s
+                       ORDER BY fe.embedding <=> %s
+                       LIMIT %s""",
+                    (embedding, embedding, threshold, embedding, limit),
+                )
+                return [dict(row) for row in cursor.fetchall()]
+
+    def update_face_unassigned(self, face_id: int) -> None:
+        """Mark a face as unassigned (added to outlier pool)."""
+        with self.pool.transaction() as conn:
+            with conn.cursor() as cursor:
+                # Get current cluster assignment
+                cursor.execute(
+                    "SELECT cluster_id FROM face WHERE id = %s FOR UPDATE",
+                    (face_id,),
+                )
+                row = cursor.fetchone()
+                old_cluster_id = row[0] if row else None
+
+                # Decrement old cluster's face_count if face was in a cluster
+                if old_cluster_id is not None:
+                    cursor.execute(
+                        """UPDATE cluster
+                           SET face_count = GREATEST(0, face_count - 1),
+                               updated_at = NOW()
+                           WHERE id = %s""",
+                        (old_cluster_id,),
+                    )
+
+                # Mark face as unassigned and clear cluster_id
+                cursor.execute(
+                    """UPDATE face
+                       SET cluster_id = NULL,
+                           cluster_status = 'unassigned',
+                           cluster_confidence = 0,
+                           unassigned_since = NOW()
+                       WHERE id = %s""",
+                    (face_id,),
+                )
+
+    def clear_face_unassigned(self, face_id: int) -> None:
+        """Clear unassigned status when face is assigned to cluster."""
+        with self.pool.transaction() as conn:
+            with conn.cursor() as cursor:
+                cursor.execute(
+                    """UPDATE face
+                       SET unassigned_since = NULL
+                       WHERE id = %s""",
+                    (face_id,),
+                )
+
+    def get_faces_in_cluster(self, cluster_id: int) -> List[Dict[str, Any]]:
+        """Get all faces with embeddings in a cluster."""
+        with self.pool.get_connection() as conn:
+            with conn.cursor(row_factory=dict_row) as cursor:
+                cursor.execute(
+                    """SELECT f.id, fe.embedding
+                       FROM face f
+                       JOIN face_embedding fe ON f.id = fe.face_id
+                       WHERE f.cluster_id = %s""",
+                    (cluster_id,),
+                )
+                return [dict(row) for row in cursor.fetchall()]
+
+    def verify_cluster(self, cluster_id: int, verified_by: str = "human") -> None:
+        """Mark a cluster as verified (human-confirmed identity)."""
+        with self.pool.transaction() as conn:
+            with conn.cursor() as cursor:
+                cursor.execute(
+                    """UPDATE cluster
+                       SET verified = true,
+                           verified_at = NOW(),
+                           verified_by = %s,
+                           updated_at = NOW()
+                       WHERE id = %s""",
+                    (verified_by, cluster_id),
+                )
+
+    def unverify_cluster(self, cluster_id: int) -> None:
+        """Remove verified status from a cluster."""
+        with self.pool.transaction() as conn:
+            with conn.cursor() as cursor:
+                cursor.execute(
+                    """UPDATE cluster
+                       SET verified = false,
+                           verified_at = NULL,
+                           verified_by = NULL,
+                           updated_at = NOW()
+                       WHERE id = %s""",
+                    (cluster_id,),
+                )
+
+    def get_constraint_stats(self) -> Dict[str, int]:
+        """Get statistics about constraints in the system."""
+        with self.pool.get_connection() as conn:
+            with conn.cursor() as cursor:
+                cursor.execute("SELECT COUNT(*) FROM must_link")
+                must_link_count = cursor.fetchone()[0]
+
+                cursor.execute("SELECT COUNT(*) FROM cannot_link")
+                cannot_link_count = cursor.fetchone()[0]
+
+                cursor.execute("SELECT COUNT(*) FROM cluster_cannot_link")
+                cluster_cannot_link_count = cursor.fetchone()[0]
+
+                cursor.execute("SELECT COUNT(*) FROM cluster WHERE verified = true")
+                verified_clusters = cursor.fetchone()[0]
+
+                cursor.execute(
+                    "SELECT COUNT(*) FROM face WHERE cluster_status = 'unassigned'"
+                )
+                unassigned_faces = cursor.fetchone()[0]
+
+                return {
+                    "must_link_count": must_link_count,
+                    "cannot_link_count": cannot_link_count,
+                    "cluster_cannot_link_count": cluster_cannot_link_count,
+                    "verified_clusters": verified_clusters,
+                    "unassigned_faces": unassigned_faces,
+                }

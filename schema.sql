@@ -139,9 +139,11 @@ CREATE TABLE IF NOT EXISTS face(
     -- Detection metadata
     person_id bigint,
     -- Clustering fields
-    cluster_status text CHECK (cluster_status IN ('auto', 'pending', 'manual')) DEFAULT NULL,
+    cluster_status text CHECK (cluster_status IN ('auto', 'pending', 'manual', 'unassigned', 'constrained')) DEFAULT NULL,
     cluster_id bigint REFERENCES "cluster"(id) ON DELETE SET NULL,
     cluster_confidence DECIMAL(3, 2) DEFAULT 0, -- Cluster assignment confidence 0.00-1.00
+    -- Unassigned pool tracking
+    unassigned_since timestamptz DEFAULT NULL, -- When face was added to unassigned pool
     FOREIGN KEY (photo_id) REFERENCES photo(id) ON DELETE CASCADE,
     FOREIGN KEY (person_id) REFERENCES person(id) ON DELETE SET NULL
 );
@@ -171,10 +173,15 @@ CREATE INDEX IF NOT EXISTS face_embedding_idx ON face_embedding USING ivfflat(em
 CREATE TABLE IF NOT EXISTS "cluster"(
     id bigserial PRIMARY KEY,
     face_count bigint DEFAULT 0,
+    face_count_at_last_medoid bigint DEFAULT 0, -- For threshold-based medoid recomputation
     representative_face_id bigint REFERENCES face(id) ON DELETE SET NULL,
     centroid VECTOR(512),
     medoid_face_id bigint REFERENCES face(id) ON DELETE SET NULL,
     person_id bigint REFERENCES person(id) ON DELETE SET NULL,
+    -- Verification status to protect human-verified clusters
+    verified boolean DEFAULT false,
+    verified_at timestamptz DEFAULT NULL,
+    verified_by text DEFAULT NULL,
     created_at timestamptz DEFAULT now(),
     updated_at timestamptz DEFAULT now(),
     FOREIGN KEY (person_id) REFERENCES person(id) ON DELETE SET NULL
@@ -196,4 +203,47 @@ CREATE INDEX IF NOT EXISTS idx_cluster_centroid ON "cluster" USING ivfflat(centr
 CREATE INDEX IF NOT EXISTS idx_face_match_candidate_face ON face_match_candidate(face_id);
 
 CREATE INDEX IF NOT EXISTS idx_face_match_candidate_status ON face_match_candidate(status);
+
+CREATE INDEX IF NOT EXISTS idx_face_unassigned ON face(unassigned_since) WHERE cluster_id IS NULL;
+
+-- Must-link constraint: forces faces to be in the same cluster
+CREATE TABLE IF NOT EXISTS must_link(
+    id bigserial PRIMARY KEY,
+    face_id_1 bigint NOT NULL REFERENCES face(id) ON DELETE CASCADE,
+    face_id_2 bigint NOT NULL REFERENCES face(id) ON DELETE CASCADE,
+    created_by text DEFAULT 'human', -- 'human' or 'system'
+    created_at timestamptz DEFAULT NOW(),
+    UNIQUE(face_id_1, face_id_2),
+    CHECK (face_id_1 < face_id_2) -- Canonical ordering to prevent duplicates
+);
+
+-- Cannot-link constraint: prevents faces from being in the same cluster
+CREATE TABLE IF NOT EXISTS cannot_link(
+    id bigserial PRIMARY KEY,
+    face_id_1 bigint NOT NULL REFERENCES face(id) ON DELETE CASCADE,
+    face_id_2 bigint NOT NULL REFERENCES face(id) ON DELETE CASCADE,
+    created_by text DEFAULT 'human',
+    created_at timestamptz DEFAULT NOW(),
+    UNIQUE(face_id_1, face_id_2),
+    CHECK (face_id_1 < face_id_2)
+);
+
+-- Cluster-level cannot-link for efficiency (prevents merging)
+CREATE TABLE IF NOT EXISTS cluster_cannot_link(
+    id bigserial PRIMARY KEY,
+    cluster_id_1 bigint NOT NULL REFERENCES "cluster"(id) ON DELETE CASCADE,
+    cluster_id_2 bigint NOT NULL REFERENCES "cluster"(id) ON DELETE CASCADE,
+    created_at timestamptz DEFAULT NOW(),
+    UNIQUE(cluster_id_1, cluster_id_2),
+    CHECK (cluster_id_1 < cluster_id_2)
+);
+
+-- Indexes for constraint lookups
+CREATE INDEX IF NOT EXISTS idx_must_link_face1 ON must_link(face_id_1);
+CREATE INDEX IF NOT EXISTS idx_must_link_face2 ON must_link(face_id_2);
+CREATE INDEX IF NOT EXISTS idx_cannot_link_face1 ON cannot_link(face_id_1);
+CREATE INDEX IF NOT EXISTS idx_cannot_link_face2 ON cannot_link(face_id_2);
+CREATE INDEX IF NOT EXISTS idx_cluster_cannot_link_c1 ON cluster_cannot_link(cluster_id_1);
+CREATE INDEX IF NOT EXISTS idx_cluster_cannot_link_c2 ON cluster_cannot_link(cluster_id_2);
+CREATE INDEX IF NOT EXISTS idx_cluster_verified ON "cluster"(verified) WHERE verified = true;
 

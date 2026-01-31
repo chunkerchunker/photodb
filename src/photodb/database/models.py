@@ -271,10 +271,14 @@ class Face:
 class Cluster:
     id: Optional[int]
     face_count: int
+    face_count_at_last_medoid: int
     representative_face_id: Optional[int]
     centroid: Optional[List[float]]  # 512-dimensional vector
     medoid_face_id: Optional[int]
     person_id: Optional[int]
+    verified: bool
+    verified_at: Optional[datetime]
+    verified_by: Optional[str]
     created_at: datetime
     updated_at: datetime
 
@@ -292,10 +296,14 @@ class Cluster:
         return cls(
             id=None,  # Will be assigned by database
             face_count=face_count,
+            face_count_at_last_medoid=face_count,
             representative_face_id=representative_face_id,
             centroid=centroid,
             medoid_face_id=medoid_face_id,
             person_id=person_id,
+            verified=False,
+            verified_at=None,
+            verified_by=None,
             created_at=now,
             updated_at=now,
         )
@@ -304,10 +312,14 @@ class Cluster:
         return {
             "id": self.id,
             "face_count": self.face_count,
+            "face_count_at_last_medoid": self.face_count_at_last_medoid,
             "representative_face_id": self.representative_face_id,
             "centroid": self.centroid,
             "medoid_face_id": self.medoid_face_id,
             "person_id": self.person_id,
+            "verified": self.verified,
+            "verified_at": self.verified_at,
+            "verified_by": self.verified_by,
             "created_at": self.created_at,
             "updated_at": self.updated_at,
         }

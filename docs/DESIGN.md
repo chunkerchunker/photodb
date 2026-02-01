@@ -201,6 +201,24 @@ Constrained incremental clustering for face identity grouping.
    - **Multiple valid clusters**: Mark for manual review
 6. **Unassigned pool**: When enough similar unassigned faces accumulate, form new cluster
 
+**Pool Cluster Formation** (prevents chaining of dissimilar faces):
+
+1. Calculate centroid from all similar unassigned faces
+2. Filter to only faces within `POOL_CLUSTERING_THRESHOLD` of centroid
+3. Recalculate centroid with filtered faces only
+4. Find medoid (face closest to centroid)
+5. Assign faces with confidence based on distance to centroid
+
+**Inline Medoid Recomputation**:
+
+When a cluster grows by `MEDOID_RECOMPUTE_THRESHOLD` (default 25%) since last medoid computation, the medoid is recomputed inline during face assignment. This uses `face_count_at_last_medoid` to track when recomputation is needed.
+
+**Concurrency Safety**:
+
+- Row-level locking with `SELECT FOR UPDATE` during cluster modifications
+- Atomic face assignment checks prevent race conditions between workers
+- Empty clusters automatically deleted when all faces reassigned
+
 **Constraint System**:
 - **Must-link**: Forces faces into same cluster (human override)
 - **Cannot-link**: Prevents faces from sharing cluster (human override)
@@ -214,10 +232,12 @@ Constrained incremental clustering for face identity grouping.
 - `VERIFIED_THRESHOLD_MULTIPLIER`: Stricter threshold for verified clusters (default: 0.8)
 - `MEDOID_RECOMPUTE_THRESHOLD`: Growth ratio to trigger inline medoid recomputation (default: 0.25)
 
-**Centroid update formula**:
+**Centroid update formula** (incremental, during assignment):
 ```
 new_centroid = (old_centroid * face_count + embedding) / (face_count + 1)
 ```
+
+All embeddings and centroids are L2-normalized to unit vectors for cosine similarity.
 
 **Output**: Face cluster assignments + cluster centroids + constraint records
 
@@ -314,6 +334,7 @@ face_embedding (
 cluster (
     id, face_count, representative_face_id,
     centroid VECTOR(512), medoid_face_id,
+    face_count_at_last_medoid,  -- Tracks when to recompute medoid
     person_id, verified, verified_at, verified_by,  -- Cluster verification
     created_at, updated_at
 )

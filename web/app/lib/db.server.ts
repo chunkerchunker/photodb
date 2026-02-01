@@ -51,53 +51,83 @@ async function initDatabase() {
 export async function getYearsWithPhotos() {
   await initDatabase();
 
+  // Single query with LATERAL join for sample photos
+  // Uses day-of-year to create daily-varying but deterministic selection
+  // The modulo with a prime (997) spreads photos across the ID space
   const query = `
-    SELECT EXTRACT(YEAR FROM m.captured_at)::int as year,
-           COUNT(*)::int as photo_count,
-           MIN(p.id) as sample_photo_id
-    FROM metadata m
-    JOIN photo p ON p.id = m.photo_id
-    WHERE m.captured_at IS NOT NULL
-    GROUP BY year
-    ORDER BY year DESC
+    SELECT
+      y.year,
+      y.photo_count,
+      COALESCE(s.sample_ids, ARRAY[]::int[]) as sample_photo_ids
+    FROM (
+      SELECT
+        EXTRACT(YEAR FROM m.captured_at)::int as year,
+        COUNT(*)::int as photo_count
+      FROM metadata m
+      WHERE m.captured_at IS NOT NULL
+      GROUP BY year
+    ) y
+    LEFT JOIN LATERAL (
+      SELECT array_agg(id ORDER BY rn) as sample_ids
+      FROM (
+        SELECT p.id, ROW_NUMBER() OVER (
+          ORDER BY (p.id + EXTRACT(DOY FROM current_date)::int * 127) % 997
+        ) as rn
+        FROM photo p
+        JOIN metadata m ON p.id = m.photo_id
+        WHERE EXTRACT(YEAR FROM m.captured_at) = y.year
+        LIMIT 4
+      ) ranked
+    ) s ON true
+    ORDER BY y.year DESC
   `;
 
   const result = await pool.query(query);
-  return result.rows;
+
+  // Add backward compatibility field
+  return result.rows.map((row) => ({
+    ...row,
+    sample_photo_id: row.sample_photo_ids?.[0] || null,
+  }));
 }
 
 export async function getMonthsInYear(year: number) {
   await initDatabase();
 
+  // Single query with LATERAL join for sample photos
+  // Uses daily-varying deterministic selection like getYearsWithPhotos
   const query = `
-    SELECT EXTRACT(MONTH FROM m.captured_at)::int as month,
-           COUNT(*)::int as photo_count
-    FROM metadata m
-    WHERE EXTRACT(YEAR FROM m.captured_at) = $1
-      AND m.captured_at IS NOT NULL
-    GROUP BY month
-    ORDER BY month
+    SELECT
+      mo.month,
+      mo.photo_count,
+      COALESCE(s.sample_ids, ARRAY[]::int[]) as sample_photo_ids
+    FROM (
+      SELECT
+        EXTRACT(MONTH FROM m.captured_at)::int as month,
+        COUNT(*)::int as photo_count
+      FROM metadata m
+      WHERE EXTRACT(YEAR FROM m.captured_at) = $1
+        AND m.captured_at IS NOT NULL
+      GROUP BY month
+    ) mo
+    LEFT JOIN LATERAL (
+      SELECT array_agg(id ORDER BY rn) as sample_ids
+      FROM (
+        SELECT p.id, ROW_NUMBER() OVER (
+          ORDER BY (p.id + EXTRACT(DOY FROM current_date)::int * 127) % 997
+        ) as rn
+        FROM photo p
+        JOIN metadata m ON p.id = m.photo_id
+        WHERE EXTRACT(YEAR FROM m.captured_at) = $1
+          AND EXTRACT(MONTH FROM m.captured_at) = mo.month
+        LIMIT 4
+      ) ranked
+    ) s ON true
+    ORDER BY mo.month
   `;
 
   const result = await pool.query(query, [year]);
-  const months = result.rows;
 
-  // Get sample photo IDs for each month
-  for (const monthData of months) {
-    const sampleQuery = `
-      SELECT p.id
-      FROM photo p
-      JOIN metadata m ON p.id = m.photo_id
-      WHERE EXTRACT(YEAR FROM m.captured_at) = $1
-        AND EXTRACT(MONTH FROM m.captured_at) = $2
-      ORDER BY m.captured_at
-      LIMIT 4
-    `;
-    const sampleResult = await pool.query(sampleQuery, [year, monthData.month]);
-    monthData.sample_photo_ids = sampleResult.rows.map((row) => row.id);
-  }
-
-  // Add month names
   const monthNames = [
     "",
     "January",
@@ -114,9 +144,9 @@ export async function getMonthsInYear(year: number) {
     "December",
   ];
 
-  return months.map((m) => ({
-    ...m,
-    month_name: monthNames[m.month],
+  return result.rows.map((row) => ({
+    ...row,
+    month_name: monthNames[row.month],
   }));
 }
 

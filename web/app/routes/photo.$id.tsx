@@ -1,7 +1,7 @@
 import { useMeasure } from "@react-hookz/web";
 import { Ban, Bot, Camera, ChevronDown, Code, ExternalLink, Info, MapPin, Users } from "lucide-react";
 import { useEffect, useState } from "react";
-import { Link, useFetcher, useNavigate } from "react-router";
+import { Link, useFetcher, useLocation, useNavigate } from "react-router";
 import { Breadcrumb } from "~/components/breadcrumb";
 import { Layout } from "~/components/layout";
 import { Badge } from "~/components/ui/badge";
@@ -143,7 +143,9 @@ export async function loader({ params }: Route.LoaderArgs) {
 export default function PhotoDetail({ loaderData }: Route.ComponentProps) {
   const { photo } = loaderData;
   const navigate = useNavigate();
+  const location = useLocation();
   const fetcher = useFetcher();
+  const fromWall = (location.state as { fromWall?: boolean } | null)?.fromWall === true;
   const [showFaces, setShowFaces] = useState(false);
   const [hoveredFaceId, setHoveredFaceId] = useState<string | null>(null);
   const [imageMeasures, imageMeasureRef] = useMeasure<HTMLImageElement>();
@@ -192,11 +194,12 @@ export default function PhotoDetail({ loaderData }: Route.ComponentProps) {
 
   const breadcrumbItems = [];
   if (photo.year && photo.month && photo.month_name) {
+    const wallSuffix = fromWall ? "/wall" : "";
     breadcrumbItems.push(
-      { label: photo.year.toString(), href: `/year/${photo.year}` },
+      { label: photo.year.toString(), href: `/year/${photo.year}${wallSuffix}` },
       {
         label: photo.month_name,
-        href: `/year/${photo.year}/month/${photo.month}`,
+        href: `/year/${photo.year}/month/${photo.month}${wallSuffix}`,
       },
       { label: photo.filename_only },
     );

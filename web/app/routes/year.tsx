@@ -1,3 +1,4 @@
+import { Box } from "lucide-react";
 import { Link } from "react-router";
 import { Breadcrumb } from "~/components/breadcrumb";
 import { Layout } from "~/components/layout";
@@ -29,7 +30,17 @@ export default function YearView({ loaderData }: Route.ComponentProps) {
       <div className="space-y-6">
         <Breadcrumb items={[{ label: year }]} />
 
-        <h1 className="text-3xl font-bold text-gray-900">{year}</h1>
+        <div className="flex items-center justify-between">
+          <h1 className="text-3xl font-bold text-gray-900">{year}</h1>
+          <Link
+            to={`/year/${year}/wall`}
+            className="inline-flex items-center gap-2 px-3 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded-lg hover:bg-gray-50 hover:border-gray-400 transition-colors"
+            title="3D Wall View"
+          >
+            <Box className="h-4 w-4" />
+            3D Wall
+          </Link>
+        </div>
 
         {months.length > 0 ? (
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">

@@ -510,9 +510,9 @@ function ThreeWall({
 					transition.active = false;
 					if (transition.targetPhoto) {
 						// Save state before navigating (for zoom-out animation on return)
-						const storageKey = `wall-position-${year}-${month}`;
+						const photoReturnKey = `wall-photo-return-${year}-${month}`;
 						sessionStorage.setItem(
-							storageKey,
+							photoReturnKey,
 							JSON.stringify({
 								wallX: transition.startWallX,
 								photoId: transition.targetPhoto.id,
@@ -920,54 +920,96 @@ function ThreeWall({
 		tilesRef.current = tiles;
 
 		// Check if returning from a photo - set up zoom-out animation
-		const storageKey = `wall-position-${year}-${month}`;
-		const savedState = sessionStorage.getItem(storageKey);
-		if (savedState) {
-			const { wallX, photoId } = JSON.parse(savedState);
-			sessionStorage.removeItem(storageKey);
+		const photoReturnKey = `wall-photo-return-${year}-${month}`;
+		const positionKey = `wall-position-${year}-${month}`;
+		const savedPhotoState = sessionStorage.getItem(photoReturnKey);
+		const savedPosition = sessionStorage.getItem(positionKey);
 
-			// Find the tile for the photo we're returning from
-			const returnTile = tiles.find((t) => t.photo.id === photoId);
-			if (returnTile) {
-				// Start zoomed into the photo
-				const zoomedWallX = -returnTile.baseX;
-				wallPositionRef.current.x = zoomedWallX;
-				wallContainer.position.x = zoomedWallX;
-				camera.position.x = 0;
-				camera.position.y = returnTile.baseY;
-				camera.position.z = 0.5;
+		// Default to start position (left side of wall)
+		const maxX = wallWidth / 2 - 2;
+		const startPosition = maxX; // Start at the beginning (left side)
 
-				// Set up zoom-out transition
-				const transition = zoomTransitionRef.current;
-				transition.active = true;
-				transition.direction = "out";
-				transition.targetPhoto = returnTile.photo;
-				transition.progress = 0;
+		let didSetupPhotoReturn = false;
+		if (savedPhotoState) {
+			// Returning from a photo view - do zoom-out animation
+			try {
+				const { wallX, photoId } = JSON.parse(savedPhotoState);
+				sessionStorage.removeItem(photoReturnKey);
 
-				// Start positions (zoomed in)
-				transition.startX = 0;
-				transition.startY = returnTile.baseY;
-				transition.startZ = 0.5;
-				transition.startWallX = zoomedWallX;
+				// Find the tile for the photo we're returning from
+				const returnTile = tiles.find((t) => t.photo.id === photoId);
+				if (returnTile) {
+					// Start zoomed into the photo
+					const zoomedWallX = -returnTile.baseX;
+					wallPositionRef.current.x = zoomedWallX;
+					wallContainer.position.x = zoomedWallX;
+					camera.position.x = 0;
+					camera.position.y = returnTile.baseY;
+					camera.position.z = 0.5;
 
-				// Target positions (normal view, restored wall position)
-				transition.targetX = 0;
-				transition.targetY = 0.1;
-				transition.targetZ = CAMERA_Z_DEFAULT;
-				transition.targetWallX = wallX; // Restore to original position
+					// Set up zoom-out transition
+					const transition = zoomTransitionRef.current;
+					transition.active = true;
+					transition.direction = "out";
+					transition.targetPhoto = returnTile.photo;
+					transition.progress = 0;
 
-				// Start with white overlay
-				setTransitionOpacity(1);
+					// Start positions (zoomed in)
+					transition.startX = 0;
+					transition.startY = returnTile.baseY;
+					transition.startZ = 0.5;
+					transition.startWallX = zoomedWallX;
+
+					// Target positions (normal view, restored wall position)
+					transition.targetX = 0;
+					transition.targetY = 0.1;
+					transition.targetZ = CAMERA_Z_DEFAULT;
+					transition.targetWallX = wallX; // Restore to original position
+
+					// Start with white overlay
+					setTransitionOpacity(1);
+					didSetupPhotoReturn = true;
+				} else if (typeof wallX === "number" && !isNaN(wallX)) {
+					// Tile not found, just restore position without animation
+					wallPositionRef.current.x = wallX;
+					wallContainer.position.x = wallX;
+					didSetupPhotoReturn = true;
+				}
+			} catch {
+				// Invalid JSON, will fall through to other cases
+				sessionStorage.removeItem(photoReturnKey);
+			}
+		}
+
+			if (!didSetupPhotoReturn) {
+			if (savedPosition) {
+				// Returning to wall (not from photo) - restore last position
+				const wallX = parseFloat(savedPosition);
+				if (!isNaN(wallX)) {
+					wallPositionRef.current.x = wallX;
+					wallContainer.position.x = wallX;
+				} else {
+					// Invalid saved position, use default
+					wallPositionRef.current.x = startPosition;
+					wallContainer.position.x = startPosition;
+				}
 			} else {
-				// Fallback: just restore position without animation
-				wallPositionRef.current.x = wallX;
-				wallContainer.position.x = wallX;
+				// First visit - start at the beginning (left side)
+				wallPositionRef.current.x = startPosition;
+				wallContainer.position.x = startPosition;
 			}
 		}
 
 		setIsLoading(false);
 
 		return () => {
+			// Save current position for when returning to this wall
+			// Only save if not in the middle of a zoom transition (which saves its own state)
+			if (!zoomTransitionRef.current.active) {
+				const positionKey = `wall-position-${year}-${month}`;
+				sessionStorage.setItem(positionKey, String(wallPositionRef.current.x));
+			}
+
 			// Cancel animation
 			if (animationIdRef.current) {
 				cancelAnimationFrame(animationIdRef.current);

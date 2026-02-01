@@ -81,7 +81,13 @@ function getFaceCropStyle(
 type Cluster = Route.ComponentProps["loaderData"]["clusters"][number];
 
 export default function ClustersView({ loaderData }: Route.ComponentProps) {
-  const { clusters: initialClusters, totalClusters, hiddenCount, hasMore: initialHasMore, page: initialPage } = loaderData;
+  const {
+    clusters: initialClusters,
+    totalClusters,
+    hiddenCount,
+    hasMore: initialHasMore,
+    page: initialPage,
+  } = loaderData;
 
   const [clusters, setClusters] = useState<Cluster[]>(initialClusters);
   const [page, setPage] = useState(initialPage);
@@ -227,9 +233,7 @@ export default function ClustersView({ loaderData }: Route.ComponentProps) {
                   <span>Loading more clusters...</span>
                 </div>
               )}
-              {!hasMore && clusters.length > 0 && (
-                <span className="text-gray-400 text-sm">All clusters loaded</span>
-              )}
+              {!hasMore && clusters.length > 0 && <span className="text-gray-400 text-sm">All clusters loaded</span>}
             </div>
           </>
         ) : (

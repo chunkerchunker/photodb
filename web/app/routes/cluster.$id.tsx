@@ -733,9 +733,7 @@ export default function ClusterDetailView({ loaderData }: Route.ComponentProps) 
                   <span>Loading more faces...</span>
                 </div>
               )}
-              {!hasMore && faces.length > 0 && (
-                <span className="text-gray-400 text-sm">All faces loaded</span>
-              )}
+              {!hasMore && faces.length > 0 && <span className="text-gray-400 text-sm">All faces loaded</span>}
             </div>
           </>
         ) : (

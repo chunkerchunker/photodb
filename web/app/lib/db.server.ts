@@ -403,10 +403,11 @@ export async function setClusterPersonName(clusterId: string, firstName: string,
 
     if (existingPersonId) {
       // Update existing person's name
-      await client.query(
-        "UPDATE person SET first_name = $1, last_name = $2, updated_at = NOW() WHERE id = $3",
-        [firstName, lastName || null, existingPersonId],
-      );
+      await client.query("UPDATE person SET first_name = $1, last_name = $2, updated_at = NOW() WHERE id = $3", [
+        firstName,
+        lastName || null,
+        existingPersonId,
+      ]);
     } else {
       // Create new person and link to cluster
       const personResult = await client.query(

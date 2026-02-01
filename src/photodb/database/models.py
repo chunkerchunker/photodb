@@ -183,25 +183,36 @@ class LLMAnalysis:
 @dataclass
 class Person:
     id: Optional[int]
-    name: str
+    first_name: str
+    last_name: Optional[str]
     created_at: datetime
     updated_at: datetime
 
     @classmethod
-    def create(cls, name: str) -> "Person":
+    def create(cls, first_name: str, last_name: Optional[str] = None) -> "Person":
         """Create a new person record."""
         now = datetime.now(timezone.utc)
         return cls(
             id=None,  # Will be assigned by database
-            name=name,
+            first_name=first_name,
+            last_name=last_name,
             created_at=now,
             updated_at=now,
         )
 
+    @property
+    def full_name(self) -> str:
+        """Get the full name (first + last)."""
+        if self.last_name:
+            return f"{self.first_name} {self.last_name}"
+        return self.first_name
+
     def to_dict(self) -> Dict[str, Any]:
         return {
             "id": self.id,
-            "name": self.name,
+            "first_name": self.first_name,
+            "last_name": self.last_name,
+            "full_name": self.full_name,
             "created_at": self.created_at,
             "updated_at": self.updated_at,
         }

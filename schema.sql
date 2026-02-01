@@ -121,7 +121,8 @@ CREATE INDEX IF NOT EXISTS idx_batch_job_submitted_at ON batch_job(submitted_at)
 -- People table: Named individuals that can appear in photos (whether detected or manually assigned)
 CREATE TABLE IF NOT EXISTS person(
     id bigserial PRIMARY KEY,
-    name text NOT NULL,
+    first_name text NOT NULL,
+    last_name text,
     created_at timestamp with time zone DEFAULT NOW(),
     updated_at timestamp with time zone DEFAULT NOW()
 );
@@ -159,7 +160,8 @@ CREATE INDEX IF NOT EXISTS idx_face_cluster_status ON face(cluster_status);
 
 CREATE INDEX IF NOT EXISTS idx_face_cluster_id ON face(cluster_id);
 
-CREATE INDEX IF NOT EXISTS idx_person_name ON person(name);
+CREATE INDEX IF NOT EXISTS idx_person_first_name ON person(first_name);
+CREATE INDEX IF NOT EXISTS idx_person_last_name ON person(last_name);
 
 -- Face-level embeddings (for clustering & recognition)
 CREATE TABLE IF NOT EXISTS face_embedding(

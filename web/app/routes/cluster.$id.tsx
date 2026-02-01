@@ -1,4 +1,17 @@
-import { Check, Eye, EyeOff, GitMerge, Scissors, Search, Star, Trash2, UserMinus, Users, XCircle } from "lucide-react";
+import {
+  Check,
+  Eye,
+  EyeOff,
+  GitMerge,
+  Pencil,
+  Scissors,
+  Search,
+  Star,
+  Trash2,
+  UserMinus,
+  Users,
+  XCircle,
+} from "lucide-react";
 import { useCallback, useEffect, useState } from "react";
 import { Link, redirect, useFetcher } from "react-router";
 import { Breadcrumb } from "~/components/breadcrumb";
@@ -25,6 +38,7 @@ import {
   getClusterFacesCount,
   mergeClusters,
   setClusterHidden,
+  setClusterPersonName,
   setClusterRepresentative,
 } from "~/lib/db.server";
 import type { Route } from "./+types/cluster.$id";
@@ -111,6 +125,17 @@ export async function action({ request, params }: Route.ActionArgs) {
     if (result.success) {
       return redirect(`/cluster/${targetClusterId}`);
     }
+    return result;
+  }
+
+  if (intent === "set-name") {
+    const firstName = (formData.get("firstName") as string)?.trim();
+    const lastName = (formData.get("lastName") as string)?.trim();
+    if (!firstName || !clusterId) {
+      return { success: false, message: "First name is required" };
+    }
+
+    const result = await setClusterPersonName(clusterId, firstName, lastName || undefined);
     return result;
   }
 
@@ -201,10 +226,21 @@ export default function ClusterDetailView({ loaderData }: Route.ComponentProps) 
   const { cluster, faces, totalFaces, totalPages, currentPage } = loaderData;
   const [selectedFaces, setSelectedFaces] = useState<number[]>([]);
   const [mergeModalOpen, setMergeModalOpen] = useState(false);
+  const [nameModalOpen, setNameModalOpen] = useState(false);
+  const [editFirstName, setEditFirstName] = useState("");
+  const [editLastName, setEditLastName] = useState("");
   const [searchQuery, setSearchQuery] = useState("");
   const [searchResults, setSearchResults] = useState<SearchCluster[]>([]);
   const [isSearching, setIsSearching] = useState(false);
   const fetcher = useFetcher();
+
+  // Initialize edit name when modal opens
+  useEffect(() => {
+    if (nameModalOpen && cluster) {
+      setEditFirstName(cluster.first_name || "");
+      setEditLastName(cluster.last_name || "");
+    }
+  }, [nameModalOpen, cluster]);
 
   // Debounced search for clusters
   const searchClusters = useCallback(
@@ -238,6 +274,16 @@ export default function ClusterDetailView({ loaderData }: Route.ComponentProps) 
     if (confirm(`Merge this cluster into cluster ${targetClusterId}? This cluster will be deleted.`)) {
       fetcher.submit({ intent: "merge", targetClusterId }, { method: "post" });
       setMergeModalOpen(false);
+    }
+  };
+
+  const handleSaveName = () => {
+    if (editFirstName.trim()) {
+      fetcher.submit(
+        { intent: "set-name", firstName: editFirstName.trim(), lastName: editLastName.trim() },
+        { method: "post" },
+      );
+      setNameModalOpen(false);
     }
   };
 
@@ -306,7 +352,8 @@ export default function ClusterDetailView({ loaderData }: Route.ComponentProps) 
     );
   }
 
-  const breadcrumbItems = [{ label: "Clusters", href: "/clusters" }, { label: `Cluster ${cluster.id}` }];
+  const displayName = cluster.person_name || `Cluster ${cluster.id}`;
+  const breadcrumbItems = [{ label: "Clusters", href: "/clusters" }, { label: displayName }];
 
   return (
     <Layout>
@@ -316,14 +363,75 @@ export default function ClusterDetailView({ loaderData }: Route.ComponentProps) 
         <div className="flex items-center justify-between">
           <div className="flex items-center space-x-3">
             <Users className="h-8 w-8 text-gray-700" />
-            <h1 className="text-3xl font-bold text-gray-900">
-              Cluster {cluster.id}
-              {cluster.person_name && (
-                <Badge variant="default" className="ml-3 text-base">
-                  {cluster.person_name}
-                </Badge>
-              )}
-            </h1>
+            <h1 className="text-3xl font-bold text-gray-900">{displayName}</h1>
+            {cluster.person_name && (
+              <Badge variant="secondary" className="text-sm">
+                #{cluster.id}
+              </Badge>
+            )}
+            <Dialog open={nameModalOpen} onOpenChange={setNameModalOpen}>
+              <DialogTrigger asChild>
+                <Button variant="ghost" size="sm" className="h-8 w-8 p-0">
+                  <Pencil className="h-4 w-4" />
+                </Button>
+              </DialogTrigger>
+              <DialogContent className="max-w-sm">
+                <DialogHeader>
+                  <DialogTitle>{cluster.person_name ? "Edit Name" : "Set Name"}</DialogTitle>
+                  <DialogDescription>Enter a name for this person.</DialogDescription>
+                </DialogHeader>
+                <div className="space-y-4">
+                  <div className="grid grid-cols-2 gap-3">
+                    <div className="space-y-1">
+                      <label htmlFor="personFirstName" className="text-sm font-medium text-gray-700">
+                        First Name
+                      </label>
+                      <Input
+                        id="personFirstName"
+                        name="personFirstName"
+                        placeholder="First name"
+                        value={editFirstName}
+                        onChange={(e) => setEditFirstName(e.target.value)}
+                        autoComplete="off"
+                        data-form-type="other"
+                        data-1p-ignore
+                        data-lpignore="true"
+                        autoFocus
+                      />
+                    </div>
+                    <div className="space-y-1">
+                      <label htmlFor="personLastName" className="text-sm font-medium text-gray-700">
+                        Last Name
+                      </label>
+                      <Input
+                        id="personLastName"
+                        name="personLastName"
+                        placeholder="Last name"
+                        value={editLastName}
+                        onChange={(e) => setEditLastName(e.target.value)}
+                        onKeyDown={(e) => {
+                          if (e.key === "Enter") {
+                            handleSaveName();
+                          }
+                        }}
+                        autoComplete="off"
+                        data-form-type="other"
+                        data-1p-ignore
+                        data-lpignore="true"
+                      />
+                    </div>
+                  </div>
+                  <div className="flex justify-end space-x-2">
+                    <Button variant="outline" onClick={() => setNameModalOpen(false)}>
+                      Cancel
+                    </Button>
+                    <Button onClick={handleSaveName} disabled={!editFirstName.trim()}>
+                      Save
+                    </Button>
+                  </div>
+                </div>
+              </DialogContent>
+            </Dialog>
           </div>
           <div className="flex items-center space-x-4">
             <span className="text-gray-600">

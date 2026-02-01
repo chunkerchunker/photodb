@@ -196,7 +196,8 @@ export async function getPhotoDetails(photoId: number) {
   // Get faces for this photo with match candidates
   const facesQuery = `
     SELECT f.id, f.bbox_x, f.bbox_y, f.bbox_width, f.bbox_height,
-           f.confidence, f.person_id, p.name as person_name,
+           f.confidence, f.person_id,
+           TRIM(CONCAT(p.first_name, ' ', COALESCE(p.last_name, ''))) as person_name,
            f.cluster_id, f.cluster_status, f.cluster_confidence
     FROM face f
     LEFT JOIN person p ON f.person_id = p.id
@@ -210,7 +211,8 @@ export async function getPhotoDetails(photoId: number) {
   for (const face of facesResult.rows) {
     const candidatesQuery = `
       SELECT fmc.cluster_id, fmc.similarity, fmc.status,
-             c.person_id, per.name as person_name,
+             c.person_id,
+             TRIM(CONCAT(per.first_name, ' ', COALESCE(per.last_name, ''))) as person_name,
              c.face_count
       FROM face_match_candidate fmc
       LEFT JOIN "cluster" c ON fmc.cluster_id = c.id
@@ -298,7 +300,7 @@ export async function getClusters(limit = 50, offset = 0) {
            f.bbox_x, f.bbox_y, f.bbox_width, f.bbox_height,
            p.id as photo_id, p.normalized_path, p.filename,
            p.normalized_width, p.normalized_height,
-           per.name as person_name
+           TRIM(CONCAT(per.first_name, ' ', COALESCE(per.last_name, ''))) as person_name
     FROM cluster c
     LEFT JOIN face f ON c.representative_face_id = f.id
     LEFT JOIN photo p ON f.photo_id = p.id
@@ -333,7 +335,7 @@ export async function getHiddenClusters(limit = 50, offset = 0) {
            f.bbox_x, f.bbox_y, f.bbox_width, f.bbox_height,
            p.id as photo_id, p.normalized_path, p.filename,
            p.normalized_width, p.normalized_height,
-           per.name as person_name
+           TRIM(CONCAT(per.first_name, ' ', COALESCE(per.last_name, ''))) as person_name
     FROM cluster c
     LEFT JOIN face f ON c.representative_face_id = f.id
     LEFT JOIN photo p ON f.photo_id = p.id
@@ -375,6 +377,52 @@ export async function setClusterHidden(clusterId: string, hidden: boolean) {
     success: result.rows.length > 0,
     message: hidden ? "Cluster hidden" : "Cluster unhidden",
   };
+}
+
+export async function setClusterPersonName(clusterId: string, firstName: string, lastName?: string) {
+  await initDatabase();
+
+  const client = await pool.connect();
+  try {
+    await client.query("BEGIN");
+
+    // Check if cluster already has a person_id
+    const clusterResult = await client.query("SELECT person_id FROM cluster WHERE id = $1", [clusterId]);
+    if (clusterResult.rows.length === 0) {
+      await client.query("ROLLBACK");
+      return { success: false, message: "Cluster not found" };
+    }
+
+    const existingPersonId = clusterResult.rows[0].person_id;
+
+    if (existingPersonId) {
+      // Update existing person's name
+      await client.query(
+        "UPDATE person SET first_name = $1, last_name = $2, updated_at = NOW() WHERE id = $3",
+        [firstName, lastName || null, existingPersonId],
+      );
+    } else {
+      // Create new person and link to cluster
+      const personResult = await client.query(
+        "INSERT INTO person (first_name, last_name) VALUES ($1, $2) RETURNING id",
+        [firstName, lastName || null],
+      );
+      const newPersonId = personResult.rows[0].id;
+      await client.query("UPDATE cluster SET person_id = $1, updated_at = NOW() WHERE id = $2", [
+        newPersonId,
+        clusterId,
+      ]);
+    }
+
+    await client.query("COMMIT");
+    return { success: true, message: "Name updated" };
+  } catch (error) {
+    await client.query("ROLLBACK");
+    console.error("Failed to set cluster person name:", error);
+    return { success: false, message: "Failed to update name" };
+  } finally {
+    client.release();
+  }
 }
 
 export async function deleteCluster(clusterId: string) {
@@ -429,7 +477,9 @@ export async function getClusterDetails(clusterId: string) {
 
   const query = `
     SELECT c.id, c.face_count, c.representative_face_id,
-           c.hidden, per.name as person_name
+           c.hidden,
+           per.first_name, per.last_name,
+           TRIM(CONCAT(per.first_name, ' ', COALESCE(per.last_name, ''))) as person_name
     FROM cluster c
     LEFT JOIN person per ON c.person_id = per.id
     WHERE c.id = $1
@@ -666,18 +716,21 @@ export async function searchClusters(query: string, excludeClusterId?: string, l
     SELECT c.id, c.face_count, c.representative_face_id,
            f.bbox_x, f.bbox_y, f.bbox_width, f.bbox_height,
            p.id as photo_id, p.normalized_width, p.normalized_height,
-           per.name as person_name
+           TRIM(CONCAT(per.first_name, ' ', COALESCE(per.last_name, ''))) as person_name
     FROM cluster c
     LEFT JOIN face f ON c.representative_face_id = f.id
     LEFT JOIN photo p ON f.photo_id = p.id
     LEFT JOIN person per ON c.person_id = per.id
     WHERE c.face_count > 0
       AND (c.hidden = false OR c.hidden IS NULL)
-      AND ($1::text IS NULL OR c.id::text = $1 OR per.name ILIKE '%' || $1 || '%')
+      AND ($1::text IS NULL OR c.id::text = $1
+           OR per.first_name ILIKE '%' || $1 || '%'
+           OR per.last_name ILIKE '%' || $1 || '%'
+           OR CONCAT(per.first_name, ' ', COALESCE(per.last_name, '')) ILIKE '%' || $1 || '%')
       AND ($2::text IS NULL OR c.id::text != $2)
     ORDER BY
       CASE WHEN c.id::text = $1 THEN 0 ELSE 1 END,
-      CASE WHEN per.name ILIKE $1 || '%' THEN 0 ELSE 1 END,
+      CASE WHEN per.first_name ILIKE $1 || '%' OR per.last_name ILIKE $1 || '%' THEN 0 ELSE 1 END,
       c.face_count DESC
     LIMIT $3
   `;
@@ -843,7 +896,7 @@ export async function getFaceDetails(faceId: number) {
     SELECT f.id, f.bbox_x, f.bbox_y, f.bbox_width, f.bbox_height,
            f.confidence, f.cluster_id, f.cluster_status,
            f.photo_id, p.normalized_path, p.normalized_width, p.normalized_height,
-           per.name as person_name
+           TRIM(CONCAT(per.first_name, ' ', COALESCE(per.last_name, ''))) as person_name
     FROM face f
     JOIN photo p ON f.photo_id = p.id
     LEFT JOIN person per ON f.person_id = per.id
@@ -948,7 +1001,7 @@ export async function getSimilarFaces(faceId: number, limit = 12, similarityThre
            f.confidence, f.cluster_id, f.cluster_status, f.cluster_confidence,
            p.id as photo_id, p.normalized_path, p.normalized_width, p.normalized_height,
            c.face_count as cluster_face_count,
-           per.name as person_name,
+           TRIM(CONCAT(per.first_name, ' ', COALESCE(per.last_name, ''))) as person_name,
            1 - (fe.embedding <=> te.embedding) as similarity
     FROM face_embedding fe
     CROSS JOIN target_embedding te

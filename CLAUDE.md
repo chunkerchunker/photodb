@@ -145,6 +145,7 @@ The application uses environment variables and optional config files:
 - `BATCH_SIZE`: Number of photos per LLM batch (default: `100`)
 - `MIN_BATCH_SIZE`: Minimum batch size for enrich processing (default: `10`) - batches smaller than this will be skipped
 - `MIN_FACE_SIZE_PX`: Minimum face size in pixels for clustering (default: `50`) - faces smaller than this are excluded from clustering
+- `MIN_FACE_CONFIDENCE`: Minimum face detection confidence for clustering (default: `0.9`) - faces with lower confidence are excluded from clustering
 
 ## Performance Considerations
 

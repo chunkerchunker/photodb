@@ -25,6 +25,10 @@ logger = logging.getLogger(__name__)
 # Faces smaller than this (in either dimension) will be excluded from clustering
 MIN_FACE_SIZE_PX = int(os.environ.get("MIN_FACE_SIZE_PX", 50))  # Default 50 pixels
 
+# Minimum face detection confidence for clustering
+# Faces with lower confidence will be excluded from clustering
+MIN_FACE_CONFIDENCE = float(os.environ.get("MIN_FACE_CONFIDENCE", 0.9))  # Default 90%
+
 
 class PhotoRepository:
     def __init__(self, connection_pool: ConnectionPool):
@@ -422,10 +426,11 @@ class PhotoRepository:
         with self.pool.transaction() as conn:
             with conn.cursor() as cursor:
                 cursor.execute(
-                    """INSERT INTO person (name, created_at, updated_at)
-                       VALUES (%s, %s, %s) RETURNING id""",
+                    """INSERT INTO person (first_name, last_name, created_at, updated_at)
+                       VALUES (%s, %s, %s, %s) RETURNING id""",
                     (
-                        person.name,
+                        person.first_name,
+                        person.last_name,
                         person.created_at,
                         person.updated_at,
                     ),
@@ -443,11 +448,20 @@ class PhotoRepository:
                     return Person(**dict(row))  # type: ignore[arg-type]
                 return None
 
-    def get_person_by_name(self, name: str) -> Optional[Person]:
+    def get_person_by_name(self, first_name: str, last_name: Optional[str] = None) -> Optional[Person]:
         """Get person by name."""
         with self.pool.get_connection() as conn:
             with conn.cursor(row_factory=dict_row) as cursor:
-                cursor.execute("SELECT * FROM person WHERE name = %s", (name,))
+                if last_name:
+                    cursor.execute(
+                        "SELECT * FROM person WHERE first_name = %s AND last_name = %s",
+                        (first_name, last_name),
+                    )
+                else:
+                    cursor.execute(
+                        "SELECT * FROM person WHERE first_name = %s AND last_name IS NULL",
+                        (first_name,),
+                    )
                 row = cursor.fetchone()
 
                 if row:
@@ -460,17 +474,17 @@ class PhotoRepository:
         with self.pool.transaction() as conn:
             with conn.cursor() as cursor:
                 cursor.execute(
-                    """UPDATE person 
-                       SET name = %s, updated_at = %s
+                    """UPDATE person
+                       SET first_name = %s, last_name = %s, updated_at = %s
                        WHERE id = %s""",
-                    (person.name, person.updated_at, person.id),
+                    (person.first_name, person.last_name, person.updated_at, person.id),
                 )
 
     def list_people(self) -> List[Person]:
         """List all people."""
         with self.pool.get_connection() as conn:
             with conn.cursor(row_factory=dict_row) as cursor:
-                cursor.execute("SELECT * FROM person ORDER BY name")
+                cursor.execute("SELECT * FROM person ORDER BY first_name, last_name")
                 rows = cursor.fetchall()
 
                 return [Person(**dict(row)) for row in rows]  # type: ignore[arg-type]
@@ -631,6 +645,7 @@ class PhotoRepository:
         """Get all unclustered faces for a photo with embeddings.
 
         Excludes faces smaller than MIN_FACE_SIZE_PX pixels in either dimension.
+        Excludes faces with detection confidence below MIN_FACE_CONFIDENCE.
         """
         with self.pool.get_connection() as conn:
             with conn.cursor(row_factory=dict_row) as cursor:
@@ -642,10 +657,11 @@ class PhotoRepository:
                        WHERE f.photo_id = %s
                          AND f.cluster_id IS NULL
                          AND f.cluster_status IS NULL
+                         AND f.confidence >= %s
                          AND (f.bbox_width * COALESCE(p.normalized_width, p.width, 1)) >= %s
                          AND (f.bbox_height * COALESCE(p.normalized_height, p.height, 1)) >= %s
                        ORDER BY f.id""",
-                    (photo_id, MIN_FACE_SIZE_PX, MIN_FACE_SIZE_PX),
+                    (photo_id, MIN_FACE_CONFIDENCE, MIN_FACE_SIZE_PX, MIN_FACE_SIZE_PX),
                 )
                 rows = cursor.fetchall()
                 return [dict(row) for row in rows]
@@ -1168,6 +1184,7 @@ class PhotoRepository:
         """Find unassigned faces similar to embedding.
 
         Excludes faces smaller than MIN_FACE_SIZE_PX pixels in either dimension.
+        Excludes faces with detection confidence below MIN_FACE_CONFIDENCE.
         """
         with self.pool.get_connection() as conn:
             with conn.cursor(row_factory=dict_row) as cursor:
@@ -1178,12 +1195,13 @@ class PhotoRepository:
                        JOIN photo p ON f.photo_id = p.id
                        WHERE f.cluster_id IS NULL
                          AND f.cluster_status = 'unassigned'
+                         AND f.confidence >= %s
                          AND (f.bbox_width * COALESCE(p.normalized_width, p.width, 1)) >= %s
                          AND (f.bbox_height * COALESCE(p.normalized_height, p.height, 1)) >= %s
                          AND fe.embedding <=> %s < %s
                        ORDER BY fe.embedding <=> %s
                        LIMIT %s""",
-                    (embedding, MIN_FACE_SIZE_PX, MIN_FACE_SIZE_PX, embedding, threshold, embedding, limit),
+                    (embedding, MIN_FACE_CONFIDENCE, MIN_FACE_SIZE_PX, MIN_FACE_SIZE_PX, embedding, threshold, embedding, limit),
                 )
                 return [dict(row) for row in cursor.fetchall()]
 

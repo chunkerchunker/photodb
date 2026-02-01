@@ -351,6 +351,11 @@ function ThreeWall({ photos, year, month, totalPhotos, monthName }: ThreeWallPro
   const wallWidthRef = useRef(wallWidth);
   wallWidthRef.current = wallWidth;
 
+  // maxX is the maximum scroll distance from center; ensure it's never negative
+  const maxX = Math.max(0, wallWidth / 2 - 2);
+  const maxXRef = useRef(maxX);
+  maxXRef.current = maxX;
+
   const loadVisibleTextures = useCallback(() => {
     if (!textureLoaderRef.current || !cameraRef.current) return;
 
@@ -521,7 +526,7 @@ function ThreeWall({ photos, year, month, totalPhotos, monthName }: ThreeWallPro
       wallPositionRef.current.x += wallPositionRef.current.velocityX;
 
       // Soft boundary - gradually slow down near edges
-      const maxX = wallWidthRef.current / 2 - 2;
+      const maxX = maxXRef.current;
       const softZone = 3; // Start slowing down this far from the edge
       const pos = wallPositionRef.current.x;
 
@@ -597,7 +602,7 @@ function ThreeWall({ photos, year, month, totalPhotos, monthName }: ThreeWallPro
       wallPositionRef.current.x += deltaX * dragSpeed;
 
       // Clamp position to wall bounds
-      const maxX = wallWidthRef.current / 2 - 2;
+      const maxX = maxXRef.current;
       wallPositionRef.current.x = Math.max(-maxX, Math.min(maxX, wallPositionRef.current.x));
 
       lastMouseXRef.current = e.clientX;
@@ -707,7 +712,7 @@ function ThreeWall({ photos, year, month, totalPhotos, monthName }: ThreeWallPro
       wallPositionRef.current.x -= e.deltaX * panSpeed;
 
       // Clamp position to wall bounds
-      const maxX = wallWidthRef.current / 2 - 2;
+      const maxX = maxXRef.current;
       wallPositionRef.current.x = Math.max(-maxX, Math.min(maxX, wallPositionRef.current.x));
     } else {
       // Vertical scroll zooms in/out
@@ -855,8 +860,9 @@ function ThreeWall({ photos, year, month, totalPhotos, monthName }: ThreeWallPro
     const savedPosition = sessionStorage.getItem(positionKey);
 
     // Default to start position (left side of wall)
-    const maxX = wallWidth / 2 - 2;
-    const startPosition = maxX; // Start at the beginning (left side)
+    // For small walls, center the content (startPosition = 0)
+    // For larger walls, start at the right edge
+    const startPosition = maxXRef.current > 0 ? maxXRef.current : 0;
 
     let didSetupPhotoReturn = false;
     if (savedPhotoState) {
@@ -1055,7 +1061,7 @@ function ThreeWall({ photos, year, month, totalPhotos, monthName }: ThreeWallPro
         const dragSpeed = cameraZRef.current.z * 0.003;
         wallPositionRef.current.x += deltaX * dragSpeed;
 
-        const maxX = wallWidthRef.current / 2 - 2;
+        const maxX = maxXRef.current;
         wallPositionRef.current.x = Math.max(-maxX, Math.min(maxX, wallPositionRef.current.x));
 
         lastMouseXRef.current = touch.clientX;

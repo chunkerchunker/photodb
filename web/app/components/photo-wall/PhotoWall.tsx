@@ -180,8 +180,12 @@ export function PhotoWall({ tiles, sessionKey, headerContent, onTileClick }: Pho
   // Calculate wall dimensions
   const columns = Math.ceil(tiles.length / ROWS);
   const wallWidth = columns * (TILE_WIDTH + TILE_GAP);
+  // maxX is the maximum scroll distance from center; ensure it's never negative
+  const maxX = Math.max(0, wallWidth / 2 - 2);
   const wallWidthRef = useRef(wallWidth);
+  const maxXRef = useRef(maxX);
   wallWidthRef.current = wallWidth;
+  maxXRef.current = maxX;
 
   const loadVisibleTextures = useCallback(() => {
     if (!cameraRef.current) return;
@@ -323,7 +327,7 @@ export function PhotoWall({ tiles, sessionKey, headerContent, onTileClick }: Pho
       }
       wallPositionRef.current.x += wallPositionRef.current.velocityX;
 
-      const maxX = wallWidthRef.current / 2 - 2;
+      const maxX = maxXRef.current;
       const softZone = 3;
       const pos = wallPositionRef.current.x;
 
@@ -383,7 +387,7 @@ export function PhotoWall({ tiles, sessionKey, headerContent, onTileClick }: Pho
       const dragSpeed = cameraZRef.current.z * 0.003;
       wallPositionRef.current.x += deltaX * dragSpeed;
 
-      const maxX = wallWidthRef.current / 2 - 2;
+      const maxX = maxXRef.current;
       wallPositionRef.current.x = Math.max(-maxX, Math.min(maxX, wallPositionRef.current.x));
 
       lastMouseXRef.current = e.clientX;
@@ -472,7 +476,7 @@ export function PhotoWall({ tiles, sessionKey, headerContent, onTileClick }: Pho
       const panSpeed = cameraZRef.current.z * 0.002;
       wallPositionRef.current.x -= e.deltaX * panSpeed;
 
-      const maxX = wallWidthRef.current / 2 - 2;
+      const maxX = maxXRef.current;
       wallPositionRef.current.x = Math.max(-maxX, Math.min(maxX, wallPositionRef.current.x));
     } else {
       cameraZRef.current.targetZ += e.deltaY * 0.01 * ZOOM_SPEED;
@@ -627,8 +631,9 @@ export function PhotoWall({ tiles, sessionKey, headerContent, onTileClick }: Pho
     const savedReturnState = sessionStorage.getItem(returnKey);
     const savedPosition = sessionStorage.getItem(positionKey);
 
-    const maxX = wallWidth / 2 - 2;
-    const startPosition = maxX;
+    // For small walls, center the content (startPosition = 0)
+    // For larger walls, start at the right edge
+    const startPosition = maxXRef.current > 0 ? maxXRef.current : 0;
 
     let didSetupReturn = false;
     if (savedReturnState) {
@@ -803,7 +808,7 @@ export function PhotoWall({ tiles, sessionKey, headerContent, onTileClick }: Pho
         const dragSpeed = cameraZRef.current.z * 0.003;
         wallPositionRef.current.x += deltaX * dragSpeed;
 
-        const maxX = wallWidthRef.current / 2 - 2;
+        const maxX = maxXRef.current;
         wallPositionRef.current.x = Math.max(-maxX, Math.min(maxX, wallPositionRef.current.x));
 
         lastMouseXRef.current = touch.clientX;

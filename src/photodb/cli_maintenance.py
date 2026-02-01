@@ -195,6 +195,27 @@ def update_stats(args):
         pool.close_all()
 
 
+def reset_unassigned(args):
+    """Reset unassigned faces for reprocessing."""
+    logger.info("Resetting unassigned faces for reprocessing...")
+
+    database_url = os.getenv("DATABASE_URL", "postgresql://localhost/photodb")
+    pool = ConnectionPool(connection_string=database_url)
+    maintenance = MaintenanceUtilities(pool)
+
+    try:
+        result = maintenance.reset_unassigned_for_reprocessing()
+        print(f"✅ Reset {result['faces_reset']} unassigned faces for reprocessing")
+        print(f"   Reset clustering status for {result['photos_reset']} photos")
+        print("   Run clustering stage to reprocess these faces.")
+        return 0
+    except Exception as e:
+        logger.error(f"Failed to reset unassigned faces: {e}")
+        return 1
+    finally:
+        pool.close_all()
+
+
 def health_check(args):
     """Check clustering system health."""
     logger.info("Checking cluster health...")
@@ -316,7 +337,11 @@ Examples:
     stats_parser = subparsers.add_parser('update-stats',
                                          help='Update cluster statistics')
     stats_parser.set_defaults(func=update_stats)
-    
+
+    reset_parser = subparsers.add_parser('reset-unassigned',
+                                         help='Reset unassigned faces for reprocessing')
+    reset_parser.set_defaults(func=reset_unassigned)
+
     # Health check
     health_parser = subparsers.add_parser('health',
                                           help='Check clustering system health')

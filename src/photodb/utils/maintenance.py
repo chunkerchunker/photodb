@@ -141,10 +141,11 @@ class MaintenanceUtilities:
                 medoid_face_id = face_ids[medoid_idx]
                 
                 # Update cluster with medoid and reset tracking counter
+                # Note: Only update representative_face_id if it's NULL (not user-set)
                 cursor.execute("""
                     UPDATE cluster
                     SET medoid_face_id = %s,
-                        representative_face_id = %s,
+                        representative_face_id = COALESCE(representative_face_id, %s),
                         face_count_at_last_medoid = face_count,
                         updated_at = NOW()
                     WHERE id = %s
@@ -639,6 +640,58 @@ class MaintenanceUtilities:
 
         logger.info(f"Created {created} singleton clusters from old unassigned faces")
         return created
+
+    def reset_unassigned_for_reprocessing(self) -> dict:
+        """
+        Reset unassigned faces so they can be reprocessed by clustering.
+
+        Changes cluster_status from 'unassigned' to NULL, making them eligible
+        for the normal clustering flow. Also resets the clustering processing
+        status for affected photos so they will be picked up by the clustering
+        stage. Cannot-link constraints are preserved and will still be respected
+        during reprocessing.
+
+        Returns:
+            Dictionary with 'faces_reset' and 'photos_reset' counts
+        """
+        logger.info("Resetting unassigned faces for reprocessing")
+
+        with self.pool.get_connection() as conn:
+            with conn.cursor() as cursor:
+                # Get photo IDs that have unassigned faces before resetting
+                cursor.execute("""
+                    SELECT DISTINCT photo_id
+                    FROM face
+                    WHERE cluster_id IS NULL
+                      AND cluster_status = 'unassigned'
+                """)
+                photo_ids = [row[0] for row in cursor.fetchall()]
+
+                # Reset face status
+                cursor.execute("""
+                    UPDATE face
+                    SET cluster_status = NULL,
+                        unassigned_since = NULL
+                    WHERE cluster_id IS NULL
+                      AND cluster_status = 'unassigned'
+                    RETURNING id
+                """)
+                faces_count = cursor.rowcount
+
+                # Reset clustering processing status for affected photos
+                photos_count = 0
+                if photo_ids:
+                    cursor.execute("""
+                        DELETE FROM processing_status
+                        WHERE stage = 'clustering'
+                          AND photo_id = ANY(%s)
+                    """, (photo_ids,))
+                    photos_count = cursor.rowcount
+
+                conn.commit()
+
+        logger.info(f"Reset {faces_count} unassigned faces and {photos_count} photo processing statuses")
+        return {"faces_reset": faces_count, "photos_reset": photos_count}
 
     def run_daily_maintenance(self) -> Dict[str, int]:
         """

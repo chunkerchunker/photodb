@@ -571,10 +571,11 @@ class ClusteringStage(BaseStage):
         medoid_face_id = face_ids[medoid_idx]
 
         # Update cluster with new medoid and reset tracking counter
+        # Note: Only update representative_face_id if it's NULL (not user-set)
         cur.execute("""
             UPDATE cluster
             SET medoid_face_id = %s,
-                representative_face_id = %s,
+                representative_face_id = COALESCE(representative_face_id, %s),
                 face_count_at_last_medoid = face_count,
                 updated_at = NOW()
             WHERE id = %s

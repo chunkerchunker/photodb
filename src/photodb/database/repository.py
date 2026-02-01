@@ -2,6 +2,7 @@ from typing import Optional, List, Dict, Any
 from datetime import datetime
 import json
 import logging
+import os
 from psycopg.rows import dict_row
 
 from .connection import ConnectionPool
@@ -19,6 +20,10 @@ from .models import (
 )
 
 logger = logging.getLogger(__name__)
+
+# Minimum face size for clustering (in pixels)
+# Faces smaller than this (in either dimension) will be excluded from clustering
+MIN_FACE_SIZE_PX = int(os.environ.get("MIN_FACE_SIZE_PX", 50))  # Default 50 pixels
 
 
 class PhotoRepository:
@@ -623,18 +628,24 @@ class PhotoRepository:
     # Clustering methods
 
     def get_unclustered_faces_for_photo(self, photo_id: int) -> List[Dict[str, Any]]:
-        """Get all unclustered faces for a photo with embeddings."""
+        """Get all unclustered faces for a photo with embeddings.
+
+        Excludes faces smaller than MIN_FACE_SIZE_PX pixels in either dimension.
+        """
         with self.pool.get_connection() as conn:
             with conn.cursor(row_factory=dict_row) as cursor:
                 cursor.execute(
                     """SELECT f.*, fe.embedding
                        FROM face f
                        LEFT JOIN face_embedding fe ON f.id = fe.face_id
-                       WHERE f.photo_id = %s 
-                         AND f.cluster_id IS NULL 
+                       JOIN photo p ON f.photo_id = p.id
+                       WHERE f.photo_id = %s
+                         AND f.cluster_id IS NULL
                          AND f.cluster_status IS NULL
+                         AND (f.bbox_width * COALESCE(p.normalized_width, p.width, 1)) >= %s
+                         AND (f.bbox_height * COALESCE(p.normalized_height, p.height, 1)) >= %s
                        ORDER BY f.id""",
-                    (photo_id,),
+                    (photo_id, MIN_FACE_SIZE_PX, MIN_FACE_SIZE_PX),
                 )
                 rows = cursor.fetchall()
                 return [dict(row) for row in rows]
@@ -889,6 +900,44 @@ class PhotoRepository:
 
         return deleted_cluster_id
 
+    def set_cluster_representative(self, cluster_id: int, face_id: int) -> bool:
+        """
+        Set the representative face for a cluster (user-selected display photo).
+
+        This is separate from the medoid, which is computed automatically.
+        The representative face is preserved during medoid recomputation.
+
+        Args:
+            cluster_id: ID of the cluster to update
+            face_id: ID of the face to set as representative
+
+        Returns:
+            True if update succeeded, False if cluster or face not found
+        """
+        with self.pool.transaction() as conn:
+            with conn.cursor() as cursor:
+                # Verify face belongs to this cluster
+                cursor.execute(
+                    "SELECT cluster_id FROM face WHERE id = %s",
+                    (face_id,),
+                )
+                row = cursor.fetchone()
+                if not row or row[0] != cluster_id:
+                    logger.warning(
+                        f"Face {face_id} does not belong to cluster {cluster_id}"
+                    )
+                    return False
+
+                # Update the representative face
+                cursor.execute(
+                    """UPDATE cluster
+                       SET representative_face_id = %s,
+                           updated_at = NOW()
+                       WHERE id = %s""",
+                    (face_id, cluster_id),
+                )
+                return cursor.rowcount > 0
+
     def update_face_cluster_status(self, face_id: int, cluster_status: str) -> None:
         """Update only the cluster status for a face."""
         with self.pool.transaction() as conn:
@@ -1116,19 +1165,25 @@ class PhotoRepository:
     def find_similar_unassigned_faces(
         self, embedding, threshold: float, limit: int
     ) -> List[Dict[str, Any]]:
-        """Find unassigned faces similar to embedding."""
+        """Find unassigned faces similar to embedding.
+
+        Excludes faces smaller than MIN_FACE_SIZE_PX pixels in either dimension.
+        """
         with self.pool.get_connection() as conn:
             with conn.cursor(row_factory=dict_row) as cursor:
                 cursor.execute(
                     """SELECT f.id, fe.embedding <=> %s AS distance
                        FROM face f
                        JOIN face_embedding fe ON f.id = fe.face_id
+                       JOIN photo p ON f.photo_id = p.id
                        WHERE f.cluster_id IS NULL
                          AND f.cluster_status = 'unassigned'
+                         AND (f.bbox_width * COALESCE(p.normalized_width, p.width, 1)) >= %s
+                         AND (f.bbox_height * COALESCE(p.normalized_height, p.height, 1)) >= %s
                          AND fe.embedding <=> %s < %s
                        ORDER BY fe.embedding <=> %s
                        LIMIT %s""",
-                    (embedding, embedding, threshold, embedding, limit),
+                    (embedding, MIN_FACE_SIZE_PX, MIN_FACE_SIZE_PX, embedding, threshold, embedding, limit),
                 )
                 return [dict(row) for row in cursor.fetchall()]
 

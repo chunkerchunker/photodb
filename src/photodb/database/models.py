@@ -279,6 +279,7 @@ class Cluster:
     verified: bool
     verified_at: Optional[datetime]
     verified_by: Optional[str]
+    hidden: bool
     created_at: datetime
     updated_at: datetime
 
@@ -304,6 +305,7 @@ class Cluster:
             verified=False,
             verified_at=None,
             verified_by=None,
+            hidden=False,
             created_at=now,
             updated_at=now,
         )
@@ -320,6 +322,7 @@ class Cluster:
             "verified": self.verified,
             "verified_at": self.verified_at,
             "verified_by": self.verified_by,
+            "hidden": self.hidden,
             "created_at": self.created_at,
             "updated_at": self.updated_at,
         }

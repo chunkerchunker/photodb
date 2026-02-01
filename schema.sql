@@ -182,6 +182,8 @@ CREATE TABLE IF NOT EXISTS "cluster"(
     verified boolean DEFAULT false,
     verified_at timestamptz DEFAULT NULL,
     verified_by text DEFAULT NULL,
+    -- Hidden clusters (ignored people)
+    hidden boolean DEFAULT false,
     created_at timestamptz DEFAULT now(),
     updated_at timestamptz DEFAULT now(),
     FOREIGN KEY (person_id) REFERENCES person(id) ON DELETE SET NULL

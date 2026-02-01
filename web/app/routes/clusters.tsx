@@ -1,9 +1,10 @@
-import { Users } from "lucide-react";
+import { EyeOff, Users } from "lucide-react";
 import { Link } from "react-router";
 import { Layout } from "~/components/layout";
 import { Pagination } from "~/components/pagination";
+import { Button } from "~/components/ui/button";
 import { Card, CardContent } from "~/components/ui/card";
-import { getClusters, getClustersCount } from "~/lib/db.server";
+import { getClusters, getClustersCount, getHiddenClustersCount } from "~/lib/db.server";
 import type { Route } from "./+types/clusters";
 
 export function meta() {
@@ -25,11 +26,13 @@ export async function loader({ request }: Route.LoaderArgs) {
   try {
     const clusters = await getClusters(limit, offset);
     const totalClusters = await getClustersCount();
+    const hiddenCount = await getHiddenClustersCount();
     const totalPages = Math.ceil(totalClusters / limit);
 
     return {
       clusters,
       totalClusters,
+      hiddenCount,
       totalPages,
       currentPage: page,
     };
@@ -38,6 +41,7 @@ export async function loader({ request }: Route.LoaderArgs) {
     return {
       clusters: [],
       totalClusters: 0,
+      hiddenCount: 0,
       totalPages: 0,
       currentPage: page,
     };
@@ -74,7 +78,7 @@ function getFaceCropStyle(
 }
 
 export default function ClustersView({ loaderData }: Route.ComponentProps) {
-  const { clusters, totalClusters, totalPages, currentPage } = loaderData;
+  const { clusters, totalClusters, hiddenCount, totalPages, currentPage } = loaderData;
 
   return (
     <Layout>
@@ -84,9 +88,19 @@ export default function ClustersView({ loaderData }: Route.ComponentProps) {
             <Users className="h-8 w-8 text-gray-700" />
             <h1 className="text-3xl font-bold text-gray-900">Face Clusters</h1>
           </div>
-          <span className="text-gray-600">
-            {totalClusters} cluster{totalClusters !== 1 ? "s" : ""}
-          </span>
+          <div className="flex items-center space-x-4">
+            {hiddenCount > 0 && (
+              <Link to="/clusters/hidden">
+                <Button variant="outline" size="sm">
+                  <EyeOff className="h-4 w-4 mr-1" />
+                  Hidden ({hiddenCount})
+                </Button>
+              </Link>
+            )}
+            <span className="text-gray-600">
+              {totalClusters} cluster{totalClusters !== 1 ? "s" : ""}
+            </span>
+          </div>
         </div>
 
         {clusters.length > 0 ? (

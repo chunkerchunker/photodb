@@ -376,35 +376,61 @@ export default function PhotoDetail({ loaderData }: Route.ComponentProps) {
                             };
 
                             return (
-                            // biome-ignore lint/a11y/useSemanticElements: This is an interactive highlight, not a button action
-                            <div
-                              key={face.id}
-                              role="button"
-                              tabIndex={0}
-                              className={cn(
-                                "flex items-center justify-between p-2 border rounded transition-all duration-200 cursor-pointer",
-                                hoveredFaceId === face.id
-                                  ? "border-blue-500 bg-blue-50 shadow-md"
-                                  : "border-gray-300 hover:border-blue-400 hover:bg-blue-50/50",
-                              )}
-                              onClick={handleFaceClick}
-                              onKeyDown={(e) => {
-                                if (e.key === "Enter" || e.key === " ") {
-                                  handleFaceClick();
-                                }
-                              }}
-                              onMouseEnter={() => setHoveredFaceId(face.id)}
-                              onMouseLeave={() => setHoveredFaceId(null)}
-                              onFocus={() => setHoveredFaceId(face.id)}
-                              onBlur={() => setHoveredFaceId(null)}
-                            >
-                              <div className="flex flex-col space-y-2">
-                                <div className="flex items-center space-x-2">
-                                  <span className="font-medium">Face {index + 1}:</span>
-                                  {face.person_name ? (
-                                    <>
-                                      <Badge variant="default">{face.person_name}</Badge>
-                                      {face.cluster_id && (
+                              // biome-ignore lint/a11y/useSemanticElements: This is an interactive highlight, not a button action
+                              <div
+                                key={face.id}
+                                role="button"
+                                tabIndex={0}
+                                className={cn(
+                                  "flex items-center justify-between p-2 border rounded transition-all duration-200 cursor-pointer",
+                                  hoveredFaceId === face.id
+                                    ? "border-blue-500 bg-blue-50 shadow-md"
+                                    : "border-gray-300 hover:border-blue-400 hover:bg-blue-50/50",
+                                )}
+                                onClick={handleFaceClick}
+                                onKeyDown={(e) => {
+                                  if (e.key === "Enter" || e.key === " ") {
+                                    handleFaceClick();
+                                  }
+                                }}
+                                onMouseEnter={() => setHoveredFaceId(face.id)}
+                                onMouseLeave={() => setHoveredFaceId(null)}
+                                onFocus={() => setHoveredFaceId(face.id)}
+                                onBlur={() => setHoveredFaceId(null)}
+                              >
+                                <div className="flex flex-col space-y-2">
+                                  <div className="flex items-center space-x-2">
+                                    <span className="font-medium">Face {index + 1}:</span>
+                                    {face.person_name ? (
+                                      <>
+                                        <Badge variant="default">{face.person_name}</Badge>
+                                        {face.cluster_id && (
+                                          <Button
+                                            variant="ghost"
+                                            size="sm"
+                                            className="h-6 w-6 p-0 text-gray-400 hover:text-red-500"
+                                            title="Remove from cluster (adds constraint)"
+                                            onClick={(e) => {
+                                              e.stopPropagation();
+                                              fetcher.submit(
+                                                { intent: "remove-from-cluster", faceId: face.id },
+                                                { method: "post" },
+                                              );
+                                            }}
+                                            disabled={fetcher.state === "submitting"}
+                                          >
+                                            <Ban className="h-4 w-4" />
+                                          </Button>
+                                        )}
+                                      </>
+                                    ) : face.cluster_id ? (
+                                      <>
+                                        <Badge variant="secondary">
+                                          Cluster {face.cluster_id}
+                                          {face.cluster_confidence && (
+                                            <span> ({Math.round(face.cluster_confidence * 100)}%)</span>
+                                          )}
+                                        </Badge>
                                         <Button
                                           variant="ghost"
                                           size="sm"
@@ -421,65 +447,42 @@ export default function PhotoDetail({ loaderData }: Route.ComponentProps) {
                                         >
                                           <Ban className="h-4 w-4" />
                                         </Button>
-                                      )}
-                                    </>
-                                  ) : face.cluster_id ? (
-                                    <>
-                                      <Badge variant="secondary">
-                                        Cluster {face.cluster_id}
-                                        {face.cluster_confidence && (
-                                          <span> ({Math.round(face.cluster_confidence * 100)}%)</span>
-                                        )}
+                                      </>
+                                    ) : (
+                                      <Badge variant="outline">
+                                        <Users className="h-3 w-3 mr-1" />
+                                        Find Similar
                                       </Badge>
-                                      <Button
-                                        variant="ghost"
-                                        size="sm"
-                                        className="h-6 w-6 p-0 text-gray-400 hover:text-red-500"
-                                        title="Remove from cluster (adds constraint)"
-                                        onClick={(e) => {
-                                          e.stopPropagation();
-                                          fetcher.submit(
-                                            { intent: "remove-from-cluster", faceId: face.id },
-                                            { method: "post" },
-                                          );
-                                        }}
-                                        disabled={fetcher.state === "submitting"}
-                                      >
-                                        <Ban className="h-4 w-4" />
-                                      </Button>
-                                    </>
-                                  ) : (
-                                    <Badge variant="outline">
-                                      <Users className="h-3 w-3 mr-1" />
-                                      Find Similar
-                                    </Badge>
+                                    )}
+                                  </div>
+                                  {face.match_candidates && face.match_candidates.length > 0 && (
+                                    <div className="flex flex-col space-y-1">
+                                      <span className="text-xs text-gray-500">Potential matches:</span>
+                                      <div className="flex flex-wrap gap-1">
+                                        {face.match_candidates.map((candidate) => (
+                                          <Link
+                                            key={candidate.cluster_id}
+                                            to={`/cluster/${candidate.cluster_id}`}
+                                            onClick={(e) => e.stopPropagation()}
+                                          >
+                                            <Badge
+                                              variant="outline"
+                                              className="hover:bg-gray-100 cursor-pointer text-xs"
+                                            >
+                                              {candidate.person_name || `Cluster ${candidate.cluster_id}`}
+                                              <span className="ml-1 text-gray-500">
+                                                ({Math.round(candidate.similarity * 100)}%)
+                                              </span>
+                                            </Badge>
+                                          </Link>
+                                        ))}
+                                      </div>
+                                    </div>
                                   )}
                                 </div>
-                                {face.match_candidates && face.match_candidates.length > 0 && (
-                                  <div className="flex flex-col space-y-1">
-                                    <span className="text-xs text-gray-500">Potential matches:</span>
-                                    <div className="flex flex-wrap gap-1">
-                                      {face.match_candidates.map((candidate) => (
-                                        <Link
-                                          key={candidate.cluster_id}
-                                          to={`/cluster/${candidate.cluster_id}`}
-                                          onClick={(e) => e.stopPropagation()}
-                                        >
-                                          <Badge variant="outline" className="hover:bg-gray-100 cursor-pointer text-xs">
-                                            {candidate.person_name || `Cluster ${candidate.cluster_id}`}
-                                            <span className="ml-1 text-gray-500">
-                                              ({Math.round(candidate.similarity * 100)}%)
-                                            </span>
-                                          </Badge>
-                                        </Link>
-                                      ))}
-                                    </div>
-                                  </div>
-                                )}
+                                <span className="text-sm text-gray-600">{Math.round(face.confidence * 100)}%</span>
                               </div>
-                              <span className="text-sm text-gray-600">{Math.round(face.confidence * 100)}%</span>
-                            </div>
-                          );
+                            );
                           })}
                         </div>
                       )}

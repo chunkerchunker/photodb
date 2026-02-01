@@ -1,4 +1,4 @@
-import { Loader2 } from "lucide-react";
+import { Box, Loader2 } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Link, useFetcher } from "react-router";
 import { Breadcrumb } from "~/components/breadcrumb";
@@ -91,7 +91,15 @@ export async function loader({ params, request }: Route.LoaderArgs) {
 type Photo = Route.ComponentProps["loaderData"]["photos"][number];
 
 export default function MonthView({ loaderData }: Route.ComponentProps) {
-  const { photos: initialPhotos, totalPhotos, hasMore: initialHasMore, page: initialPage, year, month, monthName } = loaderData;
+  const {
+    photos: initialPhotos,
+    totalPhotos,
+    hasMore: initialHasMore,
+    page: initialPage,
+    year,
+    month,
+    monthName,
+  } = loaderData;
 
   const [photos, setPhotos] = useState<Photo[]>(initialPhotos);
   const [page, setPage] = useState(initialPage);
@@ -160,9 +168,19 @@ export default function MonthView({ loaderData }: Route.ComponentProps) {
           <h1 className="text-3xl font-bold text-gray-900">
             {monthName} {year}
           </h1>
-          <span className="text-gray-600">
-            {totalPhotos} photo{totalPhotos !== 1 ? "s" : ""}
-          </span>
+          <div className="flex items-center gap-4">
+            <Link
+              to={`/year/${year}/month/${month}/wall`}
+              className="inline-flex items-center gap-2 px-3 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded-lg hover:bg-gray-50 hover:border-gray-400 transition-colors"
+              title="3D Wall View"
+            >
+              <Box className="h-4 w-4" />
+              3D Wall
+            </Link>
+            <span className="text-gray-600">
+              {totalPhotos} photo{totalPhotos !== 1 ? "s" : ""}
+            </span>
+          </div>
         </div>
 
         {photos.length > 0 ? (
@@ -203,9 +221,7 @@ export default function MonthView({ loaderData }: Route.ComponentProps) {
                   <span>Loading more photos...</span>
                 </div>
               )}
-              {!hasMore && photos.length > 0 && (
-                <span className="text-gray-400 text-sm">All photos loaded</span>
-              )}
+              {!hasMore && photos.length > 0 && <span className="text-gray-400 text-sm">All photos loaded</span>}
             </div>
           </>
         ) : (

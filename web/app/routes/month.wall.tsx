@@ -98,8 +98,159 @@ const CAMERA_Z_MIN = 3;
 const CAMERA_Z_MAX = 20;
 const ZOOM_SPEED = 0.5;
 
+// Visual effect constants
+const CORNER_RADIUS = 0.06; // Subtle rounded corners (0.0 to 0.5)
+const VIGNETTE_STRENGTH = 0.25; // Subtle edge darkening
+const SHADOW_OFFSET_X = 0.04; // Shadow offset right
+const SHADOW_OFFSET_Y = -0.05; // Shadow offset down
+const SHADOW_OFFSET_Z = -0.02; // Shadow offset back
+const SHADOW_BLUR = 0.1; // Shadow blur/spread amount
+const SHADOW_OPACITY = 0.15; // Shadow darkness
+
+// Custom shader for rounded corners and vignette effect
+const tileVertexShader = `
+  varying vec2 vUv;
+  varying vec3 vNormal;
+  varying vec3 vWorldPosition;
+
+  void main() {
+    vUv = uv;
+    vNormal = normalize(normalMatrix * normal);
+    vec4 worldPos = modelMatrix * vec4(position, 1.0);
+    vWorldPosition = worldPos.xyz;
+    gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+  }
+`;
+
+const tileFragmentShader = `
+  uniform sampler2D map;
+  uniform vec3 baseColor;
+  uniform bool hasTexture;
+  uniform float opacity;
+  uniform float cornerRadius;
+  uniform float vignetteStrength;
+
+  varying vec2 vUv;
+  varying vec3 vNormal;
+  varying vec3 vWorldPosition;
+
+  // Signed distance function for rounded rectangle
+  float roundedBoxSDF(vec2 p, vec2 halfSize, float radius) {
+    vec2 q = abs(p) - halfSize + radius;
+    return length(max(q, 0.0)) - radius;
+  }
+
+  void main() {
+    // Calculate distance from rounded rectangle edge
+    vec2 centeredUv = vUv * 2.0 - 1.0;
+    float halfSize = 1.0 - cornerRadius;
+    float d = roundedBoxSDF(centeredUv, vec2(halfSize), cornerRadius);
+
+    // Discard pixels outside rounded corners
+    if (d > 0.0) discard;
+
+    // Anti-aliased edge for rounded corners
+    float edgeSoftness = fwidth(d) * 1.5;
+    float edgeAlpha = 1.0 - smoothstep(-edgeSoftness, edgeSoftness, d);
+
+    // Distance from center for vignette
+    float dist = length(vUv - 0.5) * 2.0;
+
+    // Get base color from texture or uniform
+    vec3 texColor = hasTexture ? texture2D(map, vUv).rgb : baseColor;
+
+    // For placeholder tiles (no texture), apply simple lighting for depth
+    // For actual photos, show at full brightness
+    vec3 litColor = texColor;
+    if (!hasTexture) {
+      vec3 ambient = texColor * 0.6;
+      vec3 lightDir = normalize(vec3(0.0, 5.0, 10.0));
+      float diff = max(dot(vNormal, lightDir), 0.0);
+      vec3 diffuse = texColor * diff * 0.8;
+      litColor = ambient + diffuse;
+    }
+
+    // Vignette effect - darken edges only
+    float vignette = 1.0 - pow(dist, 2.5) * vignetteStrength;
+
+    vec3 finalColor = litColor * vignette;
+
+    gl_FragColor = vec4(finalColor, opacity * edgeAlpha);
+  }
+`;
+
+// Shadow shader - soft blurred dark rectangle
+const shadowFragmentShader = `
+  uniform float opacity;
+  uniform float blur;
+  uniform float cornerRadius;
+  uniform float innerScale;
+
+  varying vec2 vUv;
+
+  // Signed distance function for rounded rectangle
+  float roundedBoxSDF(vec2 p, vec2 halfSize, float radius) {
+    vec2 q = abs(p) - halfSize + radius;
+    return length(max(q, 0.0)) - radius;
+  }
+
+  void main() {
+    vec2 centeredUv = vUv * 2.0 - 1.0;
+    // Scale the box to match tile size within larger geometry
+    float halfSize = innerScale - cornerRadius;
+    float d = roundedBoxSDF(centeredUv, vec2(halfSize), cornerRadius);
+
+    // Soft shadow falloff - blur is in UV space
+    float alpha = 1.0 - smoothstep(-blur * 0.5, blur, d);
+
+    gl_FragColor = vec4(0.0, 0.0, 0.0, opacity * alpha);
+  }
+`;
+
+// Create shadow material
+function createShadowMaterial(): THREE.ShaderMaterial {
+  // Scale to match tile size within larger shadow geometry
+  const innerScale = TILE_WIDTH / (TILE_WIDTH + SHADOW_BLUR * 4);
+  const shadowCornerRadius = CORNER_RADIUS * innerScale;
+  // Blur in UV space (geometry spans -1 to 1, so 2 units)
+  const blurUV = (SHADOW_BLUR * 2) / (TILE_WIDTH + SHADOW_BLUR * 4) * 2;
+
+  return new THREE.ShaderMaterial({
+    uniforms: {
+      opacity: { value: SHADOW_OPACITY },
+      blur: { value: blurUV },
+      cornerRadius: { value: shadowCornerRadius },
+      innerScale: { value: innerScale },
+    },
+    vertexShader: tileVertexShader,
+    fragmentShader: shadowFragmentShader,
+    transparent: true,
+    side: THREE.FrontSide,
+    depthWrite: false,
+  });
+}
+
+// Create shader material for tiles
+function createTileMaterial(isReflection: boolean = false): THREE.ShaderMaterial {
+  return new THREE.ShaderMaterial({
+    uniforms: {
+      map: { value: null },
+      baseColor: { value: new THREE.Color(0x2a2a3e) },
+      hasTexture: { value: false },
+      opacity: { value: isReflection ? 0.12 : 1.0 },
+      cornerRadius: { value: CORNER_RADIUS },
+      vignetteStrength: { value: VIGNETTE_STRENGTH },
+    },
+    vertexShader: tileVertexShader,
+    fragmentShader: tileFragmentShader,
+    transparent: true,
+    side: THREE.FrontSide,
+  });
+}
+
 interface TileData {
   mesh: THREE.Mesh;
+  shadowMesh: THREE.Mesh;
   reflectionMesh: THREE.Mesh;
   photo: Photo;
   column: number;
@@ -200,19 +351,20 @@ function ThreeWall({ photos, year, month, totalPhotos, monthName }: ThreeWallPro
         textureLoaderRef.current?.load(
           `/api/image/${tile.photo.id}`,
           (texture) => {
-            texture.colorSpace = THREE.SRGBColorSpace;
+            // Don't set colorSpace - let the texture pass through as-is
+            // (sRGB conversion would require gamma correction in shader output)
             loadedTexturesRef.current.set(tile.photo.id, texture);
 
-            // Update main mesh material
-            const material = tile.mesh.material as THREE.MeshStandardMaterial;
-            material.map = texture;
-            material.color.setHex(0xffffff);
+            // Update main mesh shader material
+            const material = tile.mesh.material as THREE.ShaderMaterial;
+            material.uniforms.map.value = texture;
+            material.uniforms.hasTexture.value = true;
             material.needsUpdate = true;
 
-            // Update reflection mesh material
-            const reflectionMaterial = tile.reflectionMesh.material as THREE.MeshStandardMaterial;
-            reflectionMaterial.map = texture;
-            reflectionMaterial.color.setHex(0xffffff);
+            // Update reflection mesh shader material
+            const reflectionMaterial = tile.reflectionMesh.material as THREE.ShaderMaterial;
+            reflectionMaterial.uniforms.map.value = texture;
+            reflectionMaterial.uniforms.hasTexture.value = true;
             reflectionMaterial.needsUpdate = true;
           },
           undefined,
@@ -244,6 +396,14 @@ function ThreeWall({ photos, year, month, totalPhotos, monthName }: ThreeWallPro
       tile.mesh.position.z = offsetZ;
       tile.mesh.position.x = tile.baseX;
 
+      // Update shadow (same rotation, offset position relative to center light)
+      // Shadow X offset based on position - shadows point away from center
+      const shadowOffsetX = worldX * 0.03; // Shadows spread outward from center
+      tile.shadowMesh.rotation.y = rotationY;
+      tile.shadowMesh.position.z = offsetZ + SHADOW_OFFSET_Z;
+      tile.shadowMesh.position.x = tile.baseX + shadowOffsetX;
+      tile.shadowMesh.position.y = tile.baseY + SHADOW_OFFSET_Y;
+
       // Update reflection
       tile.reflectionMesh.rotation.y = rotationY;
       tile.reflectionMesh.position.z = offsetZ;
@@ -253,8 +413,8 @@ function ThreeWall({ photos, year, month, totalPhotos, monthName }: ThreeWallPro
       const distanceFromCenter = Math.abs(normalizedX);
       const baseOpacity = 0.12;
       const falloff = Math.max(0, 1 - distanceFromCenter * 0.8);
-      const reflectionMaterial = tile.reflectionMesh.material as THREE.MeshStandardMaterial;
-      reflectionMaterial.opacity = baseOpacity * falloff;
+      const reflectionMaterial = tile.reflectionMesh.material as THREE.ShaderMaterial;
+      reflectionMaterial.uniforms.opacity.value = baseOpacity * falloff;
     });
   }, []);
 
@@ -603,16 +763,20 @@ function ThreeWall({ photos, year, month, totalPhotos, monthName }: ThreeWallPro
       const x = column * (TILE_WIDTH + TILE_GAP) - wallWidth / 2 + TILE_WIDTH / 2;
       const y = (ROWS / 2 - row - 0.5) * (TILE_HEIGHT + TILE_GAP);
 
+      // Create shadow mesh (rendered behind the tile)
+      // Extra padding (*4) to ensure blur fades out completely without hard edges
+      const shadowGeometry = new THREE.PlaneGeometry(TILE_WIDTH + SHADOW_BLUR * 4, TILE_HEIGHT + SHADOW_BLUR * 4);
+      const shadowMaterial = createShadowMaterial();
+      const shadowMesh = new THREE.Mesh(shadowGeometry, shadowMaterial);
+      shadowMesh.position.set(x + SHADOW_OFFSET_X, y + SHADOW_OFFSET_Y, SHADOW_OFFSET_Z);
+      shadowMesh.userData = { isShadow: true };
+      wallContainer.add(shadowMesh);
+
       // Create tile geometry
       const geometry = new THREE.PlaneGeometry(TILE_WIDTH, TILE_HEIGHT);
 
-      // Create material with placeholder
-      const material = new THREE.MeshStandardMaterial({
-        color: 0x2a2a3e,
-        side: THREE.FrontSide,
-        roughness: 0.3,
-        metalness: 0.1,
-      });
+      // Create shader material with rounded corners and vignette
+      const material = createTileMaterial(false);
 
       const mesh = new THREE.Mesh(geometry, material);
       mesh.position.set(x, y, 0);
@@ -621,14 +785,7 @@ function ThreeWall({ photos, year, month, totalPhotos, monthName }: ThreeWallPro
 
       // Create reflection mesh
       const reflectionGeometry = new THREE.PlaneGeometry(TILE_WIDTH, TILE_HEIGHT);
-      const reflectionMaterial = new THREE.MeshStandardMaterial({
-        color: 0x2a2a3e,
-        side: THREE.FrontSide,
-        transparent: true,
-        opacity: 0.12,
-        roughness: 0.5,
-        metalness: 0.1,
-      });
+      const reflectionMaterial = createTileMaterial(true);
       const reflectionMesh = new THREE.Mesh(reflectionGeometry, reflectionMaterial);
 
       // Position reflection mirrored around the wall's bottom edge
@@ -640,6 +797,7 @@ function ThreeWall({ photos, year, month, totalPhotos, monthName }: ThreeWallPro
 
       tiles.push({
         mesh,
+        shadowMesh,
         reflectionMesh,
         photo,
         column,
@@ -726,6 +884,8 @@ function ThreeWall({ photos, year, month, totalPhotos, monthName }: ThreeWallPro
       tilesRef.current.forEach((tile) => {
         tile.mesh.geometry.dispose();
         (tile.mesh.material as THREE.Material).dispose();
+        tile.shadowMesh.geometry.dispose();
+        (tile.shadowMesh.material as THREE.Material).dispose();
         tile.reflectionMesh.geometry.dispose();
         (tile.reflectionMesh.material as THREE.Material).dispose();
       });
@@ -750,6 +910,7 @@ function ThreeWall({ photos, year, month, totalPhotos, monthName }: ThreeWallPro
       }
     };
   }, [isLoading, animate]);
+
 
   // Event listeners
   useEffect(() => {

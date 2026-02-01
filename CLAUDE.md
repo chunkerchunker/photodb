@@ -6,6 +6,8 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 PhotoDB is a personal photo indexing pipeline built with Python and PostgreSQL. It processes photos through multiple stages in a parallel, distributed architecture designed for high throughput with hundreds of concurrent workers.
 
+Detailed processing design in `docs/DESIGN.md`.
+
 ### Key Components
 
 - **CLI**: Two separate executables
@@ -93,7 +95,6 @@ uv run enrich-photos /path/to/photos --retry-failed
 # Disable batch mode (process one at a time)
 uv run enrich-photos /path/to/photos --no-batch
 ```
-
 
 ### Testing
 

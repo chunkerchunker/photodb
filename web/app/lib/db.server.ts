@@ -194,13 +194,19 @@ export async function getPhotoDetails(photoId: number) {
   const photo = result.rows[0];
 
   // Get faces for this photo with match candidates
+  // Join to both face's person and cluster's person, prefer face's person if set
   const facesQuery = `
     SELECT f.id, f.bbox_x, f.bbox_y, f.bbox_width, f.bbox_height,
            f.confidence, f.person_id,
-           TRIM(CONCAT(p.first_name, ' ', COALESCE(p.last_name, ''))) as person_name,
+           COALESCE(
+             NULLIF(TRIM(CONCAT(p.first_name, ' ', COALESCE(p.last_name, ''))), ''),
+             NULLIF(TRIM(CONCAT(cp.first_name, ' ', COALESCE(cp.last_name, ''))), '')
+           ) as person_name,
            f.cluster_id, f.cluster_status, f.cluster_confidence
     FROM face f
     LEFT JOIN person p ON f.person_id = p.id
+    LEFT JOIN "cluster" c ON f.cluster_id = c.id
+    LEFT JOIN person cp ON c.person_id = cp.id
     WHERE f.photo_id = $1
     ORDER BY f.confidence DESC
   `;
@@ -1116,6 +1122,78 @@ export async function dissociateFaceWithConfidenceCutoff(clusterId: string, face
     await client.query("ROLLBACK");
     console.error("Failed to dissociate face with cutoff:", error);
     return { success: false, message: "Failed to remove faces", constrainedCount: 0, cutoffCount: 0 };
+  } finally {
+    client.release();
+  }
+}
+
+export async function removeFaceFromClusterWithConstraint(faceId: number) {
+  await initDatabase();
+
+  const client = await pool.connect();
+  try {
+    await client.query("BEGIN");
+
+    // Get the face's current cluster
+    const faceQuery = `SELECT cluster_id FROM face WHERE id = $1`;
+    const faceResult = await client.query(faceQuery, [faceId]);
+
+    if (faceResult.rows.length === 0) {
+      await client.query("ROLLBACK");
+      return { success: false, message: "Face not found" };
+    }
+
+    const clusterId = faceResult.rows[0].cluster_id;
+    if (!clusterId) {
+      await client.query("ROLLBACK");
+      return { success: false, message: "Face is not assigned to a cluster" };
+    }
+
+    // Get a remaining face in the cluster for the cannot-link constraint
+    const remainingFaceQuery = `
+      SELECT id FROM face
+      WHERE cluster_id = $1 AND id != $2
+      LIMIT 1
+    `;
+    const remainingResult = await client.query(remainingFaceQuery, [clusterId, faceId]);
+
+    // Remove face from cluster
+    await client.query(
+      `UPDATE face
+       SET cluster_id = NULL,
+           cluster_status = 'unassigned',
+           cluster_confidence = 0,
+           unassigned_since = NOW()
+       WHERE id = $1`,
+      [faceId],
+    );
+
+    // Update cluster face count
+    await client.query(
+      `UPDATE cluster SET face_count = GREATEST(0, face_count - 1), updated_at = NOW() WHERE id = $1`,
+      [clusterId],
+    );
+
+    // Create cannot-link constraint if there's a remaining face
+    if (remainingResult.rows.length > 0) {
+      const remainingFaceId = parseInt(remainingResult.rows[0].id, 10);
+      const [id1, id2] = faceId < remainingFaceId ? [faceId, remainingFaceId] : [remainingFaceId, faceId];
+
+      await client.query(
+        `INSERT INTO cannot_link (face_id_1, face_id_2, created_by)
+         VALUES ($1, $2, 'web')
+         ON CONFLICT (face_id_1, face_id_2) DO NOTHING`,
+        [id1, id2],
+      );
+    }
+
+    await client.query("COMMIT");
+
+    return { success: true, message: "Face removed from cluster" };
+  } catch (error) {
+    await client.query("ROLLBACK");
+    console.error("Failed to remove face from cluster:", error);
+    return { success: false, message: "Failed to remove face from cluster" };
   } finally {
     client.release();
   }

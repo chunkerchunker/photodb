@@ -1,7 +1,7 @@
 import { useMeasure } from "@react-hookz/web";
-import { Bot, Camera, ChevronDown, Code, ExternalLink, Info, MapPin, Users } from "lucide-react";
+import { Ban, Bot, Camera, ChevronDown, Code, ExternalLink, Info, MapPin, Users } from "lucide-react";
 import { useEffect, useState } from "react";
-import { Link } from "react-router";
+import { Link, useFetcher, useNavigate } from "react-router";
 import { Breadcrumb } from "~/components/breadcrumb";
 import { Layout } from "~/components/layout";
 import { Badge } from "~/components/ui/badge";
@@ -9,7 +9,7 @@ import { Button } from "~/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "~/components/ui/card";
 import { Checkbox } from "~/components/ui/checkbox";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "~/components/ui/collapsible";
-import { getPhotoDetails } from "~/lib/db.server";
+import { getPhotoDetails, removeFaceFromClusterWithConstraint } from "~/lib/db.server";
 import { cn } from "~/lib/utils";
 import type { Route } from "./+types/photo.$id";
 
@@ -113,6 +113,21 @@ export function meta({ params }: Route.MetaArgs) {
   ];
 }
 
+export async function action({ request }: Route.ActionArgs) {
+  const formData = await request.formData();
+  const intent = formData.get("intent");
+
+  if (intent === "remove-from-cluster") {
+    const faceId = parseInt(formData.get("faceId") as string, 10);
+    if (!faceId || Number.isNaN(faceId)) {
+      return { success: false, message: "Invalid face ID" };
+    }
+    return removeFaceFromClusterWithConstraint(faceId);
+  }
+
+  return { success: false, message: "Unknown action" };
+}
+
 export async function loader({ params }: Route.LoaderArgs) {
   const photoId = parseInt(params.id, 10);
 
@@ -127,6 +142,8 @@ export async function loader({ params }: Route.LoaderArgs) {
 
 export default function PhotoDetail({ loaderData }: Route.ComponentProps) {
   const { photo } = loaderData;
+  const navigate = useNavigate();
+  const fetcher = useFetcher();
   const [showFaces, setShowFaces] = useState(false);
   const [hoveredFaceId, setHoveredFaceId] = useState<string | null>(null);
   const [imageMeasures, imageMeasureRef] = useMeasure<HTMLImageElement>();
@@ -349,7 +366,16 @@ export default function PhotoDetail({ loaderData }: Route.ComponentProps) {
                       {photo.faces && photo.faces.length > 0 && (
                         <div className="space-y-2">
                           <h6 className="font-medium">Face Details:</h6>
-                          {photo.faces.map((face: Face, index: number) => (
+                          {photo.faces.map((face: Face, index: number) => {
+                            const handleFaceClick = () => {
+                              if (face.cluster_id) {
+                                navigate(`/cluster/${face.cluster_id}`);
+                              } else {
+                                navigate(`/face/${face.id}/similar`);
+                              }
+                            };
+
+                            return (
                             // biome-ignore lint/a11y/useSemanticElements: This is an interactive highlight, not a button action
                             <div
                               key={face.id}
@@ -361,6 +387,12 @@ export default function PhotoDetail({ loaderData }: Route.ComponentProps) {
                                   ? "border-blue-500 bg-blue-50 shadow-md"
                                   : "border-gray-300 hover:border-blue-400 hover:bg-blue-50/50",
                               )}
+                              onClick={handleFaceClick}
+                              onKeyDown={(e) => {
+                                if (e.key === "Enter" || e.key === " ") {
+                                  handleFaceClick();
+                                }
+                              }}
                               onMouseEnter={() => setHoveredFaceId(face.id)}
                               onMouseLeave={() => setHoveredFaceId(null)}
                               onFocus={() => setHoveredFaceId(face.id)}
@@ -370,23 +402,57 @@ export default function PhotoDetail({ loaderData }: Route.ComponentProps) {
                                 <div className="flex items-center space-x-2">
                                   <span className="font-medium">Face {index + 1}:</span>
                                   {face.person_name ? (
-                                    <Badge variant="default">{face.person_name}</Badge>
+                                    <>
+                                      <Badge variant="default">{face.person_name}</Badge>
+                                      {face.cluster_id && (
+                                        <Button
+                                          variant="ghost"
+                                          size="sm"
+                                          className="h-6 w-6 p-0 text-gray-400 hover:text-red-500"
+                                          title="Remove from cluster (adds constraint)"
+                                          onClick={(e) => {
+                                            e.stopPropagation();
+                                            fetcher.submit(
+                                              { intent: "remove-from-cluster", faceId: face.id },
+                                              { method: "post" },
+                                            );
+                                          }}
+                                          disabled={fetcher.state === "submitting"}
+                                        >
+                                          <Ban className="h-4 w-4" />
+                                        </Button>
+                                      )}
+                                    </>
                                   ) : face.cluster_id ? (
-                                    <Link to={`/cluster/${face.cluster_id}`}>
-                                      <Badge variant="secondary" className="hover:bg-secondary/80 cursor-pointer">
+                                    <>
+                                      <Badge variant="secondary">
                                         Cluster {face.cluster_id}
                                         {face.cluster_confidence && (
                                           <span> ({Math.round(face.cluster_confidence * 100)}%)</span>
                                         )}
                                       </Badge>
-                                    </Link>
+                                      <Button
+                                        variant="ghost"
+                                        size="sm"
+                                        className="h-6 w-6 p-0 text-gray-400 hover:text-red-500"
+                                        title="Remove from cluster (adds constraint)"
+                                        onClick={(e) => {
+                                          e.stopPropagation();
+                                          fetcher.submit(
+                                            { intent: "remove-from-cluster", faceId: face.id },
+                                            { method: "post" },
+                                          );
+                                        }}
+                                        disabled={fetcher.state === "submitting"}
+                                      >
+                                        <Ban className="h-4 w-4" />
+                                      </Button>
+                                    </>
                                   ) : (
-                                    <Link to={`/face/${face.id}/similar`} onClick={(e) => e.stopPropagation()}>
-                                      <Badge variant="outline" className="hover:bg-gray-100 cursor-pointer">
-                                        <Users className="h-3 w-3 mr-1" />
-                                        Find Similar
-                                      </Badge>
-                                    </Link>
+                                    <Badge variant="outline">
+                                      <Users className="h-3 w-3 mr-1" />
+                                      Find Similar
+                                    </Badge>
                                   )}
                                 </div>
                                 {face.match_candidates && face.match_candidates.length > 0 && (
@@ -394,7 +460,11 @@ export default function PhotoDetail({ loaderData }: Route.ComponentProps) {
                                     <span className="text-xs text-gray-500">Potential matches:</span>
                                     <div className="flex flex-wrap gap-1">
                                       {face.match_candidates.map((candidate) => (
-                                        <Link key={candidate.cluster_id} to={`/cluster/${candidate.cluster_id}`}>
+                                        <Link
+                                          key={candidate.cluster_id}
+                                          to={`/cluster/${candidate.cluster_id}`}
+                                          onClick={(e) => e.stopPropagation()}
+                                        >
                                           <Badge variant="outline" className="hover:bg-gray-100 cursor-pointer text-xs">
                                             {candidate.person_name || `Cluster ${candidate.cluster_id}`}
                                             <span className="ml-1 text-gray-500">
@@ -409,7 +479,8 @@ export default function PhotoDetail({ loaderData }: Route.ComponentProps) {
                               </div>
                               <span className="text-sm text-gray-600">{Math.round(face.confidence * 100)}%</span>
                             </div>
-                          ))}
+                          );
+                          })}
                         </div>
                       )}
                     </CardContent>

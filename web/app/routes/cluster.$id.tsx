@@ -3,6 +3,7 @@ import {
   Eye,
   EyeOff,
   GitMerge,
+  Loader2,
   Pencil,
   Scissors,
   Search,
@@ -12,11 +13,10 @@ import {
   Users,
   XCircle,
 } from "lucide-react";
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { Link, redirect, useFetcher } from "react-router";
 import { Breadcrumb } from "~/components/breadcrumb";
 import { Layout } from "~/components/layout";
-import { Pagination } from "~/components/pagination";
 import { Badge } from "~/components/ui/badge";
 import { Button } from "~/components/ui/button";
 import { Card, CardContent } from "~/components/ui/card";
@@ -142,12 +142,13 @@ export async function action({ request, params }: Route.ActionArgs) {
   return { success: false, message: "Unknown action" };
 }
 
+const LIMIT = 24; // 4x6 grid
+
 export async function loader({ params, request }: Route.LoaderArgs) {
   const clusterId = params.id;
   const url = new URL(request.url);
   const page = parseInt(url.searchParams.get("page") || "1", 10);
-  const limit = 24; // 4x6 grid
-  const offset = (page - 1) * limit;
+  const offset = (page - 1) * LIMIT;
 
   try {
     const cluster = await getClusterDetails(clusterId);
@@ -155,16 +156,16 @@ export async function loader({ params, request }: Route.LoaderArgs) {
       throw new Response("Cluster not found", { status: 404 });
     }
 
-    const faces = await getClusterFaces(clusterId, limit, offset);
+    const faces = await getClusterFaces(clusterId, LIMIT, offset);
     const totalFaces = await getClusterFacesCount(clusterId);
-    const totalPages = Math.ceil(totalFaces / limit);
+    const hasMore = offset + faces.length < totalFaces;
 
     return {
       cluster,
       faces,
       totalFaces,
-      totalPages,
-      currentPage: page,
+      hasMore,
+      page,
     };
   } catch (error) {
     console.error(`Failed to load cluster ${clusterId}:`, error);
@@ -175,8 +176,8 @@ export async function loader({ params, request }: Route.LoaderArgs) {
       cluster: null,
       faces: [],
       totalFaces: 0,
-      totalPages: 0,
-      currentPage: page,
+      hasMore: false,
+      page,
     };
   }
 }
@@ -222,8 +223,10 @@ interface SearchCluster {
   normalized_height?: number;
 }
 
+type Face = Route.ComponentProps["loaderData"]["faces"][number];
+
 export default function ClusterDetailView({ loaderData }: Route.ComponentProps) {
-  const { cluster, faces, totalFaces, totalPages, currentPage } = loaderData;
+  const { cluster, faces: initialFaces, totalFaces, hasMore: initialHasMore, page: initialPage } = loaderData;
   const [selectedFaces, setSelectedFaces] = useState<number[]>([]);
   const [mergeModalOpen, setMergeModalOpen] = useState(false);
   const [nameModalOpen, setNameModalOpen] = useState(false);
@@ -233,6 +236,65 @@ export default function ClusterDetailView({ loaderData }: Route.ComponentProps) 
   const [searchResults, setSearchResults] = useState<SearchCluster[]>([]);
   const [isSearching, setIsSearching] = useState(false);
   const fetcher = useFetcher();
+
+  // Infinite scroll state
+  const [faces, setFaces] = useState<Face[]>(initialFaces);
+  const [page, setPage] = useState(initialPage);
+  const [hasMore, setHasMore] = useState(initialHasMore);
+  const scrollFetcher = useFetcher<typeof loader>();
+  const loadMoreRef = useRef<HTMLDivElement>(null);
+
+  // Reset state when initial data changes (e.g., navigation or action)
+  useEffect(() => {
+    setFaces(initialFaces);
+    setPage(initialPage);
+    setHasMore(initialHasMore);
+    setSelectedFaces([]);
+  }, [initialFaces, initialPage, initialHasMore]);
+
+  // Append new faces when scroll fetcher returns data
+  useEffect(() => {
+    if (scrollFetcher.data?.faces && scrollFetcher.data.faces.length > 0) {
+      setFaces((prev) => {
+        const existingIds = new Set(prev.map((f) => f.id));
+        const newFaces = scrollFetcher.data!.faces.filter((f) => !existingIds.has(f.id));
+        return [...prev, ...newFaces];
+      });
+      setPage(scrollFetcher.data.page);
+      setHasMore(scrollFetcher.data.hasMore);
+    }
+  }, [scrollFetcher.data]);
+
+  const loadMore = useCallback(() => {
+    if (scrollFetcher.state === "idle" && hasMore && cluster) {
+      scrollFetcher.load(`/cluster/${cluster.id}?page=${page + 1}`);
+    }
+  }, [scrollFetcher, hasMore, page, cluster]);
+
+  // Intersection Observer for infinite scroll
+  useEffect(() => {
+    const observer = new IntersectionObserver(
+      (entries) => {
+        if (entries[0].isIntersecting) {
+          loadMore();
+        }
+      },
+      { rootMargin: "200px" },
+    );
+
+    const currentRef = loadMoreRef.current;
+    if (currentRef) {
+      observer.observe(currentRef);
+    }
+
+    return () => {
+      if (currentRef) {
+        observer.unobserve(currentRef);
+      }
+    };
+  }, [loadMore]);
+
+  const isLoadingMore = scrollFetcher.state === "loading";
 
   // Initialize edit name when modal opens
   useEffect(() => {
@@ -542,8 +604,8 @@ export default function ClusterDetailView({ loaderData }: Route.ComponentProps) 
           </div>
         )}
 
-        {/* Face selection controls */}
-        <div className="bg-gray-50 border rounded-lg p-4 space-y-3">
+        {/* Face selection controls - sticky toolbar */}
+        <div className="bg-gray-50 border rounded-lg p-4 space-y-3 sticky top-0 z-10 shadow-sm">
           <div className="flex items-center justify-between">
             <div className="space-y-1">
               <p className="text-sm font-medium text-gray-700">Face actions</p>
@@ -663,7 +725,18 @@ export default function ClusterDetailView({ loaderData }: Route.ComponentProps) 
               })}
             </div>
 
-            <Pagination currentPage={currentPage} totalPages={totalPages} baseUrl={`/cluster/${cluster.id}`} />
+            {/* Infinite scroll trigger */}
+            <div ref={loadMoreRef} className="flex justify-center py-8">
+              {isLoadingMore && (
+                <div className="flex items-center space-x-2 text-gray-500">
+                  <Loader2 className="h-5 w-5 animate-spin" />
+                  <span>Loading more faces...</span>
+                </div>
+              )}
+              {!hasMore && faces.length > 0 && (
+                <span className="text-gray-400 text-sm">All faces loaded</span>
+              )}
+            </div>
           </>
         ) : (
           <div className="text-center py-12">

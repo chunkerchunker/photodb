@@ -1,7 +1,8 @@
-import { Link } from "react-router";
+import { Loader2 } from "lucide-react";
+import { useCallback, useEffect, useRef, useState } from "react";
+import { Link, useFetcher } from "react-router";
 import { Breadcrumb } from "~/components/breadcrumb";
 import { Layout } from "~/components/layout";
-import { Pagination } from "~/components/pagination";
 import { Card, CardContent } from "~/components/ui/card";
 import { getPhotoCountByMonth, getPhotosByMonth } from "~/lib/db.server";
 import type { Route } from "./+types/month";
@@ -33,13 +34,14 @@ export function meta({ params }: Route.MetaArgs) {
   ];
 }
 
+const LIMIT = 48; // 6x8 grid
+
 export async function loader({ params, request }: Route.LoaderArgs) {
   const year = parseInt(params.year, 10);
   const month = parseInt(params.month, 10);
   const url = new URL(request.url);
   const page = parseInt(url.searchParams.get("page") || "1", 10);
-  const limit = 48; // 6x8 grid
-  const offset = (page - 1) * limit;
+  const offset = (page - 1) * LIMIT;
 
   const monthNames = [
     "",
@@ -59,15 +61,15 @@ export async function loader({ params, request }: Route.LoaderArgs) {
   const monthName = monthNames[month] || `Month ${month}`;
 
   try {
-    const photos = await getPhotosByMonth(year, month, limit, offset);
+    const photos = await getPhotosByMonth(year, month, LIMIT, offset);
     const totalPhotos = await getPhotoCountByMonth(year, month);
-    const totalPages = Math.ceil(totalPhotos / limit);
+    const hasMore = offset + photos.length < totalPhotos;
 
     return {
       photos,
       totalPhotos,
-      totalPages,
-      currentPage: page,
+      hasMore,
+      page,
       year: params.year,
       month: params.month,
       monthName,
@@ -77,8 +79,8 @@ export async function loader({ params, request }: Route.LoaderArgs) {
     return {
       photos: [],
       totalPhotos: 0,
-      totalPages: 0,
-      currentPage: page,
+      hasMore: false,
+      page,
       year: params.year,
       month: params.month,
       monthName,
@@ -86,8 +88,68 @@ export async function loader({ params, request }: Route.LoaderArgs) {
   }
 }
 
+type Photo = Route.ComponentProps["loaderData"]["photos"][number];
+
 export default function MonthView({ loaderData }: Route.ComponentProps) {
-  const { photos, totalPhotos, totalPages, currentPage, year, month, monthName } = loaderData;
+  const { photos: initialPhotos, totalPhotos, hasMore: initialHasMore, page: initialPage, year, month, monthName } = loaderData;
+
+  const [photos, setPhotos] = useState<Photo[]>(initialPhotos);
+  const [page, setPage] = useState(initialPage);
+  const [hasMore, setHasMore] = useState(initialHasMore);
+
+  const fetcher = useFetcher<typeof loader>();
+  const loadMoreRef = useRef<HTMLDivElement>(null);
+
+  // Reset state when initial data changes (e.g., navigation)
+  useEffect(() => {
+    setPhotos(initialPhotos);
+    setPage(initialPage);
+    setHasMore(initialHasMore);
+  }, [initialPhotos, initialPage, initialHasMore]);
+
+  // Append new photos when fetcher returns data
+  useEffect(() => {
+    if (fetcher.data?.photos && fetcher.data.photos.length > 0) {
+      setPhotos((prev) => {
+        const existingIds = new Set(prev.map((p) => p.id));
+        const newPhotos = fetcher.data!.photos.filter((p) => !existingIds.has(p.id));
+        return [...prev, ...newPhotos];
+      });
+      setPage(fetcher.data.page);
+      setHasMore(fetcher.data.hasMore);
+    }
+  }, [fetcher.data]);
+
+  const loadMore = useCallback(() => {
+    if (fetcher.state === "idle" && hasMore) {
+      fetcher.load(`/year/${year}/month/${month}?page=${page + 1}`);
+    }
+  }, [fetcher, hasMore, page, year, month]);
+
+  // Intersection Observer for infinite scroll
+  useEffect(() => {
+    const observer = new IntersectionObserver(
+      (entries) => {
+        if (entries[0].isIntersecting) {
+          loadMore();
+        }
+      },
+      { rootMargin: "200px" },
+    );
+
+    const currentRef = loadMoreRef.current;
+    if (currentRef) {
+      observer.observe(currentRef);
+    }
+
+    return () => {
+      if (currentRef) {
+        observer.unobserve(currentRef);
+      }
+    };
+  }, [loadMore]);
+
+  const isLoading = fetcher.state === "loading";
 
   return (
     <Layout>
@@ -133,7 +195,18 @@ export default function MonthView({ loaderData }: Route.ComponentProps) {
               ))}
             </div>
 
-            <Pagination currentPage={currentPage} totalPages={totalPages} baseUrl={`/year/${year}/month/${month}`} />
+            {/* Infinite scroll trigger */}
+            <div ref={loadMoreRef} className="flex justify-center py-8">
+              {isLoading && (
+                <div className="flex items-center space-x-2 text-gray-500">
+                  <Loader2 className="h-5 w-5 animate-spin" />
+                  <span>Loading more photos...</span>
+                </div>
+              )}
+              {!hasMore && photos.length > 0 && (
+                <span className="text-gray-400 text-sm">All photos loaded</span>
+              )}
+            </div>
           </>
         ) : (
           <div className="text-center py-12">

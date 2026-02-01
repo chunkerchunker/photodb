@@ -1,8 +1,8 @@
-import { Eye, Users } from "lucide-react";
+import { Eye, Loader2, Users } from "lucide-react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { Link, useFetcher } from "react-router";
 import { Breadcrumb } from "~/components/breadcrumb";
 import { Layout } from "~/components/layout";
-import { Pagination } from "~/components/pagination";
 import { Button } from "~/components/ui/button";
 import { Card, CardContent } from "~/components/ui/card";
 import { getHiddenClusters, getHiddenClustersCount, setClusterHidden } from "~/lib/db.server";
@@ -34,30 +34,31 @@ export async function action({ request }: Route.ActionArgs) {
   return { success: false, message: "Unknown action" };
 }
 
+const LIMIT = 24;
+
 export async function loader({ request }: Route.LoaderArgs) {
   const url = new URL(request.url);
   const page = parseInt(url.searchParams.get("page") || "1", 10);
-  const limit = 24;
-  const offset = (page - 1) * limit;
+  const offset = (page - 1) * LIMIT;
 
   try {
-    const clusters = await getHiddenClusters(limit, offset);
+    const clusters = await getHiddenClusters(LIMIT, offset);
     const totalClusters = await getHiddenClustersCount();
-    const totalPages = Math.ceil(totalClusters / limit);
+    const hasMore = offset + clusters.length < totalClusters;
 
     return {
       clusters,
       totalClusters,
-      totalPages,
-      currentPage: page,
+      hasMore,
+      page,
     };
   } catch (error) {
     console.error("Failed to load hidden clusters:", error);
     return {
       clusters: [],
       totalClusters: 0,
-      totalPages: 0,
-      currentPage: page,
+      hasMore: false,
+      page,
     };
   }
 }
@@ -89,9 +90,69 @@ function getFaceCropStyle(
   };
 }
 
+type Cluster = Route.ComponentProps["loaderData"]["clusters"][number];
+
 export default function HiddenClustersView({ loaderData }: Route.ComponentProps) {
-  const { clusters, totalClusters, totalPages, currentPage } = loaderData;
+  const { clusters: initialClusters, totalClusters, hasMore: initialHasMore, page: initialPage } = loaderData;
   const fetcher = useFetcher();
+
+  // Infinite scroll state
+  const [clusters, setClusters] = useState<Cluster[]>(initialClusters);
+  const [page, setPage] = useState(initialPage);
+  const [hasMore, setHasMore] = useState(initialHasMore);
+  const scrollFetcher = useFetcher<typeof loader>();
+  const loadMoreRef = useRef<HTMLDivElement>(null);
+
+  // Reset state when initial data changes (e.g., navigation or action)
+  useEffect(() => {
+    setClusters(initialClusters);
+    setPage(initialPage);
+    setHasMore(initialHasMore);
+  }, [initialClusters, initialPage, initialHasMore]);
+
+  // Append new clusters when scroll fetcher returns data
+  useEffect(() => {
+    if (scrollFetcher.data?.clusters && scrollFetcher.data.clusters.length > 0) {
+      setClusters((prev) => {
+        const existingIds = new Set(prev.map((c) => c.id));
+        const newClusters = scrollFetcher.data!.clusters.filter((c) => !existingIds.has(c.id));
+        return [...prev, ...newClusters];
+      });
+      setPage(scrollFetcher.data.page);
+      setHasMore(scrollFetcher.data.hasMore);
+    }
+  }, [scrollFetcher.data]);
+
+  const loadMore = useCallback(() => {
+    if (scrollFetcher.state === "idle" && hasMore) {
+      scrollFetcher.load(`/clusters/hidden?page=${page + 1}`);
+    }
+  }, [scrollFetcher, hasMore, page]);
+
+  // Intersection Observer for infinite scroll
+  useEffect(() => {
+    const observer = new IntersectionObserver(
+      (entries) => {
+        if (entries[0].isIntersecting) {
+          loadMore();
+        }
+      },
+      { rootMargin: "200px" },
+    );
+
+    const currentRef = loadMoreRef.current;
+    if (currentRef) {
+      observer.observe(currentRef);
+    }
+
+    return () => {
+      if (currentRef) {
+        observer.unobserve(currentRef);
+      }
+    };
+  }, [loadMore]);
+
+  const isLoadingMore = scrollFetcher.state === "loading";
 
   const handleUnhide = (clusterId: string) => {
     fetcher.submit({ intent: "unhide", clusterId }, { method: "post" });
@@ -179,7 +240,18 @@ export default function HiddenClustersView({ loaderData }: Route.ComponentProps)
               ))}
             </div>
 
-            <Pagination currentPage={currentPage} totalPages={totalPages} baseUrl="/clusters/hidden" />
+            {/* Infinite scroll trigger */}
+            <div ref={loadMoreRef} className="flex justify-center py-8">
+              {isLoadingMore && (
+                <div className="flex items-center space-x-2 text-gray-500">
+                  <Loader2 className="h-5 w-5 animate-spin" />
+                  <span>Loading more clusters...</span>
+                </div>
+              )}
+              {!hasMore && clusters.length > 0 && (
+                <span className="text-gray-400 text-sm">All hidden clusters loaded</span>
+              )}
+            </div>
           </>
         ) : (
           <div className="text-center py-12">

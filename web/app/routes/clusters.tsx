@@ -1,7 +1,7 @@
-import { EyeOff, Users } from "lucide-react";
-import { Link } from "react-router";
+import { EyeOff, Loader2, Users } from "lucide-react";
+import { useCallback, useEffect, useRef, useState } from "react";
+import { Link, useFetcher } from "react-router";
 import { Layout } from "~/components/layout";
-import { Pagination } from "~/components/pagination";
 import { Button } from "~/components/ui/button";
 import { Card, CardContent } from "~/components/ui/card";
 import { getClusters, getClustersCount, getHiddenClustersCount } from "~/lib/db.server";
@@ -17,24 +17,25 @@ export function meta() {
   ];
 }
 
+const LIMIT = 24; // 4x6 grid
+
 export async function loader({ request }: Route.LoaderArgs) {
   const url = new URL(request.url);
   const page = parseInt(url.searchParams.get("page") || "1", 10);
-  const limit = 24; // 4x6 grid
-  const offset = (page - 1) * limit;
+  const offset = (page - 1) * LIMIT;
 
   try {
-    const clusters = await getClusters(limit, offset);
+    const clusters = await getClusters(LIMIT, offset);
     const totalClusters = await getClustersCount();
     const hiddenCount = await getHiddenClustersCount();
-    const totalPages = Math.ceil(totalClusters / limit);
+    const hasMore = offset + clusters.length < totalClusters;
 
     return {
       clusters,
       totalClusters,
       hiddenCount,
-      totalPages,
-      currentPage: page,
+      hasMore,
+      page,
     };
   } catch (error) {
     console.error("Failed to load clusters:", error);
@@ -42,8 +43,8 @@ export async function loader({ request }: Route.LoaderArgs) {
       clusters: [],
       totalClusters: 0,
       hiddenCount: 0,
-      totalPages: 0,
-      currentPage: page,
+      hasMore: false,
+      page,
     };
   }
 }
@@ -77,8 +78,68 @@ function getFaceCropStyle(
   };
 }
 
+type Cluster = Route.ComponentProps["loaderData"]["clusters"][number];
+
 export default function ClustersView({ loaderData }: Route.ComponentProps) {
-  const { clusters, totalClusters, hiddenCount, totalPages, currentPage } = loaderData;
+  const { clusters: initialClusters, totalClusters, hiddenCount, hasMore: initialHasMore, page: initialPage } = loaderData;
+
+  const [clusters, setClusters] = useState<Cluster[]>(initialClusters);
+  const [page, setPage] = useState(initialPage);
+  const [hasMore, setHasMore] = useState(initialHasMore);
+
+  const fetcher = useFetcher<typeof loader>();
+  const loadMoreRef = useRef<HTMLDivElement>(null);
+
+  // Reset state when initial data changes (e.g., navigation)
+  useEffect(() => {
+    setClusters(initialClusters);
+    setPage(initialPage);
+    setHasMore(initialHasMore);
+  }, [initialClusters, initialPage, initialHasMore]);
+
+  // Append new clusters when fetcher returns data
+  useEffect(() => {
+    if (fetcher.data && fetcher.data.clusters.length > 0) {
+      setClusters((prev) => {
+        const existingIds = new Set(prev.map((c) => c.id));
+        const newClusters = fetcher.data!.clusters.filter((c) => !existingIds.has(c.id));
+        return [...prev, ...newClusters];
+      });
+      setPage(fetcher.data.page);
+      setHasMore(fetcher.data.hasMore);
+    }
+  }, [fetcher.data]);
+
+  const loadMore = useCallback(() => {
+    if (fetcher.state === "idle" && hasMore) {
+      fetcher.load(`/clusters?page=${page + 1}`);
+    }
+  }, [fetcher, hasMore, page]);
+
+  // Intersection Observer for infinite scroll
+  useEffect(() => {
+    const observer = new IntersectionObserver(
+      (entries) => {
+        if (entries[0].isIntersecting) {
+          loadMore();
+        }
+      },
+      { rootMargin: "200px" },
+    );
+
+    const currentRef = loadMoreRef.current;
+    if (currentRef) {
+      observer.observe(currentRef);
+    }
+
+    return () => {
+      if (currentRef) {
+        observer.unobserve(currentRef);
+      }
+    };
+  }, [loadMore]);
+
+  const isLoading = fetcher.state === "loading";
 
   return (
     <Layout>
@@ -158,7 +219,18 @@ export default function ClustersView({ loaderData }: Route.ComponentProps) {
               ))}
             </div>
 
-            <Pagination currentPage={currentPage} totalPages={totalPages} baseUrl="/clusters" />
+            {/* Infinite scroll trigger */}
+            <div ref={loadMoreRef} className="flex justify-center py-8">
+              {isLoading && (
+                <div className="flex items-center space-x-2 text-gray-500">
+                  <Loader2 className="h-5 w-5 animate-spin" />
+                  <span>Loading more clusters...</span>
+                </div>
+              )}
+              {!hasMore && clusters.length > 0 && (
+                <span className="text-gray-400 text-sm">All clusters loaded</span>
+              )}
+            </div>
           </>
         ) : (
           <div className="text-center py-12">

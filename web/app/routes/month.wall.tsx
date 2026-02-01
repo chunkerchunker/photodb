@@ -493,8 +493,20 @@ function ThreeWall({ photos, year, month, totalPhotos, monthName }: ThreeWallPro
       }
       wallPositionRef.current.x += wallPositionRef.current.velocityX;
 
-      // Clamp position to wall bounds
+      // Soft boundary - gradually slow down near edges
       const maxX = wallWidthRef.current / 2 - 2;
+      const softZone = 3; // Start slowing down this far from the edge
+      const pos = wallPositionRef.current.x;
+
+      if (Math.abs(pos) > maxX - softZone) {
+        // Calculate how far into the soft zone we are (0 to 1)
+        const distanceIntoSoftZone = (Math.abs(pos) - (maxX - softZone)) / softZone;
+        // Apply extra friction based on how deep into soft zone
+        const edgeFriction = 1 - Math.min(distanceIntoSoftZone, 1) * 0.5;
+        wallPositionRef.current.velocityX *= edgeFriction;
+      }
+
+      // Hard clamp as failsafe
       if (wallPositionRef.current.x > maxX) {
         wallPositionRef.current.x = maxX;
         wallPositionRef.current.velocityX = 0;

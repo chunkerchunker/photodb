@@ -129,6 +129,8 @@ const tileFragmentShader = `
   uniform float opacity;
   uniform float cornerRadius;
   uniform float vignetteStrength;
+  uniform float imageAspect;
+  uniform float tileAspect;
 
   varying vec2 vUv;
   varying vec3 vNormal;
@@ -156,8 +158,21 @@ const tileFragmentShader = `
     // Distance from center for vignette
     float dist = length(vUv - 0.5) * 2.0;
 
+    // Adjust UVs for aspect ratio (object-fit: cover)
+    vec2 adjustedUv = vUv;
+    if (hasTexture && imageAspect > 0.0) {
+      float aspectRatio = imageAspect / tileAspect;
+      if (aspectRatio > 1.0) {
+        // Image is wider than tile - crop sides
+        adjustedUv.x = (vUv.x - 0.5) / aspectRatio + 0.5;
+      } else {
+        // Image is taller than tile - crop top/bottom
+        adjustedUv.y = (vUv.y - 0.5) * aspectRatio + 0.5;
+      }
+    }
+
     // Get base color from texture or uniform
-    vec3 texColor = hasTexture ? texture2D(map, vUv).rgb : baseColor;
+    vec3 texColor = hasTexture ? texture2D(map, adjustedUv).rgb : baseColor;
 
     // For placeholder tiles (no texture), apply simple lighting for depth
     // For actual photos, show at full brightness
@@ -242,6 +257,8 @@ function createTileMaterial(
 			opacity: { value: isReflection ? 0.12 : 1.0 },
 			cornerRadius: { value: CORNER_RADIUS },
 			vignetteStrength: { value: VIGNETTE_STRENGTH },
+			imageAspect: { value: 0.0 },
+			tileAspect: { value: TILE_WIDTH / TILE_HEIGHT },
 		},
 		vertexShader: tileVertexShader,
 		fragmentShader: tileFragmentShader,
@@ -366,10 +383,14 @@ function ThreeWall({
 						// (sRGB conversion would require gamma correction in shader output)
 						loadedTexturesRef.current.set(tile.photo.id, texture);
 
+						// Calculate image aspect ratio
+						const imageAspect = texture.image.width / texture.image.height;
+
 						// Update main mesh shader material
 						const material = tile.mesh.material as THREE.ShaderMaterial;
 						material.uniforms.map.value = texture;
 						material.uniforms.hasTexture.value = true;
+						material.uniforms.imageAspect.value = imageAspect;
 						material.needsUpdate = true;
 
 						// Update reflection mesh shader material
@@ -377,6 +398,7 @@ function ThreeWall({
 							.material as THREE.ShaderMaterial;
 						reflectionMaterial.uniforms.map.value = texture;
 						reflectionMaterial.uniforms.hasTexture.value = true;
+						reflectionMaterial.uniforms.imageAspect.value = imageAspect;
 						reflectionMaterial.needsUpdate = true;
 					},
 					undefined,

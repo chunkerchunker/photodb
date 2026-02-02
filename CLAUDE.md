@@ -14,9 +14,9 @@ Detailed processing design in `docs/DESIGN.md`.
   - `process-local` (`src/photodb/cli_local.py`): Local photo processing (normalize, metadata extraction)
   - `enrich-photos` (`src/photodb/cli_enrich.py`): Remote LLM-based enrichment with batch processing
 - **Processors (`src/photodb/processors.py`)**: Orchestrates parallel photo processing using ThreadPoolExecutor
-- **Stages (`src/photodb/stages/`)**: Processing pipeline stages (normalize, metadata, enrich, stats)
+- **Stages (`src/photodb/stages/`)**: Processing pipeline stages (normalize, metadata, detection, age_gender, enrich, stats)
   - All stages inherit from `BaseStage` (`src/photodb/stages/base.py`)
-  - Each stage handles a specific aspect: file normalization, metadata extraction, enrichment, statistics
+  - Each stage handles a specific aspect: file normalization, metadata extraction, person/face detection, age/gender estimation, enrichment, statistics
 - **Database Layer**: PostgreSQL-based with connection pooling
   - Models (`src/photodb/database/models.py`): Photo, ProcessingStatus, Metadata entities
   - Repository (`src/photodb/database/pg_repository.py`): Data access layer
@@ -31,9 +31,11 @@ Photos flow through stages sequentially but can be processed in parallel. The pi
 
 1. **Normalize**: File organization and path standardization
 2. **Metadata**: EXIF extraction and metadata parsing
+3. **Detection**: YOLO-based face and body detection using YOLOv8x person_face model
+4. **Age/Gender**: MiVOLO-based age and gender estimation from detected faces
 
 **Remote Processing (`enrich-photos`):**
-3. **Enrich**: LLM-based analysis and enrichment using batch processing
+5. **Enrich**: LLM-based analysis and enrichment using batch processing
 
 Each stage tracks its processing status per photo, allowing for granular recovery and reprocessing.
 
@@ -64,8 +66,14 @@ uv run process-local /path/to/photos
 # With parallel processing (recommended for local stages)
 uv run process-local /path/to/photos --parallel 500
 
-# Specific stage only (normalize or metadata)
+# Specific stage only (normalize, metadata, detection, or age_gender)
 uv run process-local /path/to/photos --stage metadata
+
+# Run detection stage only (face/body detection)
+uv run process-local /path/to/photos --stage detection
+
+# Run age/gender estimation only
+uv run process-local /path/to/photos --stage age_gender
 
 # Force reprocessing
 uv run process-local /path/to/photos --force
@@ -129,6 +137,29 @@ export DATABASE_URL="postgresql://localhost/photodb"
 echo "DATABASE_URL=postgresql://localhost/photodb" >> .env
 ```
 
+#### Database Migrations
+
+For existing databases, run migrations to add new tables:
+
+```bash
+# Add person detection tables (required for detection and age_gender stages)
+psql $DATABASE_URL -f migrations/005_add_person_detection.sql
+```
+
+### Model Setup
+
+The detection and age/gender stages require pre-trained model files. Download them using:
+
+```bash
+./scripts/download_models.sh
+```
+
+This downloads:
+- YOLOv8x person_face model for face/body detection
+- MiVOLO model for age/gender estimation
+
+Models are saved to the `models/` directory by default.
+
 ## Configuration
 
 The application uses environment variables and optional config files:
@@ -147,6 +178,17 @@ The application uses environment variables and optional config files:
 - `MIN_BATCH_SIZE`: Minimum batch size for enrich processing (default: `10`) - batches smaller than this will be skipped
 - `MIN_FACE_SIZE_PX`: Minimum face size in pixels for clustering (default: `50`) - faces smaller than this are excluded from clustering
 - `MIN_FACE_CONFIDENCE`: Minimum face detection confidence for clustering (default: `0.9`) - faces with lower confidence are excluded from clustering
+
+### Detection Stage Configuration
+
+- `DETECTION_MODEL_PATH`: Path to YOLOv8x person_face model (default: `models/yolov8x_person_face.pt`)
+- `DETECTION_FORCE_CPU`: Force CPU mode for detection (default: `false`)
+- `DETECTION_MIN_CONFIDENCE`: Minimum detection confidence threshold (default: `0.5`)
+
+### Age/Gender Stage Configuration
+
+- `MIVOLO_MODEL_PATH`: Path to MiVOLO checkpoint (default: `models/mivolo_imdb.pth.tar`)
+- `MIVOLO_FORCE_CPU`: Force CPU mode for MiVOLO inference (default: `false`)
 
 ## Performance Considerations
 

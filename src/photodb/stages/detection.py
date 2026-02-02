@@ -1,5 +1,5 @@
 """
-Detection stage: Face and body detection using PersonDetector (YOLO + FaceNet).
+Detection stage: Face and body detection using PersonDetector (YOLO + InsightFace).
 """
 
 import os
@@ -136,5 +136,5 @@ class DetectionStage(BaseStage):
             body_bbox_width=body_bbox_width,
             body_bbox_height=body_bbox_height,
             body_confidence=body_confidence,
-            detector_model="YOLO+FaceNet",
+            detector_model="YOLO+InsightFace",
         )

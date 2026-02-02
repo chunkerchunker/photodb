@@ -1,7 +1,7 @@
 """
 Tests for PersonDetector utility.
 
-Uses YOLO for face+body detection and FaceNet for embeddings.
+Uses YOLO for face+body detection and InsightFace for embeddings.
 """
 
 import os
@@ -48,22 +48,20 @@ class TestPersonDetectorUnit:
         return mock_model
 
     @pytest.fixture
-    def mock_facenet(self):
-        """Create a mock FaceNet model."""
-        mock_model = MagicMock()
-        mock_model.eval.return_value = mock_model
-        mock_model.to.return_value = mock_model
-        # Return a mock embedding tensor
-        mock_model.return_value = torch.randn(1, 512)
-        return mock_model
+    def mock_embedding_extractor(self):
+        """Create a mock EmbeddingExtractor."""
+        mock_extractor = MagicMock()
+        # Return a 512-dim embedding list
+        mock_extractor.extract.return_value = [0.1] * 512
+        return mock_extractor
 
     @pytest.fixture
-    def mock_detector(self, mock_yolo, mock_facenet):
+    def mock_detector(self, mock_yolo, mock_embedding_extractor):
         """Create a PersonDetector with mocked models."""
         with patch("src.photodb.utils.person_detector.YOLO", return_value=mock_yolo):
             with patch(
-                "src.photodb.utils.person_detector.InceptionResnetV1",
-                return_value=mock_facenet,
+                "src.photodb.utils.person_detector.EmbeddingExtractor",
+                return_value=mock_embedding_extractor,
             ):
                 from src.photodb.utils.person_detector import PersonDetector
 
@@ -77,29 +75,29 @@ class TestPersonDetectorUnit:
         assert PersonDetector.FACE_CLASS_ID == 1
         assert PersonDetector.PERSON_CLASS_ID == 0
 
-    def test_detector_initialization(self, mock_yolo, mock_facenet):
+    def test_detector_initialization(self, mock_yolo, mock_embedding_extractor):
         """Test that PersonDetector initializes correctly with force_cpu."""
         with patch("src.photodb.utils.person_detector.YOLO", return_value=mock_yolo):
             with patch(
-                "src.photodb.utils.person_detector.InceptionResnetV1",
-                return_value=mock_facenet,
+                "src.photodb.utils.person_detector.EmbeddingExtractor",
+                return_value=mock_embedding_extractor,
             ):
                 from src.photodb.utils.person_detector import PersonDetector
 
                 detector = PersonDetector(force_cpu=True)
                 assert detector.device == "cpu"
                 assert detector.model is not None
-                assert detector.facenet is not None
+                assert detector.embedding_extractor is not None
 
     def test_detector_initialization_with_custom_confidence(
-        self, mock_yolo, mock_facenet, monkeypatch
+        self, mock_yolo, mock_embedding_extractor, monkeypatch
     ):
-        """Test detector respects DETECTION_CONFIDENCE env var."""
-        monkeypatch.setenv("DETECTION_CONFIDENCE", "0.7")
+        """Test detector respects DETECTION_MIN_CONFIDENCE env var."""
+        monkeypatch.setenv("DETECTION_MIN_CONFIDENCE", "0.7")
         with patch("src.photodb.utils.person_detector.YOLO", return_value=mock_yolo):
             with patch(
-                "src.photodb.utils.person_detector.InceptionResnetV1",
-                return_value=mock_facenet,
+                "src.photodb.utils.person_detector.EmbeddingExtractor",
+                return_value=mock_embedding_extractor,
             ):
                 from src.photodb.utils.person_detector import PersonDetector
 
@@ -239,15 +237,15 @@ class TestPersonDetectorUnit:
         embedding = mock_detector.extract_embedding(img, bbox)
 
         assert isinstance(embedding, list)
-        assert len(embedding) == 512  # FaceNet embedding dimension
+        assert len(embedding) == 512  # InsightFace ArcFace embedding dimension
         assert all(isinstance(x, float) for x in embedding)
 
-    def test_device_auto_detection_cpu_fallback(self, mock_yolo, mock_facenet):
+    def test_device_auto_detection_cpu_fallback(self, mock_yolo, mock_embedding_extractor):
         """Test device auto-detection falls back to CPU when forced."""
         with patch("src.photodb.utils.person_detector.YOLO", return_value=mock_yolo):
             with patch(
-                "src.photodb.utils.person_detector.InceptionResnetV1",
-                return_value=mock_facenet,
+                "src.photodb.utils.person_detector.EmbeddingExtractor",
+                return_value=mock_embedding_extractor,
             ):
                 from src.photodb.utils.person_detector import PersonDetector
 
@@ -267,7 +265,7 @@ class TestPersonDetectorUnit:
         assert "width" in result["image_dimensions"]
         assert "height" in result["image_dimensions"]
 
-    def test_detect_with_face_detections(self, mock_yolo, mock_facenet, sample_image):
+    def test_detect_with_face_detections(self, mock_yolo, mock_embedding_extractor, sample_image):
         """Test detection when YOLO returns face detections."""
         # Create mock boxes with face detection
         mock_box = MagicMock()
@@ -282,8 +280,8 @@ class TestPersonDetectorUnit:
 
         with patch("src.photodb.utils.person_detector.YOLO", return_value=mock_yolo):
             with patch(
-                "src.photodb.utils.person_detector.InceptionResnetV1",
-                return_value=mock_facenet,
+                "src.photodb.utils.person_detector.EmbeddingExtractor",
+                return_value=mock_embedding_extractor,
             ):
                 from src.photodb.utils.person_detector import PersonDetector
 
@@ -294,7 +292,7 @@ class TestPersonDetectorUnit:
                 assert len(result["detections"]) == 1
                 assert result["detections"][0]["face"] is not None
 
-    def test_detect_with_person_detections(self, mock_yolo, mock_facenet, sample_image):
+    def test_detect_with_person_detections(self, mock_yolo, mock_embedding_extractor, sample_image):
         """Test detection when YOLO returns person/body detections."""
         # Create mock boxes with person detection
         mock_box = MagicMock()
@@ -309,8 +307,8 @@ class TestPersonDetectorUnit:
 
         with patch("src.photodb.utils.person_detector.YOLO", return_value=mock_yolo):
             with patch(
-                "src.photodb.utils.person_detector.InceptionResnetV1",
-                return_value=mock_facenet,
+                "src.photodb.utils.person_detector.EmbeddingExtractor",
+                return_value=mock_embedding_extractor,
             ):
                 from src.photodb.utils.person_detector import PersonDetector
 
@@ -322,7 +320,9 @@ class TestPersonDetectorUnit:
                 assert result["detections"][0]["body"] is not None
                 assert result["detections"][0]["face"] is None
 
-    def test_detect_with_matched_face_and_body(self, mock_yolo, mock_facenet, sample_image):
+    def test_detect_with_matched_face_and_body(
+        self, mock_yolo, mock_embedding_extractor, sample_image
+    ):
         """Test detection when YOLO returns both face and body that match."""
         # Create mock boxes with face inside body
         mock_face_box = MagicMock()
@@ -342,8 +342,8 @@ class TestPersonDetectorUnit:
 
         with patch("src.photodb.utils.person_detector.YOLO", return_value=mock_yolo):
             with patch(
-                "src.photodb.utils.person_detector.InceptionResnetV1",
-                return_value=mock_facenet,
+                "src.photodb.utils.person_detector.EmbeddingExtractor",
+                return_value=mock_embedding_extractor,
             ):
                 from src.photodb.utils.person_detector import PersonDetector
 
@@ -385,7 +385,7 @@ class TestPersonDetectorIntegration:
         detector = PersonDetector(force_cpu=True)
         assert detector.device == "cpu"
         assert detector.model is not None
-        assert detector.facenet is not None
+        assert detector.embedding_extractor is not None
 
     def test_real_detection_on_blank_image(self, sample_image):
         """Test real detection on a blank image."""

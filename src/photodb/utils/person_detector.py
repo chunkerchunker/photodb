@@ -9,6 +9,15 @@ import numpy as np
 import torch
 from facenet_pytorch import InceptionResnetV1
 from PIL import Image
+
+# PyTorch 2.6+ requires explicit allowlisting of classes for model loading
+# We need to do this before importing YOLO which may trigger model loading
+try:
+    from ultralytics.nn.tasks import DetectionModel
+    torch.serialization.add_safe_globals([DetectionModel])
+except ImportError:
+    pass  # Older ultralytics versions don't need this
+
 from ultralytics import YOLO
 
 

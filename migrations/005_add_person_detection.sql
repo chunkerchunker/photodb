@@ -196,6 +196,11 @@ ALTER TABLE person ADD COLUMN IF NOT EXISTS age_gender_updated_at timestamptz;
 -- 7. Update helper functions for renamed columns
 -- ============================================================================
 
+-- Drop existing functions first (PostgreSQL doesn't allow renaming parameters in place)
+DROP FUNCTION IF EXISTS add_must_link(bigint, bigint, text);
+DROP FUNCTION IF EXISTS add_cannot_link(bigint, bigint, text);
+DROP FUNCTION IF EXISTS check_constraint_violations();
+
 -- Function to add a must-link constraint with canonical ordering
 CREATE OR REPLACE FUNCTION add_must_link(p_detection_id_1 bigint, p_detection_id_2 bigint, p_created_by text DEFAULT 'human')
 RETURNS bigint AS $$

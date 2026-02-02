@@ -28,3 +28,12 @@ logs/
 *.swp
 *.swo
 .DS_Store
+
+# Worktrees
+.worktrees/
+
+# ML Models
+*.pt
+*.pth
+*.onnx
+models/

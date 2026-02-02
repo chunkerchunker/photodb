@@ -6,15 +6,17 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 PhotoDB is a personal photo indexing pipeline built with Python and PostgreSQL. It processes photos through multiple stages in a parallel, distributed architecture designed for high throughput with hundreds of concurrent workers.
 
+Detailed processing design in `docs/DESIGN.md`.
+
 ### Key Components
 
 - **CLI**: Two separate executables
   - `process-local` (`src/photodb/cli_local.py`): Local photo processing (normalize, metadata extraction)
   - `enrich-photos` (`src/photodb/cli_enrich.py`): Remote LLM-based enrichment with batch processing
 - **Processors (`src/photodb/processors.py`)**: Orchestrates parallel photo processing using ThreadPoolExecutor
-- **Stages (`src/photodb/stages/`)**: Processing pipeline stages (normalize, metadata, enrich, stats)
+- **Stages (`src/photodb/stages/`)**: Processing pipeline stages (normalize, metadata, detection, age_gender, enrich, stats)
   - All stages inherit from `BaseStage` (`src/photodb/stages/base.py`)
-  - Each stage handles a specific aspect: file normalization, metadata extraction, enrichment, statistics
+  - Each stage handles a specific aspect: file normalization, metadata extraction, person/face detection, age/gender estimation, enrichment, statistics
 - **Database Layer**: PostgreSQL-based with connection pooling
   - Models (`src/photodb/database/models.py`): Photo, ProcessingStatus, Metadata entities
   - Repository (`src/photodb/database/pg_repository.py`): Data access layer
@@ -29,9 +31,11 @@ Photos flow through stages sequentially but can be processed in parallel. The pi
 
 1. **Normalize**: File organization and path standardization
 2. **Metadata**: EXIF extraction and metadata parsing
+3. **Detection**: YOLO-based face and body detection using YOLOv8x person_face model
+4. **Age/Gender**: MiVOLO-based age and gender estimation from detected faces
 
 **Remote Processing (`enrich-photos`):**
-3. **Enrich**: LLM-based analysis and enrichment using batch processing
+5. **Enrich**: LLM-based analysis and enrichment using batch processing
 
 Each stage tracks its processing status per photo, allowing for granular recovery and reprocessing.
 
@@ -62,8 +66,14 @@ uv run process-local /path/to/photos
 # With parallel processing (recommended for local stages)
 uv run process-local /path/to/photos --parallel 500
 
-# Specific stage only (normalize or metadata)
+# Specific stage only (normalize, metadata, detection, or age_gender)
 uv run process-local /path/to/photos --stage metadata
+
+# Run detection stage only (face/body detection)
+uv run process-local /path/to/photos --stage detection
+
+# Run age/gender estimation only
+uv run process-local /path/to/photos --stage age_gender
 
 # Force reprocessing
 uv run process-local /path/to/photos --force
@@ -93,7 +103,6 @@ uv run enrich-photos /path/to/photos --retry-failed
 # Disable batch mode (process one at a time)
 uv run enrich-photos /path/to/photos --no-batch
 ```
-
 
 ### Testing
 
@@ -128,6 +137,29 @@ export DATABASE_URL="postgresql://localhost/photodb"
 echo "DATABASE_URL=postgresql://localhost/photodb" >> .env
 ```
 
+#### Database Migrations
+
+For existing databases, run migrations to add new tables:
+
+```bash
+# Add person detection tables (required for detection and age_gender stages)
+psql $DATABASE_URL -f migrations/005_add_person_detection.sql
+```
+
+### Model Setup
+
+The detection and age/gender stages require pre-trained model files. Download them using:
+
+```bash
+./scripts/download_models.sh
+```
+
+This downloads:
+- YOLOv8x person_face model for face/body detection
+- MiVOLO model for age/gender estimation
+
+Models are saved to the `models/` directory by default.
+
 ## Configuration
 
 The application uses environment variables and optional config files:
@@ -146,6 +178,35 @@ The application uses environment variables and optional config files:
 - `MIN_BATCH_SIZE`: Minimum batch size for enrich processing (default: `10`) - batches smaller than this will be skipped
 - `MIN_FACE_SIZE_PX`: Minimum face size in pixels for clustering (default: `50`) - faces smaller than this are excluded from clustering
 - `MIN_FACE_CONFIDENCE`: Minimum face detection confidence for clustering (default: `0.9`) - faces with lower confidence are excluded from clustering
+
+### Detection Stage Configuration
+
+- `DETECTION_MODEL_PATH`: Path to YOLOv8x person_face model (default: `models/yolov8x_person_face.pt`)
+- `DETECTION_FORCE_CPU`: Force CPU mode for detection (default: `false`)
+- `DETECTION_MIN_CONFIDENCE`: Minimum detection confidence threshold (default: `0.5`)
+
+**CoreML Support (macOS):** On macOS, the detector automatically uses CoreML (`.mlpackage`) if available, providing 5x faster inference via the Neural Engine. CoreML is also thread-safe, enabling parallel processing. The download script automatically exports the CoreML model on macOS.
+
+### Age/Gender Stage Configuration
+
+- `MIVOLO_MODEL_PATH`: Path to MiVOLO checkpoint (default: `models/mivolo_d1.pth.tar`)
+- `MIVOLO_FORCE_CPU`: Force CPU mode for MiVOLO inference (default: `false`)
+
+**Thread Safety:** MiVOLO inference is serialized with a lock. Testing showed that without serialization:
+1. MiVOLO's internal YOLO detector lazy-initializes on first use, causing race conditions when multiple threads call `recognize()` simultaneously
+2. Even after initialization, concurrent inference produces inconsistent results (same image returns different prediction counts)
+
+*Tested with mivolo 0.6.0.dev0 (git HEAD) on 2026-02-01. Future versions may fix these issues.*
+
+### Free-threaded Python
+
+**Not currently usable** due to two blockers:
+
+1. **opencv-python**: MiVOLO depends on opencv-python, which has no wheels for Python 3.13t (free-threaded). This is a build/packaging issue that may be resolved in future opencv releases.
+
+2. **MiVOLO thread safety**: Even if opencv were available, MiVOLO inference must be serialized (see above), so free-threaded Python wouldn't improve throughput for the age/gender stage.
+
+Use standard Python 3.13 for now. The detection stage uses CoreML which is already thread-safe and parallel.
 
 ## Performance Considerations
 

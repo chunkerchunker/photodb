@@ -8,7 +8,8 @@ from ..database.repository import PhotoRepository
 from ..database.connection import ConnectionPool
 from ..stages.normalize import NormalizeStage
 from ..stages.metadata import MetadataStage
-from ..stages.faces import FacesStage
+from ..stages.detection import DetectionStage
+from ..stages.age_gender import AgeGenderStage
 from ..stages.clustering import ClusteringStage
 
 logger = logging.getLogger(__name__)
@@ -44,9 +45,15 @@ class LocalProcessor(BaseProcessor):
         self.stages = {
             "normalize": NormalizeStage(repository, config),
             "metadata": MetadataStage(repository, config),
-            "faces": FacesStage(repository, config),
+            "detection": DetectionStage(repository, config),
+            "age_gender": AgeGenderStage(repository, config),
             "clustering": ClusteringStage(repository, config),
         }
+
+        # Cache ML models for sharing across threads (they're expensive to load)
+        # CoreML models are thread-safe, PyTorch MPS models are not
+        self._shared_detector = self.stages["detection"].detector
+        self._shared_mivolo = self.stages["age_gender"].predictor
 
     def close(self):
         """Clean up resources, including connection pool."""
@@ -62,10 +69,13 @@ class LocalProcessor(BaseProcessor):
         self.close()
 
     def _get_stages(self, stage: str) -> List[str]:
-        """Get list of stages to run (normalize, metadata, faces, and clustering)."""
+        """Get list of stages to run (normalize, metadata, detection, age_gender, clustering)."""
         if stage == "all":
-            return ["normalize", "metadata", "faces", "clustering"]
-        elif stage in ["normalize", "metadata", "faces", "clustering"]:
+            return ["normalize", "metadata", "detection", "age_gender", "clustering"]
+        elif stage == "faces":
+            # Legacy alias: "faces" maps to "detection"
+            return ["detection"]
+        elif stage in ["normalize", "metadata", "detection", "age_gender", "clustering"]:
             return [stage]
         else:
             raise ValueError(f"Invalid stage for LocalProcessor: {stage}")
@@ -182,21 +192,30 @@ class LocalProcessor(BaseProcessor):
                 pooled_repo = PhotoRepository(self.connection_pool)
 
                 # Create stages with the pooled repository
-                stages = self._get_stages(stage)
-                pooled_stages = {
-                    "normalize": NormalizeStage(pooled_repo, self.config)
-                    if "normalize" in stages
-                    else None,
-                    "metadata": MetadataStage(pooled_repo, self.config)
-                    if "metadata" in stages
-                    else None,
-                    "faces": FacesStage(pooled_repo, self.config)
-                    if "faces" in stages
-                    else None,
-                    "clustering": ClusteringStage(pooled_repo, self.config)
-                    if "clustering" in stages
-                    else None,
-                }
+                # IMPORTANT: Reuse shared ML models to avoid expensive reloading
+                stages_list = self._get_stages(stage)
+                pooled_stages = {}
+
+                if "normalize" in stages_list:
+                    pooled_stages["normalize"] = NormalizeStage(pooled_repo, self.config)
+                if "metadata" in stages_list:
+                    pooled_stages["metadata"] = MetadataStage(pooled_repo, self.config)
+                if "detection" in stages_list:
+                    detection_stage = DetectionStage.__new__(DetectionStage)
+                    detection_stage.repository = pooled_repo
+                    detection_stage.config = self.config
+                    detection_stage.stage_name = "detection"
+                    detection_stage.detector = self._shared_detector  # Reuse shared model
+                    pooled_stages["detection"] = detection_stage
+                if "age_gender" in stages_list:
+                    age_gender_stage = AgeGenderStage.__new__(AgeGenderStage)
+                    age_gender_stage.repository = pooled_repo
+                    age_gender_stage.config = self.config
+                    age_gender_stage.stage_name = "age_gender"
+                    age_gender_stage.predictor = self._shared_mivolo  # Reuse shared model
+                    pooled_stages["age_gender"] = age_gender_stage
+                if "clustering" in stages_list:
+                    pooled_stages["clustering"] = ClusteringStage(pooled_repo, self.config)
 
                 # Process with pooled stages
                 return self._process_single_file(file_path, stage, pooled_stages)

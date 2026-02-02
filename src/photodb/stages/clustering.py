@@ -1,6 +1,6 @@
 import logging
 from pathlib import Path
-from typing import List, Tuple, Optional, Set
+from typing import List, Optional, Set
 import numpy as np
 from decimal import Decimal
 
@@ -19,6 +19,8 @@ class ClusteringStage(BaseStage):
     - K-neighbor based confidence scoring
     - Unassigned pool for outliers
     - Verified cluster protection
+
+    Uses PersonDetection model instead of the deprecated Face model.
     """
 
     stage_name = "clustering"
@@ -32,12 +34,8 @@ class ClusteringStage(BaseStage):
         )
         self.k_neighbors = int(config.get("CLUSTERING_K_NEIGHBORS", 5))
         self.unassigned_threshold = int(config.get("UNASSIGNED_CLUSTER_THRESHOLD", 5))
-        self.verified_threshold_multiplier = float(
-            config.get("VERIFIED_THRESHOLD_MULTIPLIER", 0.8)
-        )
-        self.medoid_recompute_threshold = float(
-            config.get("MEDOID_RECOMPUTE_THRESHOLD", 0.25)
-        )
+        self.verified_threshold_multiplier = float(config.get("VERIFIED_THRESHOLD_MULTIPLIER", 0.8))
+        self.medoid_recompute_threshold = float(config.get("MEDOID_RECOMPUTE_THRESHOLD", 0.25))
         logger.debug(
             f"Initialized ClusteringStage with threshold={self.clustering_threshold}, "
             f"pool_threshold={self.pool_clustering_threshold}, "
@@ -46,7 +44,7 @@ class ClusteringStage(BaseStage):
         )
 
     def should_process(self, file_path: Path, force: bool = False) -> bool:
-        """Check if clustering is needed for faces in this photo."""
+        """Check if clustering is needed for detections in this photo."""
         if force:
             return True
 
@@ -54,10 +52,10 @@ class ClusteringStage(BaseStage):
         if not photo:
             return False
 
-        # Check if photo has been processed through faces stage
-        faces_status = self.repository.get_processing_status(photo.id, "faces")
-        if not faces_status or faces_status.status != "completed":
-            logger.debug(f"Skipping clustering for {file_path}: faces stage not completed")
+        # Check if photo has been processed through detection stage
+        detection_status = self.repository.get_processing_status(photo.id, "detection")
+        if not detection_status or detection_status.status != "completed":
+            logger.debug(f"Skipping clustering for {file_path}: detection stage not completed")
             return False
 
         # Check if clustering has already been done
@@ -65,56 +63,60 @@ class ClusteringStage(BaseStage):
         if status and status.status == "completed":
             return False
 
-        # Check if there are unclustered faces for this photo
-        unclustered_faces = self.repository.get_unclustered_faces_for_photo(photo.id)
-        return len(unclustered_faces) > 0
+        # Check if there are unclustered detections for this photo
+        unclustered_detections = self.repository.get_unclustered_detections_for_photo(photo.id)
+        return len(unclustered_detections) > 0
 
     def process_photo(self, photo: Photo, file_path: Path) -> bool:
-        """Process clustering for all faces in a photo."""
+        """Process clustering for all detections in a photo."""
         try:
-            # Get faces to cluster based on force flag
+            # Get detections to cluster based on force flag
             if hasattr(self, "force") and self.force:
-                # If force flag is set, get all faces with embeddings for reprocessing
-                faces_to_cluster = self.repository.get_all_faces_with_embeddings_for_photo(
-                    photo.id
+                # If force flag is set, get all detections with embeddings for reprocessing
+                detections_to_cluster = (
+                    self.repository.get_all_detections_with_embeddings_for_photo(photo.id)
                 )
                 logger.debug(
-                    f"Force mode: reprocessing {len(faces_to_cluster)} faces for {file_path}"
+                    f"Force mode: reprocessing {len(detections_to_cluster)} detections for {file_path}"
                 )
             else:
-                # Normal mode: only get unclustered faces
-                faces_to_cluster = self.repository.get_unclustered_faces_for_photo(photo.id)
+                # Normal mode: only get unclustered detections
+                detections_to_cluster = self.repository.get_unclustered_detections_for_photo(
+                    photo.id
+                )
 
-            if not faces_to_cluster:
-                logger.debug(f"No faces found to cluster for {file_path}")
+            if not detections_to_cluster:
+                logger.debug(f"No detections found to cluster for {file_path}")
                 return True  # Success - nothing to cluster
 
-            logger.info(f"Clustering {len(faces_to_cluster)} faces from {file_path}")
+            logger.info(f"Clustering {len(detections_to_cluster)} detections from {file_path}")
 
-            # Process each face
-            faces_processed = 0
-            faces_failed = 0
+            # Process each detection
+            detections_processed = 0
+            detections_failed = 0
 
-            for face in faces_to_cluster:
+            for detection in detections_to_cluster:
                 try:
-                    self._cluster_single_face(face)
-                    faces_processed += 1
+                    self._cluster_single_detection(detection)
+                    detections_processed += 1
                 except Exception as e:
-                    logger.error(f"Failed to cluster face {face['id']}: {e}")
-                    faces_failed += 1
+                    logger.error(f"Failed to cluster detection {detection['id']}: {e}")
+                    detections_failed += 1
 
             # Log results
-            if faces_failed > 0:
+            if detections_failed > 0:
                 logger.warning(
-                    f"Clustered {faces_processed} faces, {faces_failed} failed for {file_path}"
+                    f"Clustered {detections_processed} detections, {detections_failed} failed for {file_path}"
                 )
                 return False  # Partial failure
             else:
-                logger.info(f"Successfully clustered {faces_processed} faces from {file_path}")
+                logger.info(
+                    f"Successfully clustered {detections_processed} detections from {file_path}"
+                )
                 return True  # Success
 
         except Exception as e:
-            logger.error(f"Error clustering faces for {file_path}: {e}")
+            logger.error(f"Error clustering detections for {file_path}: {e}")
             raise
 
     def _normalize_embedding(self, embedding) -> Optional[np.ndarray]:
@@ -143,9 +145,9 @@ class ClusteringStage(BaseStage):
             logger.error("Zero-norm embedding")
             return None
 
-    def _cluster_single_face(self, face: dict) -> None:
+    def _cluster_single_detection(self, detection: dict) -> None:
         """
-        Cluster a single face using constrained incremental clustering.
+        Cluster a single detection using constrained incremental clustering.
 
         Decision flow:
         1. Check must-link constraints first
@@ -154,24 +156,28 @@ class ClusteringStage(BaseStage):
         4. Filter by cannot-link constraints
         5. Apply decision rules (assign, create, or mark unassigned)
         """
-        face_id = face["id"]
-        embedding = self._normalize_embedding(face.get("embedding"))
+        detection_id = detection["id"]
+        embedding = self._normalize_embedding(detection.get("embedding"))
 
         if embedding is None:
-            logger.warning(f"No valid embedding for face {face_id} - skipping clustering")
+            logger.warning(f"No valid embedding for detection {detection_id} - skipping clustering")
             return
 
         # Step 1: Check must-link constraints first
-        must_link_cluster = self._check_must_link_constraints(face_id)
+        must_link_cluster = self._check_must_link_constraints(detection_id)
         if must_link_cluster is not None:
-            logger.debug(f"Face {face_id} has must-link to cluster {must_link_cluster}")
+            logger.debug(f"Detection {detection_id} has must-link to cluster {must_link_cluster}")
             self._assign_to_cluster(
-                face_id, must_link_cluster, confidence=1.0, embedding=embedding, status="constrained"
+                detection_id,
+                must_link_cluster,
+                confidence=1.0,
+                embedding=embedding,
+                status="constrained",
             )
             return
 
-        # Step 2: Find K nearest neighbors (faces, not just clusters)
-        neighbors = self.repository.find_nearest_faces(embedding, limit=self.k_neighbors)
+        # Step 2: Find K nearest neighbors (detections, not just clusters)
+        neighbors = self.repository.find_nearest_detections(embedding, limit=self.k_neighbors)
 
         # Step 3: Calculate core distance confidence
         if neighbors:
@@ -187,7 +193,7 @@ class ClusteringStage(BaseStage):
 
         if not valid_neighbors:
             # No close matches -> add to unassigned pool
-            self._add_to_unassigned_pool(face_id, embedding)
+            self._add_to_unassigned_pool(detection_id, embedding)
             return
 
         # Step 5: Get unique clusters from neighbors
@@ -200,12 +206,14 @@ class ClusteringStage(BaseStage):
                 neighbor_clusters[cid].append(n["distance"])
 
         # Step 6: Filter out cannot-link clusters
-        allowed_clusters = self._filter_cannot_link_clusters(face_id, list(neighbor_clusters.keys()))
+        allowed_clusters = self._filter_cannot_link_clusters(
+            detection_id, list(neighbor_clusters.keys())
+        )
 
         if not allowed_clusters:
             # All nearby clusters are forbidden -> unassigned
-            logger.debug(f"Face {face_id}: all nearby clusters forbidden by constraints")
-            self._add_to_unassigned_pool(face_id, embedding)
+            logger.debug(f"Detection {detection_id}: all nearby clusters forbidden by constraints")
+            self._add_to_unassigned_pool(detection_id, embedding)
             return
 
         # Step 7: Apply decision rules
@@ -219,95 +227,99 @@ class ClusteringStage(BaseStage):
                 min_dist = min(neighbor_clusters[cluster_id])
                 strict_threshold = self.clustering_threshold * self.verified_threshold_multiplier
                 if min_dist < strict_threshold:
-                    self._assign_to_cluster(face_id, cluster_id, confidence, embedding)
+                    self._assign_to_cluster(detection_id, cluster_id, confidence, embedding)
                 else:
                     logger.debug(
-                        f"Face {face_id}: too far from verified cluster {cluster_id} "
+                        f"Detection {detection_id}: too far from verified cluster {cluster_id} "
                         f"(dist={min_dist:.3f}, threshold={strict_threshold:.3f})"
                     )
-                    self._add_to_unassigned_pool(face_id, embedding)
+                    self._add_to_unassigned_pool(detection_id, embedding)
             else:
-                self._assign_to_cluster(face_id, cluster_id, confidence, embedding)
+                self._assign_to_cluster(detection_id, cluster_id, confidence, embedding)
         else:
             # Multiple valid clusters -> mark for review
-            self._mark_for_review(face_id, allowed_clusters, neighbor_clusters)
+            self._mark_for_review(detection_id, allowed_clusters, neighbor_clusters)
 
-    def _check_must_link_constraints(self, face_id: int) -> Optional[int]:
-        """Check if face has must-link constraint to an already-clustered face."""
-        linked_faces = self.repository.get_must_linked_faces(face_id)
-        for linked_face in linked_faces:
-            cluster_id = linked_face.get("cluster_id")
+    def _check_must_link_constraints(self, detection_id: int) -> Optional[int]:
+        """Check if detection has must-link constraint to an already-clustered detection."""
+        linked_detections = self.repository.get_must_linked_detections(detection_id)
+        for linked_detection in linked_detections:
+            cluster_id = linked_detection.get("cluster_id")
             if cluster_id:
                 return cluster_id
         return None
 
-    def _filter_cannot_link_clusters(
-        self, face_id: int, cluster_ids: List[int]
-    ) -> List[int]:
-        """Remove clusters that have cannot-link constraints with this face."""
+    def _filter_cannot_link_clusters(self, detection_id: int, cluster_ids: List[int]) -> List[int]:
+        """Remove clusters that have cannot-link constraints with this detection."""
         if not cluster_ids:
             return []
 
-        # Get faces this face cannot link to
-        forbidden_faces = self.repository.get_cannot_linked_faces(face_id)
+        # Get detections this detection cannot link to
+        forbidden_detections = self.repository.get_cannot_linked_detections(detection_id)
         forbidden_clusters: Set[int] = {
-            f["cluster_id"] for f in forbidden_faces if f.get("cluster_id")
+            d["cluster_id"] for d in forbidden_detections if d.get("cluster_id")
         }
 
         # Also check cluster-level constraints
         for cluster_id in cluster_ids:
-            # Check if any existing face in this cluster has cannot-link with face_id
-            faces_in_cluster = self.repository.get_faces_in_cluster(cluster_id)
-            for face_in_cluster in faces_in_cluster:
-                other_face_id = face_in_cluster["id"]
+            # Check if any existing detection in this cluster has cannot-link with detection_id
+            detections_in_cluster = self.repository.get_detections_in_cluster(cluster_id)
+            for detection_in_cluster in detections_in_cluster:
+                other_detection_id = detection_in_cluster["id"]
                 # Check if cannot-link exists
-                cannot_linked = self.repository.get_cannot_linked_faces(other_face_id)
-                for cf in cannot_linked:
-                    if cf["id"] == face_id:
+                cannot_linked = self.repository.get_cannot_linked_detections(other_detection_id)
+                for cd in cannot_linked:
+                    if cd["id"] == detection_id:
                         forbidden_clusters.add(cluster_id)
                         break
 
         return [cid for cid in cluster_ids if cid not in forbidden_clusters]
 
-    def _add_to_unassigned_pool(self, face_id: int, embedding: np.ndarray) -> None:
-        """Add face to unassigned pool, potentially forming new cluster."""
-        self.repository.update_face_unassigned(face_id)
-        logger.debug(f"Face {face_id} added to unassigned pool")
+    def _add_to_unassigned_pool(self, detection_id: int, embedding: np.ndarray) -> None:
+        """Add detection to unassigned pool, potentially forming new cluster."""
+        self.repository.update_detection_unassigned(detection_id)
+        logger.debug(f"Detection {detection_id} added to unassigned pool")
 
-        # Check if enough similar unassigned faces to form cluster
-        # Use stricter pool threshold to prevent chaining of dissimilar faces
-        similar_unassigned = self.repository.find_similar_unassigned_faces(
+        # Check if enough similar unassigned detections to form cluster
+        # Use stricter pool threshold to prevent chaining of dissimilar detections
+        similar_unassigned = self.repository.find_similar_unassigned_detections(
             embedding, threshold=self.pool_clustering_threshold, limit=self.unassigned_threshold
         )
 
         logger.debug(
-            f"Face {face_id}: found {len(similar_unassigned)} similar unassigned faces "
+            f"Detection {detection_id}: found {len(similar_unassigned)} similar unassigned detections "
             f"(threshold={self.unassigned_threshold - 1})"
         )
 
-        if len(similar_unassigned) >= self.unassigned_threshold - 1:  # -1 because current face is also unassigned
+        if (
+            len(similar_unassigned) >= self.unassigned_threshold - 1
+        ):  # -1 because current detection is also unassigned
             # Form new cluster from unassigned pool
-            # Exclude current face from similar_unassigned to avoid duplicates
-            other_face_ids = [f["id"] for f in similar_unassigned if f["id"] != face_id]
-            face_ids = [face_id] + other_face_ids
-            logger.info(f"Attempting to create cluster from {len(face_ids)} faces: {face_ids}")
-            cluster_id = self._create_cluster_from_pool(face_ids)
+            # Exclude current detection from similar_unassigned to avoid duplicates
+            other_detection_ids = [d["id"] for d in similar_unassigned if d["id"] != detection_id]
+            detection_ids = [detection_id] + other_detection_ids
+            logger.info(
+                f"Attempting to create cluster from {len(detection_ids)} detections: {detection_ids}"
+            )
+            cluster_id = self._create_cluster_from_pool(detection_ids)
             if cluster_id:
-                logger.info(f"Created cluster {cluster_id} from {len(face_ids)} unassigned faces")
+                logger.info(
+                    f"Created cluster {cluster_id} from {len(detection_ids)} unassigned detections"
+                )
             else:
-                logger.warning(f"Failed to create cluster from faces {face_ids}")
+                logger.warning(f"Failed to create cluster from detections {detection_ids}")
 
-    def _create_cluster_from_pool(self, face_ids: List[int]) -> Optional[int]:
-        """Create cluster from multiple unassigned faces."""
+    def _create_cluster_from_pool(self, detection_ids: List[int]) -> Optional[int]:
+        """Create cluster from multiple unassigned detections."""
         embeddings = []
-        valid_face_ids = []
+        valid_detection_ids = []
 
-        for fid in face_ids:
-            emb = self.repository.get_face_embedding(fid)
+        for did in detection_ids:
+            emb = self.repository.get_detection_embedding(did)
             normalized = self._normalize_embedding(emb)
             if normalized is not None:
                 embeddings.append(normalized)
-                valid_face_ids.append(fid)
+                valid_detection_ids.append(did)
 
         if not embeddings:
             return None
@@ -320,28 +332,28 @@ class ClusteringStage(BaseStage):
         if centroid_norm > 0:
             centroid = centroid / centroid_norm
 
-        # Calculate distance from each face to centroid
+        # Calculate distance from each detection to centroid
         distances = [np.linalg.norm(e - centroid) for e in embeddings]
 
-        # Filter to only include faces within threshold of centroid (option 2)
+        # Filter to only include detections within threshold of centroid (option 2)
         # This prevents "chaining" where A→B→C are linked but A and C are dissimilar
-        filtered_faces = [
-            (fid, emb, dist)
-            for fid, emb, dist in zip(valid_face_ids, embeddings, distances)
+        filtered_detections = [
+            (did, emb, dist)
+            for did, emb, dist in zip(valid_detection_ids, embeddings, distances)
             if dist < self.pool_clustering_threshold
         ]
 
-        if len(filtered_faces) < 2:
-            # Not enough faces close to centroid to form a cluster
+        if len(filtered_detections) < 2:
+            # Not enough detections close to centroid to form a cluster
             logger.debug(
-                f"Only {len(filtered_faces)} faces within threshold of centroid, "
+                f"Only {len(filtered_detections)} detections within threshold of centroid, "
                 f"need at least 2 to form cluster"
             )
             return None
 
-        # Recalculate centroid with only the filtered faces
-        filtered_ids = [f[0] for f in filtered_faces]
-        filtered_embeddings = [f[1] for f in filtered_faces]
+        # Recalculate centroid with only the filtered detections
+        filtered_ids = [d[0] for d in filtered_detections]
+        filtered_embeddings = [d[1] for d in filtered_detections]
         centroid = np.mean(filtered_embeddings, axis=0)
         centroid_norm = np.linalg.norm(centroid)
         if centroid_norm > 0:
@@ -350,107 +362,109 @@ class ClusteringStage(BaseStage):
         # Recalculate distances and find medoid
         distances = [np.linalg.norm(e - centroid) for e in filtered_embeddings]
         medoid_idx = int(np.argmin(distances))
-        medoid_face_id = filtered_ids[medoid_idx]
+        medoid_detection_id = filtered_ids[medoid_idx]
 
-        # Create cluster with initial count of 0 (will be updated as faces are assigned)
-        cluster_id = self.repository.create_cluster(
+        # Create cluster with initial count of 0 (will be updated as detections are assigned)
+        cluster_id = self.repository.create_cluster_for_detection(
             centroid=centroid,
-            representative_face_id=medoid_face_id,
-            medoid_face_id=medoid_face_id,
+            representative_detection_id=medoid_detection_id,
+            medoid_detection_id=medoid_detection_id,
             face_count=0,
         )
 
-        # Assign faces with confidence based on distance to centroid (option 3)
+        # Assign detections with confidence based on distance to centroid (option 3)
         # Track actual assignments since some may fail due to race conditions
         assigned_count = 0
-        for fid, dist in zip(filtered_ids, distances):
+        for did, dist in zip(filtered_ids, distances):
             # Remove from old cluster if any (handles force reprocessing)
-            self.repository.remove_face_from_cluster(fid, delete_empty_cluster=True)
+            self.repository.remove_detection_from_cluster(did, delete_empty_cluster=True)
             # Calculate confidence from distance (closer = higher confidence)
             confidence = max(0.0, min(1.0, 1.0 - dist))
-            # Only assign if face is still unassigned (prevents race conditions)
-            assigned = self.repository.update_face_cluster(
-                face_id=fid,
+            # Only assign if detection is still unassigned (prevents race conditions)
+            assigned = self.repository.update_detection_cluster(
+                detection_id=did,
                 cluster_id=cluster_id,
                 cluster_confidence=confidence,
                 cluster_status="auto",
             )
             logger.debug(
-                f"update_face_cluster(face={fid}, cluster={cluster_id}, "
+                f"update_detection_cluster(detection={did}, cluster={cluster_id}, "
                 f"confidence={confidence:.3f}) returned {assigned}"
             )
             if assigned:
                 assigned_count += 1
-                self.repository.clear_face_unassigned(fid)
+                self.repository.clear_detection_unassigned(did)
 
         # Update cluster with actual face count
         logger.debug(
             f"_create_cluster_from_pool: cluster {cluster_id}, "
-            f"assigned {assigned_count}/{len(valid_face_ids)} faces"
+            f"assigned {assigned_count}/{len(valid_detection_ids)} detections"
         )
         if assigned_count > 0:
             self.repository.update_cluster_face_count(cluster_id, assigned_count)
             return cluster_id
         else:
-            # No faces were assigned (all taken by other workers), delete empty cluster
-            logger.warning(f"Deleting empty cluster {cluster_id} - no faces could be assigned")
+            # No detections were assigned (all taken by other workers), delete empty cluster
+            logger.warning(f"Deleting empty cluster {cluster_id} - no detections could be assigned")
             self.repository.delete_cluster(cluster_id)
             return None
 
-    def _create_new_cluster(self, face_id: int, embedding: np.ndarray) -> None:
-        """Create a new cluster with this face as the first member."""
-        # First, remove face from old cluster if it has one
-        self.repository.remove_face_from_cluster(face_id, delete_empty_cluster=True)
+    def _create_new_cluster(self, detection_id: int, embedding: np.ndarray) -> None:
+        """Create a new cluster with this detection as the first member."""
+        # First, remove detection from old cluster if it has one
+        self.repository.remove_detection_from_cluster(detection_id, delete_empty_cluster=True)
 
         # Create new cluster with count 0 initially
-        cluster_id = self.repository.create_cluster(
+        cluster_id = self.repository.create_cluster_for_detection(
             centroid=embedding,
-            representative_face_id=face_id,
-            medoid_face_id=face_id,
+            representative_detection_id=detection_id,
+            medoid_detection_id=detection_id,
             face_count=0,
         )
 
-        # Assign face to cluster (only succeeds if face is still unassigned)
-        if self.repository.update_face_cluster(
-            face_id=face_id,
+        # Assign detection to cluster (only succeeds if detection is still unassigned)
+        if self.repository.update_detection_cluster(
+            detection_id=detection_id,
             cluster_id=cluster_id,
             cluster_confidence=1.0,
             cluster_status="auto",
         ):
             self.repository.update_cluster_face_count(cluster_id, 1)
         else:
-            # Face was taken by another worker, delete empty cluster
+            # Detection was taken by another worker, delete empty cluster
             self.repository.delete_cluster(cluster_id)
-            logger.debug(f"Face {face_id} already assigned, deleted empty cluster {cluster_id}")
+            logger.debug(
+                f"Detection {detection_id} already assigned, deleted empty cluster {cluster_id}"
+            )
 
-        logger.debug(f"Created new cluster {cluster_id} for face {face_id}")
+        logger.debug(f"Created new cluster {cluster_id} for detection {detection_id}")
 
     def _assign_to_cluster(
         self,
-        face_id: int,
+        detection_id: int,
         cluster_id: int,
         confidence: float,
         embedding: np.ndarray,
         status: str = "auto",
     ) -> None:
-        """Assign face to an existing cluster and update centroid."""
+        """Assign detection to an existing cluster and update centroid."""
         # Use transaction to ensure consistency (auto-commits on successful exit)
         with self.repository.pool.transaction() as conn:
             with conn.cursor() as cur:
-                # First, check if face is already in a different cluster
+                # First, check if detection is already in a different cluster
                 cur.execute(
-                    "SELECT cluster_id FROM face WHERE id = %s FOR UPDATE",
-                    (face_id,),
+                    "SELECT cluster_id FROM person_detection WHERE id = %s FOR UPDATE",
+                    (detection_id,),
                 )
-                face_row = cur.fetchone()
-                old_cluster_id = face_row[0] if face_row else None
+                detection_row = cur.fetchone()
+                old_cluster_id = detection_row[0] if detection_row else None
 
-                # If face is already in this cluster, nothing to do
+                # If detection is already in this cluster, nothing to do
                 if old_cluster_id == cluster_id:
-                    logger.debug(f"Face {face_id} already in cluster {cluster_id}")
+                    logger.debug(f"Detection {detection_id} already in cluster {cluster_id}")
                     return
 
-                # If face was in a different cluster, decrement that cluster's count
+                # If detection was in a different cluster, decrement that cluster's count
                 if old_cluster_id is not None:
                     cur.execute(
                         """UPDATE cluster
@@ -500,13 +514,12 @@ class ClusteringStage(BaseStage):
                     (new_centroid, new_face_count, cluster_id),
                 )
 
-                # Update face
+                # Update detection
                 cur.execute(
-                    """UPDATE face
-                       SET cluster_id = %s, cluster_confidence = %s, cluster_status = %s,
-                           unassigned_since = NULL
+                    """UPDATE person_detection
+                       SET cluster_id = %s, cluster_confidence = %s, cluster_status = %s
                        WHERE id = %s""",
-                    (cluster_id, Decimal(str(confidence)), status, face_id),
+                    (cluster_id, Decimal(str(confidence)), status, detection_id),
                 )
 
                 # Check if medoid needs recomputation
@@ -515,29 +528,29 @@ class ClusteringStage(BaseStage):
 
                 # Transaction auto-commits on successful exit
                 logger.debug(
-                    f"Assigned face {face_id} to cluster {cluster_id} "
+                    f"Assigned detection {detection_id} to cluster {cluster_id} "
                     f"with confidence {confidence:.3f} (status={status})"
                 )
 
     def _mark_for_review(
-        self, face_id: int, cluster_ids: List[int], neighbor_clusters: dict
+        self, detection_id: int, cluster_ids: List[int], neighbor_clusters: dict
     ) -> None:
-        """Mark face for manual review with multiple potential clusters."""
+        """Mark detection for manual review with multiple potential clusters."""
         # Create candidate records for each potential cluster
         candidates = []
         for cluster_id in cluster_ids:
             if cluster_id in neighbor_clusters:
                 min_distance = min(neighbor_clusters[cluster_id])
                 similarity = 1.0 - min_distance
-                candidates.append((face_id, cluster_id, similarity))
+                candidates.append((detection_id, cluster_id, similarity))
 
-        self.repository.create_face_match_candidates(candidates)
+        self.repository.create_detection_match_candidates(candidates)
 
-        # Mark face as pending review
-        self.repository.update_face_cluster_status(face_id, "pending")
+        # Mark detection as pending review
+        self.repository.update_detection_cluster_status(detection_id, "pending")
 
         logger.debug(
-            f"Face {face_id} marked for review with {len(cluster_ids)} potential clusters"
+            f"Detection {detection_id} marked for review with {len(cluster_ids)} potential clusters"
         )
 
     def _should_recompute_medoid(self, face_count: int, face_count_at_last_medoid: int) -> bool:
@@ -550,35 +563,41 @@ class ClusteringStage(BaseStage):
 
     def _recompute_medoid(self, cluster_id: int, centroid: np.ndarray, cur) -> None:
         """Recompute and update medoid for a cluster inline."""
-        # Get all faces in this cluster with embeddings
-        cur.execute("""
-            SELECT f.id, fe.embedding
-            FROM face f
-            JOIN face_embedding fe ON f.id = fe.face_id
-            WHERE f.cluster_id = %s
-        """, (cluster_id,))
+        # Get all detections in this cluster with embeddings
+        cur.execute(
+            """
+            SELECT pd.id, fe.embedding
+            FROM person_detection pd
+            JOIN face_embedding fe ON pd.id = fe.person_detection_id
+            WHERE pd.cluster_id = %s
+        """,
+            (cluster_id,),
+        )
 
         rows = cur.fetchall()
         if not rows:
             return
 
-        face_ids = [row[0] for row in rows]
+        detection_ids = [row[0] for row in rows]
         embeddings = np.array([row[1] for row in rows])
 
-        # Find face closest to centroid (medoid)
+        # Find detection closest to centroid (medoid)
         distances = np.linalg.norm(embeddings - centroid, axis=1)
         medoid_idx = int(np.argmin(distances))
-        medoid_face_id = face_ids[medoid_idx]
+        medoid_detection_id = detection_ids[medoid_idx]
 
         # Update cluster with new medoid and reset tracking counter
-        # Note: Only update representative_face_id if it's NULL (not user-set)
-        cur.execute("""
+        # Note: Only update representative_detection_id if it's NULL (not user-set)
+        cur.execute(
+            """
             UPDATE cluster
-            SET medoid_face_id = %s,
-                representative_face_id = COALESCE(representative_face_id, %s),
+            SET medoid_detection_id = %s,
+                representative_detection_id = COALESCE(representative_detection_id, %s),
                 face_count_at_last_medoid = face_count,
                 updated_at = NOW()
             WHERE id = %s
-        """, (medoid_face_id, medoid_face_id, cluster_id))
+        """,
+            (medoid_detection_id, medoid_detection_id, cluster_id),
+        )
 
-        logger.debug(f"Recomputed medoid for cluster {cluster_id}: face {medoid_face_id}")
+        logger.debug(f"Recomputed medoid for cluster {cluster_id}: detection {medoid_detection_id}")

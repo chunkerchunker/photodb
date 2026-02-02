@@ -1,4 +1,4 @@
-import { Check, FolderPlus, Plus, Search, Users, XCircle } from "lucide-react";
+import { Calendar, Check, FolderPlus, Plus, Search, User, Users, XCircle } from "lucide-react";
 import { useCallback, useEffect, useState } from "react";
 import { Link, redirect, useFetcher } from "react-router";
 import { Breadcrumb } from "~/components/breadcrumb";
@@ -17,7 +17,27 @@ import {
 } from "~/components/ui/dialog";
 import { Input } from "~/components/ui/input";
 import { addFacesToCluster, createClusterFromFaces, getFaceDetails, getSimilarFaces } from "~/lib/db.server";
+import { cn } from "~/lib/utils";
 import type { Route } from "./+types/face.$id.similar";
+
+// Helper to format gender display
+function formatGender(gender?: string): string | null {
+  if (!gender) return null;
+  switch (gender) {
+    case "M":
+      return "M";
+    case "F":
+      return "F";
+    default:
+      return null;
+  }
+}
+
+// Helper to format age estimate
+function formatAge(age?: number): string | null {
+  if (age === undefined || age === null) return null;
+  return `~${Math.round(age)}`;
+}
 
 export function meta({ params }: Route.MetaArgs) {
   return [
@@ -42,6 +62,10 @@ interface SimilarFace {
   cluster_face_count?: number;
   person_name?: string;
   similarity: number;
+  // Age/gender fields
+  age_estimate?: number;
+  gender?: string;
+  gender_confidence?: number;
 }
 
 interface SearchCluster {
@@ -500,6 +524,33 @@ export default function SimilarFacesPage({ loaderData }: Route.ComponentProps) {
                           </Link>
                         ) : (
                           <Badge variant="outline">Unclustered</Badge>
+                        )}
+                        {/* Age/Gender badges */}
+                        {(similarFace.age_estimate || similarFace.gender) && (
+                          <div className="flex items-center justify-center space-x-1 mt-1">
+                            {formatAge(similarFace.age_estimate) && (
+                              <Badge variant="outline" className="text-xs bg-blue-50 border-blue-200 px-1.5 py-0">
+                                <Calendar className="h-2.5 w-2.5 mr-0.5" />
+                                {formatAge(similarFace.age_estimate)}
+                              </Badge>
+                            )}
+                            {formatGender(similarFace.gender) && (
+                              <Badge
+                                variant="outline"
+                                className={cn(
+                                  "text-xs px-1.5 py-0",
+                                  similarFace.gender === "M"
+                                    ? "bg-sky-50 border-sky-200"
+                                    : similarFace.gender === "F"
+                                      ? "bg-pink-50 border-pink-200"
+                                      : "bg-gray-50 border-gray-200",
+                                )}
+                              >
+                                <User className="h-2.5 w-2.5 mr-0.5" />
+                                {formatGender(similarFace.gender)}
+                              </Badge>
+                            )}
+                          </div>
                         )}
                         <div className="text-xs text-gray-500">Photo #{similarFace.photo_id}</div>
                       </div>

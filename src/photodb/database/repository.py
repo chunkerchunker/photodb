@@ -13,10 +13,9 @@ from .models import (
     LLMAnalysis,
     BatchJob,
     Person,
+    PersonDetection,
     Face,
     Cluster,
-    FaceMatchCandidate,
-    Status,
 )
 
 logger = logging.getLogger(__name__)
@@ -448,7 +447,9 @@ class PhotoRepository:
                     return Person(**dict(row))  # type: ignore[arg-type]
                 return None
 
-    def get_person_by_name(self, first_name: str, last_name: Optional[str] = None) -> Optional[Person]:
+    def get_person_by_name(
+        self, first_name: str, last_name: Optional[str] = None
+    ) -> Optional[Person]:
         """Get person by name."""
         with self.pool.get_connection() as conn:
             with conn.cursor(row_factory=dict_row) as cursor:
@@ -939,9 +940,7 @@ class PhotoRepository:
                 )
                 row = cursor.fetchone()
                 if not row or row[0] != cluster_id:
-                    logger.warning(
-                        f"Face {face_id} does not belong to cluster {cluster_id}"
-                    )
+                    logger.warning(f"Face {face_id} does not belong to cluster {cluster_id}")
                     return False
 
                 # Update the representative face
@@ -1201,7 +1200,16 @@ class PhotoRepository:
                          AND fe.embedding <=> %s < %s
                        ORDER BY fe.embedding <=> %s
                        LIMIT %s""",
-                    (embedding, MIN_FACE_CONFIDENCE, MIN_FACE_SIZE_PX, MIN_FACE_SIZE_PX, embedding, threshold, embedding, limit),
+                    (
+                        embedding,
+                        MIN_FACE_CONFIDENCE,
+                        MIN_FACE_SIZE_PX,
+                        MIN_FACE_SIZE_PX,
+                        embedding,
+                        threshold,
+                        embedding,
+                        limit,
+                    ),
                 )
                 return [dict(row) for row in cursor.fetchall()]
 
@@ -1306,9 +1314,7 @@ class PhotoRepository:
                 cursor.execute("SELECT COUNT(*) FROM cluster WHERE verified = true")
                 verified_clusters = cursor.fetchone()[0]
 
-                cursor.execute(
-                    "SELECT COUNT(*) FROM face WHERE cluster_status = 'unassigned'"
-                )
+                cursor.execute("SELECT COUNT(*) FROM face WHERE cluster_status = 'unassigned'")
                 unassigned_faces = cursor.fetchone()[0]
 
                 return {
@@ -1318,3 +1324,511 @@ class PhotoRepository:
                     "verified_clusters": verified_clusters,
                     "unassigned_faces": unassigned_faces,
                 }
+
+    # PersonDetection methods
+
+    def create_person_detection(self, detection: PersonDetection) -> None:
+        """Insert a new person detection record."""
+        with self.pool.transaction() as conn:
+            with conn.cursor() as cursor:
+                cursor.execute(
+                    """INSERT INTO person_detection
+                       (photo_id, face_bbox_x, face_bbox_y, face_bbox_width, face_bbox_height,
+                        face_confidence, body_bbox_x, body_bbox_y, body_bbox_width, body_bbox_height,
+                        body_confidence, age_estimate, gender, gender_confidence, mivolo_output,
+                        person_id, cluster_status, cluster_id, cluster_confidence,
+                        detector_model, detector_version, created_at)
+                       VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                       RETURNING id""",
+                    (
+                        detection.photo_id,
+                        detection.face_bbox_x,
+                        detection.face_bbox_y,
+                        detection.face_bbox_width,
+                        detection.face_bbox_height,
+                        detection.face_confidence,
+                        detection.body_bbox_x,
+                        detection.body_bbox_y,
+                        detection.body_bbox_width,
+                        detection.body_bbox_height,
+                        detection.body_confidence,
+                        detection.age_estimate,
+                        detection.gender,
+                        detection.gender_confidence,
+                        json.dumps(detection.mivolo_output) if detection.mivolo_output else None,
+                        detection.person_id,
+                        detection.cluster_status,
+                        detection.cluster_id,
+                        detection.cluster_confidence,
+                        detection.detector_model,
+                        detection.detector_version,
+                        detection.created_at,
+                    ),
+                )
+                detection.id = cursor.fetchone()[0]
+
+    def get_detections_for_photo(self, photo_id: int) -> List[PersonDetection]:
+        """Get all person detections for a photo."""
+        with self.pool.get_connection() as conn:
+            with conn.cursor(row_factory=dict_row) as cursor:
+                cursor.execute(
+                    """SELECT * FROM person_detection
+                       WHERE photo_id = %s
+                       ORDER BY id""",
+                    (photo_id,),
+                )
+                rows = cursor.fetchall()
+
+                return [PersonDetection(**dict(row)) for row in rows]  # type: ignore[arg-type]
+
+    def delete_detections_for_photo(self, photo_id: int) -> int:
+        """Delete all detections for a photo. Returns count deleted."""
+        with self.pool.transaction() as conn:
+            with conn.cursor() as cursor:
+                cursor.execute(
+                    "DELETE FROM person_detection WHERE photo_id = %s",
+                    (photo_id,),
+                )
+                return cursor.rowcount
+
+    def save_detection_embedding(self, detection_id: int, embedding: List[float]) -> None:
+        """Save face embedding for a person detection."""
+        with self.pool.transaction() as conn:
+            with conn.cursor() as cursor:
+                cursor.execute(
+                    """INSERT INTO face_embedding (person_detection_id, embedding)
+                       VALUES (%s, %s)
+                       ON CONFLICT (person_detection_id)
+                       DO UPDATE SET embedding = EXCLUDED.embedding""",
+                    (detection_id, embedding),
+                )
+
+    def update_detection_age_gender(
+        self,
+        detection_id: int,
+        age_estimate: float,
+        gender: str,
+        gender_confidence: float,
+        mivolo_output: Dict[str, Any],
+    ) -> None:
+        """Update age/gender fields for a person detection."""
+        with self.pool.transaction() as conn:
+            with conn.cursor() as cursor:
+                cursor.execute(
+                    """UPDATE person_detection
+                       SET age_estimate = %s,
+                           gender = %s,
+                           gender_confidence = %s,
+                           mivolo_output = %s
+                       WHERE id = %s""",
+                    (
+                        age_estimate,
+                        gender,
+                        gender_confidence,
+                        json.dumps(mivolo_output) if mivolo_output else None,
+                        detection_id,
+                    ),
+                )
+
+    def get_detections_for_person(self, person_id: int) -> List[PersonDetection]:
+        """Get all detections for a person (via person_id field)."""
+        with self.pool.get_connection() as conn:
+            with conn.cursor(row_factory=dict_row) as cursor:
+                cursor.execute(
+                    """SELECT * FROM person_detection
+                       WHERE person_id = %s
+                       ORDER BY id""",
+                    (person_id,),
+                )
+                rows = cursor.fetchall()
+
+                return [PersonDetection(**dict(row)) for row in rows]  # type: ignore[arg-type]
+
+    def update_person_age_gender(
+        self,
+        person_id: int,
+        estimated_birth_year: Optional[int],
+        birth_year_stddev: Optional[float],
+        gender: Optional[str],
+        gender_confidence: Optional[float],
+        sample_count: int,
+    ) -> None:
+        """Update aggregated age/gender statistics for a person."""
+        with self.pool.transaction() as conn:
+            with conn.cursor() as cursor:
+                cursor.execute(
+                    """UPDATE person
+                       SET estimated_birth_year = %s,
+                           birth_year_stddev = %s,
+                           gender = %s,
+                           gender_confidence = %s,
+                           age_gender_sample_count = %s,
+                           age_gender_updated_at = NOW(),
+                           updated_at = NOW()
+                       WHERE id = %s""",
+                    (
+                        estimated_birth_year,
+                        birth_year_stddev,
+                        gender,
+                        gender_confidence,
+                        sample_count,
+                        person_id,
+                    ),
+                )
+
+    # PersonDetection clustering methods
+
+    def get_unclustered_detections_for_photo(self, photo_id: int) -> List[Dict[str, Any]]:
+        """Get all unclustered person detections for a photo with embeddings.
+
+        Only returns detections with face bounding boxes that are:
+        - Not already clustered
+        - Large enough (MIN_FACE_SIZE_PX)
+        - High enough confidence (MIN_FACE_CONFIDENCE)
+        """
+        with self.pool.get_connection() as conn:
+            with conn.cursor(row_factory=dict_row) as cursor:
+                cursor.execute(
+                    """SELECT pd.*, fe.embedding
+                       FROM person_detection pd
+                       LEFT JOIN face_embedding fe ON pd.id = fe.person_detection_id
+                       JOIN photo p ON pd.photo_id = p.id
+                       WHERE pd.photo_id = %s
+                         AND pd.cluster_id IS NULL
+                         AND pd.cluster_status IS NULL
+                         AND pd.face_bbox_x IS NOT NULL
+                         AND pd.face_confidence >= %s
+                         AND (pd.face_bbox_width * COALESCE(p.normalized_width, p.width, 1)) >= %s
+                         AND (pd.face_bbox_height * COALESCE(p.normalized_height, p.height, 1)) >= %s
+                       ORDER BY pd.id""",
+                    (photo_id, MIN_FACE_CONFIDENCE, MIN_FACE_SIZE_PX, MIN_FACE_SIZE_PX),
+                )
+                rows = cursor.fetchall()
+                return [dict(row) for row in rows]
+
+    def get_all_detections_with_embeddings_for_photo(self, photo_id: int) -> List[Dict[str, Any]]:
+        """Get all detections with embeddings for a photo (for force reprocessing)."""
+        with self.pool.get_connection() as conn:
+            with conn.cursor(row_factory=dict_row) as cursor:
+                cursor.execute(
+                    """SELECT pd.*, fe.embedding
+                       FROM person_detection pd
+                       LEFT JOIN face_embedding fe ON pd.id = fe.person_detection_id
+                       WHERE pd.photo_id = %s
+                         AND fe.embedding IS NOT NULL
+                       ORDER BY pd.id""",
+                    (photo_id,),
+                )
+                rows = cursor.fetchall()
+                return [dict(row) for row in rows]
+
+    def find_nearest_detections(self, embedding, limit: int = 5) -> List[Dict[str, Any]]:
+        """Find K nearest clustered detections using pgvector cosine distance."""
+        with self.pool.get_connection() as conn:
+            with conn.cursor(row_factory=dict_row) as cursor:
+                cursor.execute(
+                    """SELECT pd.id, pd.cluster_id, fe.embedding <=> %s AS distance
+                       FROM person_detection pd
+                       JOIN face_embedding fe ON pd.id = fe.person_detection_id
+                       WHERE pd.cluster_id IS NOT NULL
+                       ORDER BY fe.embedding <=> %s
+                       LIMIT %s""",
+                    (embedding, embedding, limit),
+                )
+                return [dict(row) for row in cursor.fetchall()]
+
+    def get_must_linked_detections(self, detection_id: int) -> List[Dict[str, Any]]:
+        """Get detections that must be in same cluster as this detection."""
+        with self.pool.get_connection() as conn:
+            with conn.cursor(row_factory=dict_row) as cursor:
+                cursor.execute(
+                    """SELECT pd.id, pd.cluster_id
+                       FROM person_detection pd
+                       JOIN (
+                           SELECT detection_id_2 AS linked_id FROM must_link WHERE detection_id_1 = %s
+                           UNION
+                           SELECT detection_id_1 AS linked_id FROM must_link WHERE detection_id_2 = %s
+                       ) ml ON pd.id = ml.linked_id""",
+                    (detection_id, detection_id),
+                )
+                return [dict(row) for row in cursor.fetchall()]
+
+    def get_cannot_linked_detections(self, detection_id: int) -> List[Dict[str, Any]]:
+        """Get detections that cannot be in same cluster as this detection."""
+        with self.pool.get_connection() as conn:
+            with conn.cursor(row_factory=dict_row) as cursor:
+                cursor.execute(
+                    """SELECT pd.id, pd.cluster_id
+                       FROM person_detection pd
+                       JOIN (
+                           SELECT detection_id_2 AS linked_id FROM cannot_link WHERE detection_id_1 = %s
+                           UNION
+                           SELECT detection_id_1 AS linked_id FROM cannot_link WHERE detection_id_2 = %s
+                       ) cl ON pd.id = cl.linked_id""",
+                    (detection_id, detection_id),
+                )
+                return [dict(row) for row in cursor.fetchall()]
+
+    def update_detection_cluster(
+        self,
+        detection_id: int,
+        cluster_id: int,
+        cluster_confidence: float,
+        cluster_status: str,
+    ) -> bool:
+        """
+        Update detection cluster assignment (does NOT update cluster counts).
+
+        Only assigns if detection is currently unassigned (cluster_id IS NULL).
+        This prevents race conditions in parallel processing.
+
+        Returns:
+            True if detection was assigned, False if already assigned to another cluster.
+        """
+        with self.pool.transaction() as conn:
+            with conn.cursor() as cursor:
+                # Use SELECT FOR UPDATE to lock the row and check state atomically
+                cursor.execute(
+                    "SELECT cluster_id FROM person_detection WHERE id = %s FOR UPDATE",
+                    (detection_id,),
+                )
+                row = cursor.fetchone()
+                if not row:
+                    logger.warning(f"update_detection_cluster: detection {detection_id} not found")
+                    return False
+
+                current_cluster_id = row[0]
+                if current_cluster_id is not None:
+                    logger.debug(
+                        f"update_detection_cluster: detection {detection_id} already in cluster {current_cluster_id}"
+                    )
+                    return False
+
+                cursor.execute(
+                    """UPDATE person_detection
+                       SET cluster_id = %s,
+                           cluster_confidence = %s,
+                           cluster_status = %s
+                       WHERE id = %s""",
+                    (cluster_id, cluster_confidence, cluster_status, detection_id),
+                )
+                return True
+
+    def update_detection_unassigned(self, detection_id: int) -> None:
+        """Mark a detection as unassigned (added to outlier pool)."""
+        with self.pool.transaction() as conn:
+            with conn.cursor() as cursor:
+                # Get current cluster assignment
+                cursor.execute(
+                    "SELECT cluster_id FROM person_detection WHERE id = %s FOR UPDATE",
+                    (detection_id,),
+                )
+                row = cursor.fetchone()
+                old_cluster_id = row[0] if row else None
+
+                # Decrement old cluster's face_count if detection was in a cluster
+                if old_cluster_id is not None:
+                    cursor.execute(
+                        """UPDATE cluster
+                           SET face_count = GREATEST(0, face_count - 1),
+                               updated_at = NOW()
+                           WHERE id = %s""",
+                        (old_cluster_id,),
+                    )
+
+                # Mark detection as unassigned and clear cluster_id
+                cursor.execute(
+                    """UPDATE person_detection
+                       SET cluster_id = NULL,
+                           cluster_status = 'unassigned',
+                           cluster_confidence = 0
+                       WHERE id = %s""",
+                    (detection_id,),
+                )
+
+    def clear_detection_unassigned(self, detection_id: int) -> None:
+        """Clear unassigned status when detection is assigned to cluster."""
+        with self.pool.transaction() as conn:
+            with conn.cursor() as cursor:
+                cursor.execute(
+                    """UPDATE person_detection
+                       SET cluster_status = 'auto'
+                       WHERE id = %s AND cluster_status = 'unassigned'""",
+                    (detection_id,),
+                )
+
+    def find_similar_unassigned_detections(
+        self, embedding, threshold: float, limit: int
+    ) -> List[Dict[str, Any]]:
+        """Find unassigned detections similar to embedding.
+
+        Excludes detections with faces smaller than MIN_FACE_SIZE_PX pixels.
+        Excludes detections with confidence below MIN_FACE_CONFIDENCE.
+        """
+        with self.pool.get_connection() as conn:
+            with conn.cursor(row_factory=dict_row) as cursor:
+                cursor.execute(
+                    """SELECT pd.id, fe.embedding <=> %s AS distance
+                       FROM person_detection pd
+                       JOIN face_embedding fe ON pd.id = fe.person_detection_id
+                       JOIN photo p ON pd.photo_id = p.id
+                       WHERE pd.cluster_id IS NULL
+                         AND pd.cluster_status = 'unassigned'
+                         AND pd.face_confidence >= %s
+                         AND (pd.face_bbox_width * COALESCE(p.normalized_width, p.width, 1)) >= %s
+                         AND (pd.face_bbox_height * COALESCE(p.normalized_height, p.height, 1)) >= %s
+                         AND fe.embedding <=> %s < %s
+                       ORDER BY fe.embedding <=> %s
+                       LIMIT %s""",
+                    (
+                        embedding,
+                        MIN_FACE_CONFIDENCE,
+                        MIN_FACE_SIZE_PX,
+                        MIN_FACE_SIZE_PX,
+                        embedding,
+                        threshold,
+                        embedding,
+                        limit,
+                    ),
+                )
+                return [dict(row) for row in cursor.fetchall()]
+
+    def get_detections_in_cluster(self, cluster_id: int) -> List[Dict[str, Any]]:
+        """Get all detections with embeddings in a cluster."""
+        with self.pool.get_connection() as conn:
+            with conn.cursor(row_factory=dict_row) as cursor:
+                cursor.execute(
+                    """SELECT pd.id, fe.embedding
+                       FROM person_detection pd
+                       JOIN face_embedding fe ON pd.id = fe.person_detection_id
+                       WHERE pd.cluster_id = %s""",
+                    (cluster_id,),
+                )
+                return [dict(row) for row in cursor.fetchall()]
+
+    def get_detection_embedding(self, detection_id: int) -> Optional[List[float]]:
+        """Get face embedding by detection ID."""
+        with self.pool.get_connection() as conn:
+            with conn.cursor() as cursor:
+                cursor.execute(
+                    "SELECT embedding FROM face_embedding WHERE person_detection_id = %s",
+                    (detection_id,),
+                )
+                row = cursor.fetchone()
+                return list(row[0]) if row else None
+
+    def remove_detection_from_cluster(
+        self,
+        detection_id: int,
+        delete_empty_cluster: bool = True,
+    ) -> Optional[int]:
+        """
+        Remove a detection from its current cluster.
+
+        Args:
+            detection_id: ID of the detection to remove
+            delete_empty_cluster: If True, delete the cluster if it becomes empty
+
+        Returns:
+            ID of deleted cluster if one was removed, None otherwise
+        """
+        deleted_cluster_id = None
+
+        with self.pool.transaction() as conn:
+            with conn.cursor() as cursor:
+                # Get current cluster
+                cursor.execute(
+                    "SELECT cluster_id FROM person_detection WHERE id = %s FOR UPDATE",
+                    (detection_id,),
+                )
+                row = cursor.fetchone()
+                if not row or row[0] is None:
+                    return None
+
+                old_cluster_id = row[0]
+
+                # Clear detection cluster assignment
+                cursor.execute(
+                    """UPDATE person_detection
+                       SET cluster_id = NULL,
+                           cluster_status = NULL,
+                           cluster_confidence = 0
+                       WHERE id = %s""",
+                    (detection_id,),
+                )
+
+                # Decrement cluster count
+                cursor.execute(
+                    """UPDATE cluster
+                       SET face_count = GREATEST(0, face_count - 1),
+                           updated_at = NOW()
+                       WHERE id = %s""",
+                    (old_cluster_id,),
+                )
+
+                # Check if cluster is now empty
+                if delete_empty_cluster:
+                    cursor.execute(
+                        "SELECT face_count FROM cluster WHERE id = %s",
+                        (old_cluster_id,),
+                    )
+                    count_row = cursor.fetchone()
+                    if count_row and count_row[0] == 0:
+                        cursor.execute(
+                            "DELETE FROM cluster WHERE id = %s",
+                            (old_cluster_id,),
+                        )
+                        deleted_cluster_id = old_cluster_id
+                        logger.info(f"Deleted empty cluster {old_cluster_id}")
+
+                conn.commit()
+
+        return deleted_cluster_id
+
+    def update_detection_cluster_status(self, detection_id: int, cluster_status: str) -> None:
+        """Update only the cluster status for a detection."""
+        with self.pool.transaction() as conn:
+            with conn.cursor() as cursor:
+                cursor.execute(
+                    """UPDATE person_detection
+                       SET cluster_status = %s
+                       WHERE id = %s""",
+                    (cluster_status, detection_id),
+                )
+
+    def create_cluster_for_detection(
+        self,
+        centroid,
+        representative_detection_id: int,
+        medoid_detection_id: int,
+        face_count: int = 1,
+    ) -> int:
+        """Create a new cluster with detection IDs and return its ID."""
+        with self.pool.transaction() as conn:
+            with conn.cursor() as cursor:
+                cursor.execute(
+                    """INSERT INTO cluster
+                       (face_count, face_count_at_last_medoid, representative_detection_id,
+                        centroid, medoid_detection_id, created_at, updated_at)
+                       VALUES (%s, %s, %s, %s, %s, NOW(), NOW())
+                       RETURNING id""",
+                    (
+                        face_count,
+                        face_count,
+                        representative_detection_id,
+                        centroid,
+                        medoid_detection_id,
+                    ),
+                )
+                return cursor.fetchone()[0]
+
+    def create_detection_match_candidates(self, candidates: List[tuple]) -> None:
+        """Create multiple detection match candidate records."""
+        with self.pool.transaction() as conn:
+            with conn.cursor() as cursor:
+                cursor.executemany(
+                    """INSERT INTO face_match_candidate
+                       (detection_id, cluster_id, similarity, status, created_at)
+                       VALUES (%s, %s, %s, 'pending', NOW())""",
+                    candidates,
+                )

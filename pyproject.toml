@@ -17,7 +17,9 @@ dependencies = [
     "pydantic>=2.0.0",
     "boto3>=1.40.21",
     "piexif>=1.1.3",
-    "facenet-pytorch>=2.5.3",
+    "insightface>=0.7.3",
+    "facenet-pytorch>=2.5.3",  # TODO: remove after InsightFace migration (Task 3)
+    "onnxruntime>=1.16.0",
     "numpy>=1.26.0",
     "mivolo",
     "ultralytics==8.1.0",
@@ -34,6 +36,9 @@ dev = [
 ]
 macos = [
     "coremltools>=7.0",
+]
+cuda = [
+    "onnxruntime-gpu>=1.16.0",
 ]
 
 [project.scripts]

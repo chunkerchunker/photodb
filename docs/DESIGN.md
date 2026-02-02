@@ -174,7 +174,7 @@ Detects faces and bodies using YOLOv8x, extracts face embeddings for clustering.
 2. Run YOLOv8x person_face model (detects both faces and bodies)
 3. Match faces to bodies based on spatial containment
 4. Filter by confidence threshold (default: 0.5)
-5. Extract 512-dimensional FaceNet embeddings for faces (InceptionResnetV1)
+5. Extract 512-dimensional InsightFace embeddings for faces (ArcFace buffalo_l)
 6. Store person_detection records with face and body bounding boxes
 7. Save face embeddings in pgvector format
 
@@ -636,7 +636,7 @@ photodb/
 │   └── utils/
 │       ├── exif.py            # EXIF extraction
 │       ├── image.py           # Image handling
-│       ├── person_detector.py # YOLO + FaceNet
+│       ├── person_detector.py # YOLO + InsightFace
 │       ├── age_gender_aggregator.py  # Person-level aggregation
 │       └── maintenance.py     # Cluster maintenance
 ├── prompts/

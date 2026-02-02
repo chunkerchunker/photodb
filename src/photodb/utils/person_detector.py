@@ -1,5 +1,5 @@
 """
-Person detection using YOLO for face+body detection and FaceNet for embeddings.
+Person detection using YOLO for face+body detection and InsightFace for embeddings.
 
 Supports CoreML on macOS for faster inference via Neural Engine.
 """
@@ -12,10 +12,11 @@ from typing import Any, Dict, List, Optional
 
 import numpy as np
 import torch
-from facenet_pytorch import InceptionResnetV1
 from PIL import Image
 
 from ultralytics import YOLO
+
+from .embedding_extractor import EmbeddingExtractor
 
 logger = logging.getLogger(__name__)
 
@@ -66,7 +67,7 @@ def _get_coreml_path(pt_model_path: str) -> Optional[str]:
 
 
 class PersonDetector:
-    """Detect faces and bodies in images using YOLO, extract face embeddings.
+    """Detect faces and bodies in images using YOLO, extract face embeddings with InsightFace.
 
     On macOS, automatically uses CoreML (.mlpackage) if available for 5x faster
     inference via the Neural Engine. CoreML is also thread-safe, unlike MPS.
@@ -107,7 +108,7 @@ class PersonDetector:
                 logger.info(f"Using CoreML model: {coreml_path}")
                 self.using_coreml = True
 
-        # Determine device for PyTorch operations (FaceNet, and YOLO if not using CoreML)
+        # Determine device for PyTorch operations (YOLO if not using CoreML)
         if force_cpu:
             self.device = "cpu"
         elif device is not None:
@@ -137,12 +138,9 @@ class PersonDetector:
             self._yolo_device = self.device
             logger.info(f"PersonDetector using PyTorch on {self.device}")
 
-        # Load FaceNet embedding model (always PyTorch)
-        self.facenet = InceptionResnetV1(pretrained="vggface2").eval()
-        # For FaceNet, use CPU if using CoreML (safer for threading) or specified device
-        self._facenet_device = "cpu" if self.using_coreml else self.device
-        if self._facenet_device in ["cuda", "mps"]:
-            self.facenet = self.facenet.to(self._facenet_device)
+        # Load InsightFace embedding model (ONNX-based)
+        # Uses CoreML on macOS, CUDA on Linux, with CPU fallback
+        self.embedding_extractor = EmbeddingExtractor()
 
     def detect(self, image_path: str) -> Dict[str, Any]:
         """
@@ -342,45 +340,11 @@ class PersonDetector:
 
         Returns:
             512-dimensional face embedding as list of floats.
+
+        Raises:
+            ValueError: If embedding extraction fails.
         """
-        # Crop face from image
-        x1, y1, x2, y2 = int(bbox["x1"]), int(bbox["y1"]), int(bbox["x2"]), int(bbox["y2"])
-
-        # Ensure bounds are within image
-        x1 = max(0, x1)
-        y1 = max(0, y1)
-        x2 = min(image.width, x2)
-        y2 = min(image.height, y2)
-
-        face_crop = image.crop((x1, y1, x2, y2))
-
-        # Resize to 160x160 (FaceNet input size)
-        face_crop = face_crop.resize((160, 160), Image.BILINEAR)
-
-        # Convert to tensor
-        face_tensor = torch.tensor(np.array(face_crop)).permute(2, 0, 1).float()
-
-        # Normalize to [-1, 1] range (as expected by FaceNet)
-        face_tensor = (face_tensor - 127.5) / 128.0
-
-        # Add batch dimension
-        face_tensor = face_tensor.unsqueeze(0)
-
-        # Move to device
-        if self._facenet_device in ["cuda", "mps"]:
-            face_tensor = face_tensor.to(self._facenet_device)
-
-        # Extract embedding
-        with torch.no_grad():
-            try:
-                embedding = self.facenet(face_tensor)
-            except RuntimeError as e:
-                # Handle MPS issues by falling back to CPU
-                if "MPS" in str(e):
-                    face_tensor = face_tensor.cpu()
-                    facenet_cpu = InceptionResnetV1(pretrained="vggface2").eval()
-                    embedding = facenet_cpu(face_tensor)
-                else:
-                    raise
-
-        return embedding.cpu().numpy().flatten().tolist()
+        embedding = self.embedding_extractor.extract(image, bbox)
+        if embedding is None:
+            raise ValueError("Failed to extract face embedding")
+        return embedding

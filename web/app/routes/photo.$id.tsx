@@ -365,7 +365,7 @@ export default function PhotoDetail({ loaderData }: Route.ComponentProps) {
             )}
 
             {/* Face Detection */}
-            {photo.face_count && photo.face_count > 0 && (
+            {photo.face_count > 0 && (
               <Card>
                 <Collapsible open={sectionStates.faces} onOpenChange={(open) => updateSectionState("faces", open)}>
                   <CollapsibleTrigger asChild>

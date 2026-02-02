@@ -225,6 +225,7 @@ export async function getPhotoDetails(photoId: number) {
 
   // Get person detections for this photo with match candidates
   // Join to both detection's person and cluster's person, prefer detection's person if set
+  // Only include detections that have a face bounding box (exclude body-only detections)
   const facesQuery = `
     SELECT pd.id, pd.face_bbox_x as bbox_x, pd.face_bbox_y as bbox_y,
            pd.face_bbox_width as bbox_width, pd.face_bbox_height as bbox_height,
@@ -241,6 +242,7 @@ export async function getPhotoDetails(photoId: number) {
     LEFT JOIN "cluster" c ON pd.cluster_id = c.id
     LEFT JOIN person cp ON c.person_id = cp.id
     WHERE pd.photo_id = $1
+      AND pd.face_bbox_x IS NOT NULL
     ORDER BY pd.face_confidence DESC NULLS LAST
   `;
 

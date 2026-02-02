@@ -27,6 +27,7 @@ class MiVOLOPredictor:
     def __init__(
         self,
         checkpoint_path: str,
+        detector_weights_path: str,
         device: str = "cpu",
     ):
         """
@@ -34,6 +35,7 @@ class MiVOLOPredictor:
 
         Args:
             checkpoint_path: Path to MiVOLO checkpoint file
+            detector_weights_path: Path to YOLO detector weights
             device: Device to use ('cuda', 'mps', 'cpu')
         """
         self.device = device
@@ -43,14 +45,20 @@ class MiVOLOPredictor:
 
         # Try to import and initialize MiVOLO
         try:
+            from types import SimpleNamespace
             from mivolo.predictor import Predictor
 
-            self.predictor = Predictor(
-                config=None,
-                ckpt=checkpoint_path,
+            # MiVOLO expects an argparse-like config object
+            config = SimpleNamespace(
+                checkpoint=checkpoint_path,
+                detector_weights=detector_weights_path,
                 device=device,
                 with_persons=True,
+                disable_faces=False,
+                draw=False,
             )
+
+            self.predictor = Predictor(config, verbose=False)
             self._available = True
             logger.info(f"MiVOLO predictor initialized on device: {device}")
         except ImportError as e:
@@ -168,8 +176,15 @@ class AgeGenderStage(BaseStage):
             os.getenv("MIVOLO_MODEL_PATH", "models/mivolo_v2.safetensors"),
         )
 
+        # Get detector weights path (same YOLO model used by DetectionStage)
+        detector_weights_path = config.get(
+            "DETECTION_MODEL_PATH",
+            os.getenv("DETECTION_MODEL_PATH", "models/yolov8x_person_face.pt"),
+        )
+
         self.predictor = MiVOLOPredictor(
             checkpoint_path=checkpoint_path,
+            detector_weights_path=detector_weights_path,
             device=device,
         )
         logger.debug(f"AgeGenderStage initialized with device: {device}")

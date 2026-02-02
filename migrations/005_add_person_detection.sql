@@ -274,7 +274,14 @@ $$ LANGUAGE plpgsql;
 SELECT setval('person_detection_id_seq', COALESCE((SELECT MAX(id) FROM person_detection), 0) + 1, false);
 
 -- ============================================================================
--- 9. Drop old face table and its indexes
+-- 9. Clean up processing_status for removed 'faces' stage
+-- ============================================================================
+
+-- Delete processing_status rows for the old 'faces' stage (replaced by 'detection')
+DELETE FROM processing_status WHERE stage = 'faces';
+
+-- ============================================================================
+-- 10. Drop old face table and its indexes
 -- ============================================================================
 
 DROP INDEX IF EXISTS idx_face_photo_id;
@@ -287,7 +294,7 @@ DROP INDEX IF EXISTS idx_face_unassigned;
 DROP TABLE IF EXISTS face CASCADE;
 
 -- ============================================================================
--- 10. Record migration
+-- 11. Record migration
 -- ============================================================================
 
 INSERT INTO schema_migrations (version, description)

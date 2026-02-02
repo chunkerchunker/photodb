@@ -4,12 +4,15 @@ AgeGenderStage: Age and gender estimation using MiVOLO.
 This stage processes existing person detections and estimates age and gender
 using the MiVOLO model, which can use both face and body bounding boxes for
 improved accuracy.
+
+Supports free-threaded Python 3.13t for true parallel inference on CPU.
 """
 
 import os
 import logging
+import threading
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Tuple
 
 import torch
 
@@ -41,6 +44,10 @@ class MiVOLOPredictor:
     Wrapper for MiVOLO age/gender prediction.
 
     Handles import errors gracefully - MiVOLO may not be installed in all environments.
+    Thread-safe for use with free-threaded Python 3.13t (PYTHON_GIL=0).
+
+    Note: Lock IS REQUIRED - MiVOLO has lazy-initialized state (internal YOLO detector)
+    that causes race conditions and inconsistent results without serialization.
     """
 
     def __init__(
@@ -61,6 +68,9 @@ class MiVOLOPredictor:
         self.checkpoint_path = checkpoint_path
         self._available = False
         self.predictor = None
+        # Lock is REQUIRED for thread-safe inference - MiVOLO has internal state
+        # that causes race conditions without serialization (tested empirically)
+        self._lock = threading.Lock()
 
         # Try to import and initialize MiVOLO
         try:
@@ -84,7 +94,7 @@ class MiVOLOPredictor:
 
                 self.predictor = Predictor(config, verbose=False)
                 self._available = True
-                logger.info(f"MiVOLO predictor initialized on device: {device}")
+                logger.info(f"MiVOLO predictor initialized on device: {device} (thread-safe)")
             finally:
                 # Restore original torch.load
                 torch.load = original_load
@@ -120,7 +130,9 @@ class MiVOLOPredictor:
                 return []
 
             # Run MiVOLO prediction (detection + age/gender in one pass)
-            result, _ = self.predictor.recognize(img)
+            # Lock is REQUIRED - MiVOLO has lazy-initialized internal state
+            with self._lock:
+                result, _ = self.predictor.recognize(img)
 
             # Extract results from PersonAndFaceResult
             predictions = []
@@ -162,7 +174,9 @@ class MiVOLOPredictor:
                         ),
                         "age": float(age) if age is not None else None,
                         "gender": "M" if gender == "male" else ("F" if gender == "female" else "U"),
-                        "gender_confidence": float(gender_score) if gender_score is not None else 0.0,
+                        "gender_confidence": float(gender_score)
+                        if gender_score is not None
+                        else 0.0,
                     }
                 )
 
@@ -188,7 +202,9 @@ class MiVOLOPredictor:
                         ),
                         "age": float(age) if age is not None else None,
                         "gender": "M" if gender == "male" else ("F" if gender == "female" else "U"),
-                        "gender_confidence": float(gender_score) if gender_score is not None else 0.0,
+                        "gender_confidence": float(gender_score)
+                        if gender_score is not None
+                        else 0.0,
                     }
                 )
 

@@ -192,6 +192,22 @@ The application uses environment variables and optional config files:
 - `MIVOLO_MODEL_PATH`: Path to MiVOLO checkpoint (default: `models/mivolo_d1.pth.tar`)
 - `MIVOLO_FORCE_CPU`: Force CPU mode for MiVOLO inference (default: `false`)
 
+**Thread Safety:** MiVOLO inference is serialized with a lock. Testing showed that without serialization:
+1. MiVOLO's internal YOLO detector lazy-initializes on first use, causing race conditions when multiple threads call `recognize()` simultaneously
+2. Even after initialization, concurrent inference produces inconsistent results (same image returns different prediction counts)
+
+*Tested with mivolo 0.6.0.dev0 (git HEAD) on 2026-02-01. Future versions may fix these issues.*
+
+### Free-threaded Python
+
+**Not currently usable** due to two blockers:
+
+1. **opencv-python**: MiVOLO depends on opencv-python, which has no wheels for Python 3.13t (free-threaded). This is a build/packaging issue that may be resolved in future opencv releases.
+
+2. **MiVOLO thread safety**: Even if opencv were available, MiVOLO inference must be serialized (see above), so free-threaded Python wouldn't improve throughput for the age/gender stage.
+
+Use standard Python 3.13 for now. The detection stage uses CoreML which is already thread-safe and parallel.
+
 ## Performance Considerations
 
 - **Parallel Processing**: Designed for 500+ concurrent workers

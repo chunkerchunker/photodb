@@ -28,3 +28,6 @@ logs/
 *.swp
 *.swo
 .DS_Store
+
+# Worktrees
+.worktrees/

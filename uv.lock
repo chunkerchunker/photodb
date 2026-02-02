@@ -8,6 +8,9 @@ resolution-markers = [
     "python_full_version < '3.14' and sys_platform != 'win32'",
 ]
 
+[manifest]
+overrides = [{ name = "timm", specifier = ">=0.9.16" }]
+
 [[package]]
 name = "aiohappyeyeballs"
 version = "2.6.1"
@@ -2689,7 +2692,7 @@ wheels = [
 
 [[package]]
 name = "timm"
-version = "0.8.13.dev0"
+version = "1.0.24"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "huggingface-hub" },
@@ -2698,9 +2701,9 @@ dependencies = [
     { name = "torch" },
     { name = "torchvision" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/24/15/9efcecf75d4087cc5189a52a5f794d038b827ebd511553ebf59399dfcd73/timm-0.8.13.dev0.tar.gz", hash = "sha256:bce6999e021bddf0ba2f478965e62675817039799bcada9ef80fa1115258e61b", size = 1897785, upload-time = "2023-02-20T18:19:09.755Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/f4/9d/0ea45640be447445c8664ce2b10c74f763b0b0b9ed11620d41a4d4baa10c/timm-1.0.24.tar.gz", hash = "sha256:c7b909f43fe2ef8fe62c505e270cd4f1af230dfbc37f2ee93e3608492b9d9a40", size = 2412239, upload-time = "2026-01-07T00:26:17.541Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/39/4c/c342a00755101d0ea650f2fd17bd7f43466fe172e7a4fbf612faee2afc8a/timm-0.8.13.dev0-py3-none-any.whl", hash = "sha256:1cd511da3610a992910b593f08bc00e3de1867706352bf3cc9589416cf8582cc", size = 1994140, upload-time = "2023-02-20T18:19:06.755Z" },
+    { url = "https://files.pythonhosted.org/packages/92/dd/c1f5b0890f7b5db661bde0864b41cb0275be76851047e5f7e085fe0b455a/timm-1.0.24-py3-none-any.whl", hash = "sha256:8301ac783410c6ad72c73c49326af6d71a9e4d1558238552796e825c2464913f", size = 2560563, upload-time = "2026-01-07T00:26:13.956Z" },
 ]
 
 [[package]]

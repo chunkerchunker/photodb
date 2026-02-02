@@ -2,11 +2,11 @@
 CLIP analyzer for image and text encoding.
 
 Provides efficient encoding for zero-shot classification using prompt embeddings.
-Uses OpenAI's ViT-B-32 CLIP model which produces 512-dimensional embeddings.
+Uses Apple's MobileCLIP-S2 model which produces 512-dimensional embeddings with
+better efficiency than larger ViT models.
 
-Note: MobileCLIP-S2 would be preferred for efficiency but requires timm>=1.0.0
-which conflicts with mivolo's timm==0.8.13.dev0 dependency. ViT-B-32 provides
-the same embedding dimensionality and good quality embeddings.
+MobileCLIP-S2 uses FastViT backbone which requires timm>=0.9.16. We use a
+compatibility shim (timm_compat.py) to make MiVOLO work with newer timm versions.
 """
 
 import logging
@@ -21,8 +21,8 @@ from PIL import Image
 logger = logging.getLogger(__name__)
 
 # Model configuration - can be changed via environment variables
-DEFAULT_MODEL_NAME = "ViT-B-32-quickgelu"
-DEFAULT_PRETRAINED = "openai"
+DEFAULT_MODEL_NAME = "MobileCLIP-S2"
+DEFAULT_PRETRAINED = "datacompdr"
 
 # Lazy-loaded model
 _model = None

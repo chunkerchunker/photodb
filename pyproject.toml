@@ -59,6 +59,11 @@ target-version = "py313"
 [tool.uv.sources]
 mivolo = { git = "https://github.com/WildChlamydia/MiVOLO.git" }
 
+[tool.uv]
+override-dependencies = [
+    "timm>=0.9.16",  # Override MiVOLO's pin - needed for FastViT (MobileCLIP-S2)
+]
+
 [dependency-groups]
 dev = [
     "pyright>=1.1.404",

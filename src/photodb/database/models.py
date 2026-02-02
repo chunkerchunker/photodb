@@ -3,6 +3,7 @@ from datetime import datetime, timezone
 from enum import Enum
 from typing import Optional, Dict, Any, List
 import json
+import warnings
 
 
 @dataclass
@@ -187,9 +188,26 @@ class Person:
     last_name: Optional[str]
     created_at: datetime
     updated_at: datetime
+    # Age/gender aggregation fields
+    estimated_birth_year: Optional[int] = None
+    birth_year_stddev: Optional[float] = None
+    gender: Optional[str] = None  # 'M', 'F', 'U'
+    gender_confidence: Optional[float] = None
+    age_gender_sample_count: int = 0
+    age_gender_updated_at: Optional[datetime] = None
 
     @classmethod
-    def create(cls, first_name: str, last_name: Optional[str] = None) -> "Person":
+    def create(
+        cls,
+        first_name: str,
+        last_name: Optional[str] = None,
+        estimated_birth_year: Optional[int] = None,
+        birth_year_stddev: Optional[float] = None,
+        gender: Optional[str] = None,
+        gender_confidence: Optional[float] = None,
+        age_gender_sample_count: int = 0,
+        age_gender_updated_at: Optional[datetime] = None,
+    ) -> "Person":
         """Create a new person record."""
         now = datetime.now(timezone.utc)
         return cls(
@@ -198,6 +216,12 @@ class Person:
             last_name=last_name,
             created_at=now,
             updated_at=now,
+            estimated_birth_year=estimated_birth_year,
+            birth_year_stddev=birth_year_stddev,
+            gender=gender,
+            gender_confidence=gender_confidence,
+            age_gender_sample_count=age_gender_sample_count,
+            age_gender_updated_at=age_gender_updated_at,
         )
 
     @property
@@ -215,11 +239,157 @@ class Person:
             "full_name": self.full_name,
             "created_at": self.created_at,
             "updated_at": self.updated_at,
+            "estimated_birth_year": self.estimated_birth_year,
+            "birth_year_stddev": self.birth_year_stddev,
+            "gender": self.gender,
+            "gender_confidence": self.gender_confidence,
+            "age_gender_sample_count": self.age_gender_sample_count,
+            "age_gender_updated_at": self.age_gender_updated_at,
+        }
+
+
+@dataclass
+class PersonDetection:
+    """Represents a detected person (face and/or body) in a photo with age/gender estimates."""
+
+    id: Optional[int]
+    photo_id: int
+    # Face bounding box (optional - may have body only)
+    face_bbox_x: Optional[float] = None
+    face_bbox_y: Optional[float] = None
+    face_bbox_width: Optional[float] = None
+    face_bbox_height: Optional[float] = None
+    face_confidence: Optional[float] = None
+    # Body bounding box (optional - may have face only)
+    body_bbox_x: Optional[float] = None
+    body_bbox_y: Optional[float] = None
+    body_bbox_width: Optional[float] = None
+    body_bbox_height: Optional[float] = None
+    body_confidence: Optional[float] = None
+    # Age/gender estimates
+    age_estimate: Optional[float] = None
+    gender: Optional[str] = None  # 'M', 'F', 'U'
+    gender_confidence: Optional[float] = None
+    # Raw model output for debugging/analysis
+    mivolo_output: Optional[Dict[str, Any]] = None
+    # Person association (via clustering or manual assignment)
+    person_id: Optional[int] = None
+    # Clustering fields
+    cluster_status: Optional[str] = None  # 'auto', 'pending', 'manual'
+    cluster_id: Optional[int] = None
+    cluster_confidence: Optional[float] = None
+    # Detector metadata
+    detector_model: Optional[str] = None
+    detector_version: Optional[str] = None
+    created_at: Optional[datetime] = None
+
+    @classmethod
+    def create(
+        cls,
+        photo_id: int,
+        face_bbox_x: Optional[float] = None,
+        face_bbox_y: Optional[float] = None,
+        face_bbox_width: Optional[float] = None,
+        face_bbox_height: Optional[float] = None,
+        face_confidence: Optional[float] = None,
+        body_bbox_x: Optional[float] = None,
+        body_bbox_y: Optional[float] = None,
+        body_bbox_width: Optional[float] = None,
+        body_bbox_height: Optional[float] = None,
+        body_confidence: Optional[float] = None,
+        age_estimate: Optional[float] = None,
+        gender: Optional[str] = None,
+        gender_confidence: Optional[float] = None,
+        mivolo_output: Optional[Dict[str, Any]] = None,
+        person_id: Optional[int] = None,
+        cluster_status: Optional[str] = None,
+        cluster_id: Optional[int] = None,
+        cluster_confidence: Optional[float] = None,
+        detector_model: Optional[str] = None,
+        detector_version: Optional[str] = None,
+    ) -> "PersonDetection":
+        """Create a new person detection record."""
+        return cls(
+            id=None,  # Will be assigned by database
+            photo_id=photo_id,
+            face_bbox_x=face_bbox_x,
+            face_bbox_y=face_bbox_y,
+            face_bbox_width=face_bbox_width,
+            face_bbox_height=face_bbox_height,
+            face_confidence=face_confidence,
+            body_bbox_x=body_bbox_x,
+            body_bbox_y=body_bbox_y,
+            body_bbox_width=body_bbox_width,
+            body_bbox_height=body_bbox_height,
+            body_confidence=body_confidence,
+            age_estimate=age_estimate,
+            gender=gender,
+            gender_confidence=gender_confidence,
+            mivolo_output=mivolo_output,
+            person_id=person_id,
+            cluster_status=cluster_status,
+            cluster_id=cluster_id,
+            cluster_confidence=cluster_confidence,
+            detector_model=detector_model,
+            detector_version=detector_version,
+            created_at=datetime.now(timezone.utc),
+        )
+
+    def has_face(self) -> bool:
+        """Check if this detection includes a face bounding box."""
+        return (
+            self.face_bbox_x is not None
+            and self.face_bbox_y is not None
+            and self.face_bbox_width is not None
+            and self.face_bbox_height is not None
+        )
+
+    def has_body(self) -> bool:
+        """Check if this detection includes a body bounding box."""
+        return (
+            self.body_bbox_x is not None
+            and self.body_bbox_y is not None
+            and self.body_bbox_width is not None
+            and self.body_bbox_height is not None
+        )
+
+    def to_dict(self) -> Dict[str, Any]:
+        return {
+            "id": self.id,
+            "photo_id": self.photo_id,
+            "face_bbox_x": self.face_bbox_x,
+            "face_bbox_y": self.face_bbox_y,
+            "face_bbox_width": self.face_bbox_width,
+            "face_bbox_height": self.face_bbox_height,
+            "face_confidence": self.face_confidence,
+            "body_bbox_x": self.body_bbox_x,
+            "body_bbox_y": self.body_bbox_y,
+            "body_bbox_width": self.body_bbox_width,
+            "body_bbox_height": self.body_bbox_height,
+            "body_confidence": self.body_confidence,
+            "age_estimate": self.age_estimate,
+            "gender": self.gender,
+            "gender_confidence": self.gender_confidence,
+            "mivolo_output": json.dumps(self.mivolo_output) if self.mivolo_output else None,
+            "person_id": self.person_id,
+            "cluster_status": self.cluster_status,
+            "cluster_id": self.cluster_id,
+            "cluster_confidence": self.cluster_confidence,
+            "detector_model": self.detector_model,
+            "detector_version": self.detector_version,
+            "created_at": self.created_at,
         }
 
 
 @dataclass
 class Face:
+    """
+    DEPRECATED: Use PersonDetection instead.
+
+    This class is maintained for backward compatibility during migration.
+    It will be removed in a future version.
+    """
+
     id: Optional[int]
     photo_id: int
     bbox_x: float
@@ -232,6 +402,14 @@ class Face:
     cluster_status: Optional[str] = None  # 'auto', 'pending', 'manual'
     cluster_id: Optional[int] = None
     cluster_confidence: Optional[float] = None
+
+    def __post_init__(self):
+        warnings.warn(
+            "Face is deprecated and will be removed in a future version. "
+            "Use PersonDetection instead.",
+            DeprecationWarning,
+            stacklevel=2,
+        )
 
     @classmethod
     def create(
@@ -283,9 +461,9 @@ class Cluster:
     id: Optional[int]
     face_count: int
     face_count_at_last_medoid: int
-    representative_face_id: Optional[int]
+    representative_detection_id: Optional[int]
     centroid: Optional[List[float]]  # 512-dimensional vector
-    medoid_face_id: Optional[int]
+    medoid_detection_id: Optional[int]
     person_id: Optional[int]
     verified: bool
     verified_at: Optional[datetime]
@@ -298,9 +476,9 @@ class Cluster:
     def create(
         cls,
         face_count: int = 0,
-        representative_face_id: Optional[int] = None,
+        representative_detection_id: Optional[int] = None,
         centroid: Optional[List[float]] = None,
-        medoid_face_id: Optional[int] = None,
+        medoid_detection_id: Optional[int] = None,
         person_id: Optional[int] = None,
     ) -> "Cluster":
         """Create a new cluster record."""
@@ -309,9 +487,9 @@ class Cluster:
             id=None,  # Will be assigned by database
             face_count=face_count,
             face_count_at_last_medoid=face_count,
-            representative_face_id=representative_face_id,
+            representative_detection_id=representative_detection_id,
             centroid=centroid,
-            medoid_face_id=medoid_face_id,
+            medoid_detection_id=medoid_detection_id,
             person_id=person_id,
             verified=False,
             verified_at=None,
@@ -326,9 +504,9 @@ class Cluster:
             "id": self.id,
             "face_count": self.face_count,
             "face_count_at_last_medoid": self.face_count_at_last_medoid,
-            "representative_face_id": self.representative_face_id,
+            "representative_detection_id": self.representative_detection_id,
             "centroid": self.centroid,
-            "medoid_face_id": self.medoid_face_id,
+            "medoid_detection_id": self.medoid_detection_id,
             "person_id": self.person_id,
             "verified": self.verified,
             "verified_at": self.verified_at,

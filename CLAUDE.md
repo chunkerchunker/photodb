@@ -185,9 +185,11 @@ The application uses environment variables and optional config files:
 - `DETECTION_FORCE_CPU`: Force CPU mode for detection (default: `false`)
 - `DETECTION_MIN_CONFIDENCE`: Minimum detection confidence threshold (default: `0.5`)
 
+**CoreML Support (macOS):** On macOS, the detector automatically uses CoreML (`.mlpackage`) if available, providing 5x faster inference via the Neural Engine. CoreML is also thread-safe, enabling parallel processing. The download script automatically exports the CoreML model on macOS.
+
 ### Age/Gender Stage Configuration
 
-- `MIVOLO_MODEL_PATH`: Path to MiVOLO checkpoint (default: `models/mivolo_v2.safetensors`)
+- `MIVOLO_MODEL_PATH`: Path to MiVOLO checkpoint (default: `models/mivolo_d1.pth.tar`)
 - `MIVOLO_FORCE_CPU`: Force CPU mode for MiVOLO inference (default: `false`)
 
 ## Performance Considerations

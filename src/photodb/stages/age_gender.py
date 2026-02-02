@@ -9,12 +9,31 @@ improved accuracy.
 import os
 import logging
 from pathlib import Path
-from typing import Any, Dict, Optional
+from typing import Any, Dict, List, Optional, Tuple
+
+import torch
 
 from .base import BaseStage
 from ..database.models import Photo
 
 logger = logging.getLogger(__name__)
+
+
+def _patch_torch_load():
+    """
+    Patch torch.load for PyTorch 2.6+ compatibility.
+
+    PyTorch 2.6 changed weights_only default to True, which breaks loading
+    older checkpoint files. We temporarily patch it during model loading.
+    """
+    original_torch_load = torch.load
+
+    def patched_load(*args, **kwargs):
+        if "weights_only" not in kwargs:
+            kwargs["weights_only"] = False
+        return original_torch_load(*args, **kwargs)
+
+    return original_torch_load, patched_load
 
 
 class MiVOLOPredictor:
@@ -34,7 +53,7 @@ class MiVOLOPredictor:
         Initialize MiVOLO predictor.
 
         Args:
-            checkpoint_path: Path to MiVOLO checkpoint file
+            checkpoint_path: Path to MiVOLO checkpoint file (.pth.tar format)
             detector_weights_path: Path to YOLO detector weights
             device: Device to use ('cuda', 'mps', 'cpu')
         """
@@ -48,93 +67,178 @@ class MiVOLOPredictor:
             from types import SimpleNamespace
             from mivolo.predictor import Predictor
 
-            # MiVOLO expects an argparse-like config object
-            config = SimpleNamespace(
-                checkpoint=checkpoint_path,
-                detector_weights=detector_weights_path,
-                device=device,
-                with_persons=True,
-                disable_faces=False,
-                draw=False,
-            )
+            # Patch torch.load for PyTorch 2.6+ compatibility
+            original_load, patched_load = _patch_torch_load()
+            torch.load = patched_load
 
-            self.predictor = Predictor(config, verbose=False)
-            self._available = True
-            logger.info(f"MiVOLO predictor initialized on device: {device}")
+            try:
+                # MiVOLO expects an argparse-like config object
+                config = SimpleNamespace(
+                    checkpoint=checkpoint_path,
+                    detector_weights=detector_weights_path,
+                    device=device,
+                    with_persons=True,
+                    disable_faces=False,
+                    draw=False,
+                )
+
+                self.predictor = Predictor(config, verbose=False)
+                self._available = True
+                logger.info(f"MiVOLO predictor initialized on device: {device}")
+            finally:
+                # Restore original torch.load
+                torch.load = original_load
+
         except ImportError as e:
             logger.warning(f"MiVOLO not available: {e}. Age/gender estimation disabled.")
         except Exception as e:
             logger.error(f"Failed to initialize MiVOLO: {e}")
 
-    def predict(
-        self,
-        image_path: str,
-        face_bbox: Optional[tuple] = None,
-        body_bbox: Optional[tuple] = None,
-    ) -> Dict[str, Any]:
+    def predict(self, image_path: str) -> List[Dict[str, Any]]:
         """
-        Predict age and gender for a detection.
+        Predict age and gender for all detections in an image.
+
+        MiVOLO's Predictor.recognize() runs its own detection and returns
+        results with bounding boxes and age/gender estimates.
 
         Args:
             image_path: Path to image file
-            face_bbox: (x, y, width, height) of face bounding box
-            body_bbox: (x, y, width, height) of body bounding box
 
         Returns:
-            Dict with keys: age, gender, gender_confidence
+            List of dicts, each with keys: face_bbox, body_bbox, age, gender, gender_confidence
         """
         if not self._available:
-            return {"age": None, "gender": "U", "gender_confidence": 0.0}
+            return []
 
         try:
-            import numpy as np
-            from PIL import Image
+            import cv2
 
-            # Load image
-            img = Image.open(image_path)
-            if img.mode == "RGBA":
-                img = img.convert("RGB")
-            img_np = np.array(img)
+            # Load image (MiVOLO expects BGR numpy array)
+            img = cv2.imread(image_path)
+            if img is None:
+                logger.error(f"Failed to load image: {image_path}")
+                return []
 
-            # Convert bboxes to MiVOLO format (x1, y1, x2, y2)
-            faces = None
-            bodies = None
+            # Run MiVOLO prediction (detection + age/gender in one pass)
+            result, _ = self.predictor.recognize(img)
 
-            if face_bbox is not None and face_bbox[0] is not None:
-                x, y, w, h = face_bbox
-                faces = np.array([[x, y, x + w, y + h]])
+            # Extract results from PersonAndFaceResult
+            predictions = []
 
-            if body_bbox is not None and body_bbox[0] is not None:
-                x, y, w, h = body_bbox
-                bodies = np.array([[x, y, x + w, y + h]])
+            # Process face-to-person mappings (faces with associated bodies)
+            for face_ind, person_ind in result.face_to_person_map.items():
+                age = result.ages[face_ind]
+                gender = result.genders[face_ind]
+                gender_score = result.gender_scores[face_ind]
 
-            # Run prediction
-            result = self.predictor.recognize(
-                img_np,
-                detected_faces=faces,
-                detected_bodies=bodies,
-            )
+                if age is None and gender is None:
+                    continue
 
-            if result and len(result.ages) > 0:
-                age = float(result.ages[0])
-                gender = "M" if result.genders[0] == "male" else "F"
-                # Get gender confidence if available
-                gender_conf = (
-                    float(result.gender_scores[0])
-                    if hasattr(result, "gender_scores") and result.gender_scores is not None
-                    else 0.9
+                # Get face bbox (x1, y1, x2, y2)
+                face_bbox = result.get_bbox_by_ind(face_ind).cpu().numpy()
+
+                # Get body bbox if associated
+                body_bbox = None
+                if person_ind is not None:
+                    body_bbox = result.get_bbox_by_ind(person_ind).cpu().numpy()
+
+                predictions.append(
+                    {
+                        "face_bbox": (
+                            float(face_bbox[0]),  # x
+                            float(face_bbox[1]),  # y
+                            float(face_bbox[2] - face_bbox[0]),  # width
+                            float(face_bbox[3] - face_bbox[1]),  # height
+                        ),
+                        "body_bbox": (
+                            (
+                                float(body_bbox[0]),
+                                float(body_bbox[1]),
+                                float(body_bbox[2] - body_bbox[0]),
+                                float(body_bbox[3] - body_bbox[1]),
+                            )
+                            if body_bbox is not None
+                            else None
+                        ),
+                        "age": float(age) if age is not None else None,
+                        "gender": "M" if gender == "male" else ("F" if gender == "female" else "U"),
+                        "gender_confidence": float(gender_score) if gender_score is not None else 0.0,
+                    }
                 )
-                return {
-                    "age": age,
-                    "gender": gender,
-                    "gender_confidence": gender_conf,
-                }
 
-            return {"age": None, "gender": "U", "gender_confidence": 0.0}
+            # Process unassigned persons (bodies without faces)
+            for person_ind in result.unassigned_persons_inds:
+                age = result.ages[person_ind]
+                gender = result.genders[person_ind]
+                gender_score = result.gender_scores[person_ind]
+
+                if age is None and gender is None:
+                    continue
+
+                body_bbox = result.get_bbox_by_ind(person_ind).cpu().numpy()
+
+                predictions.append(
+                    {
+                        "face_bbox": None,
+                        "body_bbox": (
+                            float(body_bbox[0]),
+                            float(body_bbox[1]),
+                            float(body_bbox[2] - body_bbox[0]),
+                            float(body_bbox[3] - body_bbox[1]),
+                        ),
+                        "age": float(age) if age is not None else None,
+                        "gender": "M" if gender == "male" else ("F" if gender == "female" else "U"),
+                        "gender_confidence": float(gender_score) if gender_score is not None else 0.0,
+                    }
+                )
+
+            return predictions
 
         except Exception as e:
             logger.error(f"MiVOLO prediction failed: {e}")
-            return {"age": None, "gender": "U", "gender_confidence": 0.0}
+            return []
+
+
+def _compute_iou(
+    bbox1: Tuple[float, float, float, float], bbox2: Tuple[float, float, float, float]
+) -> float:
+    """
+    Compute Intersection over Union between two bboxes.
+
+    Args:
+        bbox1: (x, y, width, height) - first bounding box
+        bbox2: (x, y, width, height) - second bounding box
+
+    Returns:
+        IoU value between 0 and 1
+    """
+    x1, y1, w1, h1 = bbox1
+    x2, y2, w2, h2 = bbox2
+
+    # Convert to (x1, y1, x2, y2) format
+    box1_x1, box1_y1, box1_x2, box1_y2 = x1, y1, x1 + w1, y1 + h1
+    box2_x1, box2_y1, box2_x2, box2_y2 = x2, y2, x2 + w2, y2 + h2
+
+    # Calculate intersection
+    inter_x1 = max(box1_x1, box2_x1)
+    inter_y1 = max(box1_y1, box2_y1)
+    inter_x2 = min(box1_x2, box2_x2)
+    inter_y2 = min(box1_y2, box2_y2)
+
+    if inter_x1 >= inter_x2 or inter_y1 >= inter_y2:
+        return 0.0
+
+    inter_area = (inter_x2 - inter_x1) * (inter_y2 - inter_y1)
+
+    # Calculate union
+    box1_area = w1 * h1
+    box2_area = w2 * h2
+    union_area = box1_area + box2_area - inter_area
+
+    if union_area == 0:
+        return 0.0
+
+    return inter_area / union_area
 
 
 class AgeGenderStage(BaseStage):
@@ -142,9 +246,9 @@ class AgeGenderStage(BaseStage):
     Stage for estimating age and gender using MiVOLO.
 
     This stage:
-    1. Gets existing person detections for the photo
-    2. For each detection with a face or body bbox, runs MiVOLO prediction
-    3. Updates the detection record with age_estimate, gender, gender_confidence
+    1. Runs MiVOLO on the normalized image (which does its own detection)
+    2. Matches MiVOLO results to existing detections by bbox IoU
+    3. Updates matched detection records with age_estimate, gender, gender_confidence
     """
 
     def __init__(self, repository, config: dict):
@@ -157,14 +261,13 @@ class AgeGenderStage(BaseStage):
         if force_cpu:
             device = "cpu"
         else:
-            # Check for CUDA availability
+            # Check for CUDA/MPS availability
             try:
-                import torch
-
                 if torch.cuda.is_available():
                     device = "cuda"
                 elif hasattr(torch.backends, "mps") and torch.backends.mps.is_available():
-                    device = "mps"
+                    # MiVOLO may have issues with MPS, fall back to CPU
+                    device = "cpu"
                 else:
                     device = "cpu"
             except ImportError:
@@ -173,7 +276,7 @@ class AgeGenderStage(BaseStage):
         # Get checkpoint path from config or environment
         checkpoint_path = config.get(
             "MIVOLO_MODEL_PATH",
-            os.getenv("MIVOLO_MODEL_PATH", "models/mivolo_v2.safetensors"),
+            os.getenv("MIVOLO_MODEL_PATH", "models/mivolo_d1.pth.tar"),
         )
 
         # Get detector weights path (same YOLO model used by DetectionStage)
@@ -218,57 +321,62 @@ class AgeGenderStage(BaseStage):
                 logger.debug(f"No detections for photo {photo.id}, skipping age/gender")
                 return True
 
+            # Run MiVOLO prediction
+            predictions = self.predictor.predict(str(normalized_path))
+            if not predictions:
+                logger.debug(f"No MiVOLO predictions for photo {photo.id}")
+                return True
+
             logger.debug(
-                f"Processing age/gender for {len(detections)} detections in photo {photo.id}"
+                f"Got {len(predictions)} MiVOLO predictions for {len(detections)} detections"
             )
 
+            # Match MiVOLO predictions to existing detections by bbox IoU
             updated = 0
-            for detection in detections:
-                # Build bbox tuples from detection record
-                face_bbox = None
-                if detection.face_bbox_x is not None:
-                    face_bbox = (
-                        detection.face_bbox_x,
-                        detection.face_bbox_y,
-                        detection.face_bbox_width,
-                        detection.face_bbox_height,
-                    )
+            for prediction in predictions:
+                best_match = None
+                best_iou = 0.3  # Minimum IoU threshold
 
-                body_bbox = None
-                if detection.body_bbox_x is not None:
-                    body_bbox = (
-                        detection.body_bbox_x,
-                        detection.body_bbox_y,
-                        detection.body_bbox_width,
-                        detection.body_bbox_height,
-                    )
+                for detection in detections:
+                    # Try matching by face bbox first
+                    if prediction["face_bbox"] is not None and detection.face_bbox_x is not None:
+                        det_face_bbox = (
+                            detection.face_bbox_x,
+                            detection.face_bbox_y,
+                            detection.face_bbox_width,
+                            detection.face_bbox_height,
+                        )
+                        iou = _compute_iou(prediction["face_bbox"], det_face_bbox)
+                        if iou > best_iou:
+                            best_iou = iou
+                            best_match = detection
 
-                # Skip if neither face nor body available
-                if face_bbox is None and body_bbox is None:
-                    logger.debug(f"Detection {detection.id} has no face or body bbox, skipping")
-                    continue
+                    # Also try matching by body bbox
+                    if prediction["body_bbox"] is not None and detection.body_bbox_x is not None:
+                        det_body_bbox = (
+                            detection.body_bbox_x,
+                            detection.body_bbox_y,
+                            detection.body_bbox_width,
+                            detection.body_bbox_height,
+                        )
+                        iou = _compute_iou(prediction["body_bbox"], det_body_bbox)
+                        if iou > best_iou:
+                            best_iou = iou
+                            best_match = detection
 
-                # Run MiVOLO prediction
-                result = self.predictor.predict(
-                    image_path=str(normalized_path),
-                    face_bbox=face_bbox,
-                    body_bbox=body_bbox,
-                )
-
-                # Update detection if we got meaningful results
-                # (age is not None OR gender is not 'U')
-                if result["age"] is not None or result["gender"] != "U":
+                if best_match is not None:
+                    # Update the matched detection
                     self.repository.update_detection_age_gender(
-                        detection_id=detection.id,
-                        age_estimate=result["age"],
-                        gender=result["gender"],
-                        gender_confidence=result["gender_confidence"],
-                        mivolo_output=result,
+                        detection_id=best_match.id,
+                        age_estimate=prediction["age"],
+                        gender=prediction["gender"],
+                        gender_confidence=prediction["gender_confidence"],
+                        mivolo_output=prediction,
                     )
                     updated += 1
                     logger.debug(
-                        f"Updated detection {detection.id}: age={result['age']}, "
-                        f"gender={result['gender']} ({result['gender_confidence']:.2f})"
+                        f"Updated detection {best_match.id}: age={prediction['age']}, "
+                        f"gender={prediction['gender']} ({prediction['gender_confidence']:.2f})"
                     )
 
             logger.info(

@@ -50,6 +50,11 @@ class LocalProcessor(BaseProcessor):
             "clustering": ClusteringStage(repository, config),
         }
 
+        # Cache ML models for sharing across threads (they're expensive to load)
+        # CoreML models are thread-safe, PyTorch MPS models are not
+        self._shared_detector = self.stages["detection"].detector
+        self._shared_mivolo = self.stages["age_gender"].predictor
+
     def close(self):
         """Clean up resources, including connection pool."""
         if self.connection_pool:
@@ -187,24 +192,30 @@ class LocalProcessor(BaseProcessor):
                 pooled_repo = PhotoRepository(self.connection_pool)
 
                 # Create stages with the pooled repository
-                stages = self._get_stages(stage)
-                pooled_stages = {
-                    "normalize": NormalizeStage(pooled_repo, self.config)
-                    if "normalize" in stages
-                    else None,
-                    "metadata": MetadataStage(pooled_repo, self.config)
-                    if "metadata" in stages
-                    else None,
-                    "detection": DetectionStage(pooled_repo, self.config)
-                    if "detection" in stages
-                    else None,
-                    "age_gender": AgeGenderStage(pooled_repo, self.config)
-                    if "age_gender" in stages
-                    else None,
-                    "clustering": ClusteringStage(pooled_repo, self.config)
-                    if "clustering" in stages
-                    else None,
-                }
+                # IMPORTANT: Reuse shared ML models to avoid expensive reloading
+                stages_list = self._get_stages(stage)
+                pooled_stages = {}
+
+                if "normalize" in stages_list:
+                    pooled_stages["normalize"] = NormalizeStage(pooled_repo, self.config)
+                if "metadata" in stages_list:
+                    pooled_stages["metadata"] = MetadataStage(pooled_repo, self.config)
+                if "detection" in stages_list:
+                    detection_stage = DetectionStage.__new__(DetectionStage)
+                    detection_stage.repository = pooled_repo
+                    detection_stage.config = self.config
+                    detection_stage.stage_name = "detection"
+                    detection_stage.detector = self._shared_detector  # Reuse shared model
+                    pooled_stages["detection"] = detection_stage
+                if "age_gender" in stages_list:
+                    age_gender_stage = AgeGenderStage.__new__(AgeGenderStage)
+                    age_gender_stage.repository = pooled_repo
+                    age_gender_stage.config = self.config
+                    age_gender_stage.stage_name = "age_gender"
+                    age_gender_stage.predictor = self._shared_mivolo  # Reuse shared model
+                    pooled_stages["age_gender"] = age_gender_stage
+                if "clustering" in stages_list:
+                    pooled_stages["clustering"] = ClusteringStage(pooled_repo, self.config)
 
                 # Process with pooled stages
                 return self._process_single_file(file_path, stage, pooled_stages)

@@ -1,8 +1,13 @@
 """
 Person detection using YOLO for face+body detection and FaceNet for embeddings.
+
+Supports CoreML on macOS for faster inference via Neural Engine.
 """
 
+import logging
 import os
+import sys
+from pathlib import Path
 from typing import Any, Dict, List, Optional
 
 import numpy as np
@@ -12,14 +17,20 @@ from PIL import Image
 
 from ultralytics import YOLO
 
+logger = logging.getLogger(__name__)
 
-def _load_yolo_model(model_path: str) -> YOLO:
+
+def _load_yolo_model(model_path: str, task: Optional[str] = None) -> YOLO:
     """
     Load YOLO model with PyTorch 2.6+ compatibility.
 
     PyTorch 2.6 changed weights_only default to True, breaking older ultralytics.
     We temporarily patch torch.load for model loading since we trust models from
     official sources (HuggingFace/Ultralytics).
+
+    Args:
+        model_path: Path to the model file (.pt or .mlpackage)
+        task: Task type for CoreML models (e.g., 'detect')
     """
     original_torch_load = torch.load
 
@@ -30,13 +41,36 @@ def _load_yolo_model(model_path: str) -> YOLO:
 
     try:
         torch.load = patched_load
+        if task:
+            return YOLO(model_path, task=task)
         return YOLO(model_path)
     finally:
         torch.load = original_torch_load
 
 
+def _get_coreml_path(pt_model_path: str) -> Optional[str]:
+    """
+    Get the CoreML model path corresponding to a PyTorch model.
+
+    Args:
+        pt_model_path: Path to PyTorch model (.pt file)
+
+    Returns:
+        Path to CoreML model if it exists, None otherwise
+    """
+    pt_path = Path(pt_model_path)
+    coreml_path = pt_path.with_suffix(".mlpackage")
+    if coreml_path.exists():
+        return str(coreml_path)
+    return None
+
+
 class PersonDetector:
-    """Detect faces and bodies in images using YOLO, extract face embeddings."""
+    """Detect faces and bodies in images using YOLO, extract face embeddings.
+
+    On macOS, automatically uses CoreML (.mlpackage) if available for 5x faster
+    inference via the Neural Engine. CoreML is also thread-safe, unlike MPS.
+    """
 
     # Class IDs from yolov8x_person_face model
     FACE_CLASS_ID = 1
@@ -47,6 +81,7 @@ class PersonDetector:
         model_path: Optional[str] = None,
         device: Optional[str] = None,
         force_cpu: bool = False,
+        prefer_coreml: bool = True,
     ):
         """
         Initialize person detection and embedding models.
@@ -55,36 +90,59 @@ class PersonDetector:
             model_path: Path to YOLO model. If None, uses DETECTION_MODEL_PATH env var
                        or defaults to 'yolov8n.pt' (will auto-download).
             device: Device to use ('mps', 'cuda', 'cpu'). Auto-detects if not specified.
-            force_cpu: Force CPU-only mode.
+            force_cpu: Force CPU-only mode for PyTorch models.
+            prefer_coreml: On macOS, prefer CoreML (.mlpackage) if available.
+                          CoreML is faster (5x) and thread-safe. Default True.
         """
-        # Determine device
+        # Get model path from env or parameter
+        if model_path is None:
+            model_path = os.environ.get("DETECTION_MODEL_PATH", "yolov8n.pt")
+
+        # Check for CoreML model on macOS
+        self.using_coreml = False
+        coreml_path = None
+        if prefer_coreml and sys.platform == "darwin":
+            coreml_path = _get_coreml_path(model_path)
+            if coreml_path:
+                logger.info(f"Using CoreML model: {coreml_path}")
+                self.using_coreml = True
+
+        # Determine device for PyTorch operations (FaceNet, and YOLO if not using CoreML)
         if force_cpu:
             self.device = "cpu"
         elif device is not None:
             self.device = device
         else:
             # Auto-detect best available device
-            if torch.backends.mps.is_available():
-                self.device = "mps"
-            elif torch.cuda.is_available():
+            if torch.cuda.is_available():
                 self.device = "cuda"
+            elif torch.backends.mps.is_available():
+                self.device = "mps"
             else:
                 self.device = "cpu"
-
-        # Get model path from env or parameter
-        if model_path is None:
-            model_path = os.environ.get("DETECTION_MODEL_PATH", "yolov8n.pt")
 
         # Get minimum confidence from env
         self.min_confidence = float(os.environ.get("DETECTION_CONFIDENCE", "0.5"))
 
-        # Load YOLO model (with PyTorch 2.6+ compatibility patch)
-        self.model = _load_yolo_model(model_path)
+        # Load YOLO model
+        if self.using_coreml:
+            # CoreML model - task must be specified
+            self.model = _load_yolo_model(coreml_path, task="detect")
+            # CoreML handles device selection internally (ANE > GPU > CPU)
+            self._yolo_device = None
+            logger.info("PersonDetector using CoreML (Neural Engine)")
+        else:
+            # PyTorch model
+            self.model = _load_yolo_model(model_path)
+            self._yolo_device = self.device
+            logger.info(f"PersonDetector using PyTorch on {self.device}")
 
-        # Load FaceNet embedding model
+        # Load FaceNet embedding model (always PyTorch)
         self.facenet = InceptionResnetV1(pretrained="vggface2").eval()
-        if self.device in ["cuda", "mps"]:
-            self.facenet = self.facenet.to(self.device)
+        # For FaceNet, use CPU if using CoreML (safer for threading) or specified device
+        self._facenet_device = "cpu" if self.using_coreml else self.device
+        if self._facenet_device in ["cuda", "mps"]:
+            self.facenet = self.facenet.to(self._facenet_device)
 
     def detect(self, image_path: str) -> Dict[str, Any]:
         """
@@ -113,12 +171,21 @@ class PersonDetector:
             img_width, img_height = img.size
 
             # Run YOLO detection
-            results = self.model(
-                img,
-                conf=self.min_confidence,
-                device=self.device if self.device != "mps" else "cpu",  # YOLO may have MPS issues
-                verbose=False,
-            )
+            if self.using_coreml:
+                # CoreML - don't pass device parameter
+                results = self.model(
+                    img,
+                    conf=self.min_confidence,
+                    verbose=False,
+                )
+            else:
+                # PyTorch - pass device parameter
+                results = self.model(
+                    img,
+                    conf=self.min_confidence,
+                    device=self._yolo_device,
+                    verbose=False,
+                )
 
             # Parse detections
             faces: List[Dict[str, Any]] = []
@@ -300,8 +367,8 @@ class PersonDetector:
         face_tensor = face_tensor.unsqueeze(0)
 
         # Move to device
-        if self.device in ["cuda", "mps"]:
-            face_tensor = face_tensor.to(self.device)
+        if self._facenet_device in ["cuda", "mps"]:
+            face_tensor = face_tensor.to(self._facenet_device)
 
         # Extract embedding
         with torch.no_grad():

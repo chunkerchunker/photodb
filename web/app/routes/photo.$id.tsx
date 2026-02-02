@@ -1,5 +1,27 @@
 import { useMeasure } from "@react-hookz/web";
-import { Ban, Bot, Camera, ChevronDown, Code, ExternalLink, Info, MapPin, Users } from "lucide-react";
+import { Ban, Bot, Calendar, Camera, ChevronDown, Code, ExternalLink, Info, MapPin, User, Users } from "lucide-react";
+
+// Helper to format gender display
+function formatGender(gender?: string): string | null {
+  if (!gender) return null;
+  switch (gender) {
+    case "M":
+      return "Male";
+    case "F":
+      return "Female";
+    case "U":
+      return "Unknown";
+    default:
+      return null;
+  }
+}
+
+// Helper to format age estimate
+function formatAge(age?: number): string | null {
+  if (age === undefined || age === null) return null;
+  return `~${Math.round(age)} years`;
+}
+
 import { useEffect, useState } from "react";
 import { Link, useFetcher, useLocation, useNavigate } from "react-router";
 import { Breadcrumb } from "~/components/breadcrumb";
@@ -33,6 +55,10 @@ interface Face {
   cluster_id?: string;
   cluster_confidence?: number;
   match_candidates?: FaceMatchCandidate[];
+  // Age/gender fields
+  age_estimate?: number;
+  gender?: string; // 'M', 'F', 'U'
+  gender_confidence?: number;
 }
 
 interface FaceOverlayProps {
@@ -456,6 +482,38 @@ export default function PhotoDetail({ loaderData }: Route.ComponentProps) {
                                         <Users className="h-3 w-3 mr-1" />
                                         Find Similar
                                       </Badge>
+                                    )}
+                                    {/* Age/Gender badges */}
+                                    {(face.age_estimate || face.gender) && (
+                                      <div className="flex items-center space-x-1 ml-2">
+                                        {formatAge(face.age_estimate) && (
+                                          <Badge variant="outline" className="text-xs bg-blue-50 border-blue-200">
+                                            <Calendar className="h-3 w-3 mr-1" />
+                                            {formatAge(face.age_estimate)}
+                                          </Badge>
+                                        )}
+                                        {formatGender(face.gender) && (
+                                          <Badge
+                                            variant="outline"
+                                            className={cn(
+                                              "text-xs",
+                                              face.gender === "M"
+                                                ? "bg-sky-50 border-sky-200"
+                                                : face.gender === "F"
+                                                  ? "bg-pink-50 border-pink-200"
+                                                  : "bg-gray-50 border-gray-200",
+                                            )}
+                                          >
+                                            <User className="h-3 w-3 mr-1" />
+                                            {formatGender(face.gender)}
+                                            {face.gender_confidence && (
+                                              <span className="ml-1 text-gray-500">
+                                                ({Math.round(face.gender_confidence * 100)}%)
+                                              </span>
+                                            )}
+                                          </Badge>
+                                        )}
+                                      </div>
                                     )}
                                   </div>
                                   {face.match_candidates && face.match_candidates.length > 0 && (

@@ -203,7 +203,7 @@ Estimates age and gender using MiVOLO model on existing detections.
 4. Store full MiVOLO output in mivolo_output JSONB field
 
 **Key features**:
-- MiVOLO v2 model (safetensors format)
+- MiVOLO d1 model (pth.tar format, face+body)
 - Uses both face and body bboxes for improved accuracy
 - Graceful degradation if MiVOLO not installed
 - `MIVOLO_FORCE_CPU=true` for CPU fallback
@@ -545,7 +545,7 @@ DETECTION_MIN_CONFIDENCE=0.5       # Detection confidence threshold
 DETECTION_FORCE_CPU=false          # Force CPU for detection
 
 # Age/Gender Stage (MiVOLO)
-MIVOLO_MODEL_PATH=models/mivolo_v2.safetensors
+MIVOLO_MODEL_PATH=models/mivolo_d1.pth.tar
 MIVOLO_FORCE_CPU=false             # Force CPU for MiVOLO
 
 # Clustering (constrained incremental)
@@ -661,7 +661,7 @@ Download required models for detection and age/gender estimation:
 
 This downloads:
 - `yolov8x_person_face.pt` (137 MB) - YOLO face+body detector
-- `mivolo_v2.safetensors` (115 MB) - MiVOLO age/gender model
+- `mivolo_d1.pth.tar` (~330 MB) - MiVOLO age/gender model (face+body)
 
 ## Future Enhancements
 

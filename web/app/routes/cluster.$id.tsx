@@ -1,4 +1,5 @@
 import {
+  Calendar,
   Check,
   Eye,
   EyeOff,
@@ -9,6 +10,7 @@ import {
   Search,
   Star,
   Trash2,
+  User,
   UserMinus,
   Users,
   XCircle,
@@ -41,7 +43,29 @@ import {
   setClusterPersonName,
   setClusterRepresentative,
 } from "~/lib/db.server";
+import { cn } from "~/lib/utils";
 import type { Route } from "./+types/cluster.$id";
+
+// Helper to format gender display
+function formatGender(gender?: string): string | null {
+  if (!gender) return null;
+  switch (gender) {
+    case "M":
+      return "Male";
+    case "F":
+      return "Female";
+    case "U":
+      return "Unknown";
+    default:
+      return null;
+  }
+}
+
+// Helper to format age estimate
+function formatAge(age?: number): string | null {
+  if (age === undefined || age === null) return null;
+  return `~${Math.round(age)}`;
+}
 
 export function meta({ params }: Route.MetaArgs) {
   return [
@@ -663,7 +687,7 @@ export default function ClusterDetailView({ loaderData }: Route.ComponentProps) 
             <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-6 gap-4">
               {faces.map((face) => {
                 const isSelected = selectedFaces.includes(face.id);
-                const isRepresentative = face.id === cluster.representative_face_id;
+                const isRepresentative = face.id === cluster.representative_detection_id;
 
                 return (
                   <Card
@@ -717,6 +741,33 @@ export default function ClusterDetailView({ loaderData }: Route.ComponentProps) 
                           <div className="text-xs text-gray-500">
                             {Math.round(face.cluster_confidence * 100)}% confidence
                           </div>
+                          {/* Age/Gender badges */}
+                          {(face.age_estimate || face.gender) && (
+                            <div className="flex items-center justify-center space-x-1 mt-1">
+                              {formatAge(face.age_estimate) && (
+                                <Badge variant="outline" className="text-xs bg-blue-50 border-blue-200 px-1.5 py-0">
+                                  <Calendar className="h-2.5 w-2.5 mr-0.5" />
+                                  {formatAge(face.age_estimate)}
+                                </Badge>
+                              )}
+                              {formatGender(face.gender) && (
+                                <Badge
+                                  variant="outline"
+                                  className={cn(
+                                    "text-xs px-1.5 py-0",
+                                    face.gender === "M"
+                                      ? "bg-sky-50 border-sky-200"
+                                      : face.gender === "F"
+                                        ? "bg-pink-50 border-pink-200"
+                                        : "bg-gray-50 border-gray-200",
+                                  )}
+                                >
+                                  <User className="h-2.5 w-2.5 mr-0.5" />
+                                  {face.gender === "M" ? "M" : face.gender === "F" ? "F" : "?"}
+                                </Badge>
+                              )}
+                            </div>
+                          )}
                         </div>
                       </div>
                     </CardContent>

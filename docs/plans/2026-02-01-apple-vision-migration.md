@@ -1,5 +1,7 @@
 # Apple Vision Framework Migration Implementation Plan
 
+NOTE: This plan was archived and not implemented, in favor of (2026-02-02-scene-sentiment-analysis.md).
+
 > **For Claude:** REQUIRED SUB-SKILL: Use superpowers:executing-plans to implement this plan task-by-task.
 
 **Goal:** Migrate face/body detection from YOLO+FaceNet to Apple Vision Framework, adding sentiment analysis for scenes and detected people, with a generalizable schema supporting multiple detection models/pipelines.
@@ -42,6 +44,7 @@ Current schema tightly couples `person_detection` to YOLO+FaceNet. New design:
 ## Task 1: Add PyObjC Dependencies
 
 **Files:**
+
 - Modify: `pyproject.toml:6-28`
 
 **Step 1: Add pyobjc dependencies**
@@ -74,6 +77,7 @@ git commit -m "deps: add pyobjc-framework-Vision and Quartz for Apple Vision"
 ## Task 2: Create Database Migration for Generalizable Schema
 
 **Files:**
+
 - Create: `migrations/006_add_analysis_output.sql`
 
 **Step 1: Write migration SQL**
@@ -190,6 +194,7 @@ git commit -m "db: add generalizable analysis_output schema for multi-model supp
 ## Task 3: Add New Database Models
 
 **Files:**
+
 - Modify: `src/photodb/database/models.py`
 
 **Step 1: Add AnalysisOutput dataclass**
@@ -351,6 +356,7 @@ git commit -m "models: add AnalysisOutput, SceneAnalysis, DetectorRegistry"
 ## Task 4: Add Repository Methods for New Tables
 
 **Files:**
+
 - Modify: `src/photodb/database/pg_repository.py`
 
 **Step 1: Add AnalysisOutput repository methods**
@@ -517,6 +523,7 @@ git commit -m "repo: add methods for AnalysisOutput and SceneAnalysis"
 ## Task 5: Create Apple Vision Detector Utility
 
 **Files:**
+
 - Create: `src/photodb/utils/apple_vision_detector.py`
 - Test: `tests/test_apple_vision_detector.py`
 
@@ -1056,6 +1063,7 @@ git commit -m "feat: add AppleVisionDetector using macOS Vision Framework"
 ## Task 6: Create Sentiment Analyzer
 
 **Files:**
+
 - Create: `src/photodb/utils/sentiment_analyzer.py`
 - Test: `tests/test_sentiment_analyzer.py`
 
@@ -1443,6 +1451,7 @@ git commit -m "feat: add SentimentAnalyzer for scene and face sentiment"
 ## Task 7: Create Apple Vision Detection Stage
 
 **Files:**
+
 - Create: `src/photodb/stages/apple_vision_detection.py`
 - Test: `tests/test_apple_vision_detection_stage.py`
 
@@ -1780,6 +1789,7 @@ git commit -m "feat: add AppleVisionDetectionStage with sentiment analysis"
 ## Task 8: Register Stage in CLI
 
 **Files:**
+
 - Modify: `src/photodb/cli_local.py`
 
 **Step 1: Add apple_vision_detection to available stages**
@@ -1825,6 +1835,7 @@ git commit -m "cli: register AppleVisionDetectionStage in process-local"
 ## Task 9: Update Configuration Documentation
 
 **Files:**
+
 - Modify: `CLAUDE.md`
 
 **Step 1: Add Apple Vision configuration section**
@@ -1853,6 +1864,7 @@ uv run process-local /path/to/photos --stage apple_vision_detection --force
 ```
 
 **Note:** This stage is only available on macOS. It uses the Apple Neural Engine when available for fast, efficient inference. Unlike YOLO+FaceNet, no GPU or model downloads required.
+
 ```
 
 **Step 2: Commit**
@@ -1867,6 +1879,7 @@ git commit -m "docs: add Apple Vision detection configuration to CLAUDE.md"
 ## Task 10: Create Migration Guide
 
 **Files:**
+
 - Create: `docs/APPLE_VISION_MIGRATION.md`
 
 **Step 1: Write migration guide**
@@ -1909,6 +1922,7 @@ psql $DATABASE_URL -f migrations/006_add_analysis_output.sql
 ```
 
 This adds:
+
 - `analysis_output` table for model-agnostic raw outputs
 - `detector_registry` table for tracking available models
 - `scene_analysis` table for photo-level classifications
@@ -1961,6 +1975,7 @@ uv run process-local /path/to/photos --stage apple_vision_detection
 ```
 
 Results are stored with different `detector_model` values:
+
 - `"YOLO+FaceNet"` for the original detector
 - `"apple_vision"` for Apple Vision Framework
 
@@ -1991,9 +2006,11 @@ WHERE model_type = 'landmarks' AND model_name = 'apple_vision';
 ### Performance issues
 
 Apple Vision uses the Neural Engine automatically. If slow:
+
 1. Ensure photos are normalized first
 2. Process in smaller batches
 3. Check Activity Monitor for "nsurlsessiond" (shouldn't be running during local processing)
+
 ```
 
 **Step 2: Commit**
@@ -2017,6 +2034,7 @@ This plan migrates PhotoDB from YOLO+FaceNet to Apple Vision Framework with:
 6. **Backward compatibility**: Original YOLO detection remains available
 
 Key architectural decisions:
+
 - Raw model outputs preserved for auditability and debugging
 - Schema supports adding new models without migrations
 - Sentiment derived from Vision outputs rather than separate model

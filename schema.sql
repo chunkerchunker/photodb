@@ -123,49 +123,86 @@ CREATE TABLE IF NOT EXISTS person(
     id bigserial PRIMARY KEY,
     first_name text NOT NULL,
     last_name text,
+    -- Age/gender aggregation from detections
+    estimated_birth_year integer,
+    birth_year_stddev real,
+    gender char(1) CHECK (gender IN ('M', 'F', 'U')),
+    gender_confidence real,
+    age_gender_sample_count integer DEFAULT 0,
+    age_gender_updated_at timestamptz,
     created_at timestamp with time zone DEFAULT NOW(),
     updated_at timestamp with time zone DEFAULT NOW()
 );
 
--- Faces table: Detected faces in photos with bounding boxes
-CREATE TABLE IF NOT EXISTS face(
+-- Person Detection table: Detected faces/bodies in photos with bounding boxes and age/gender
+CREATE TABLE IF NOT EXISTS person_detection(
     id bigserial PRIMARY KEY,
     photo_id bigint NOT NULL,
-    -- Bounding box coordinates (normalized 0.0-1.0 or pixel values)
-    bbox_x real NOT NULL, -- X coordinate of top-left corner
-    bbox_y real NOT NULL, -- Y coordinate of top-left corner
-    bbox_width real NOT NULL, -- Width of bounding box
-    bbox_height real NOT NULL, -- Height of bounding box
-    confidence DECIMAL(3, 2) NOT NULL DEFAULT 0, -- Face detection confidence 0.00-1.00
-    -- Detection metadata
-    person_id bigint,
+
+    -- Face bounding box (nullable - may have body-only detection)
+    face_bbox_x real,
+    face_bbox_y real,
+    face_bbox_width real,
+    face_bbox_height real,
+    face_confidence real,
+
+    -- Body bounding box (nullable - may have face-only detection)
+    body_bbox_x real,
+    body_bbox_y real,
+    body_bbox_width real,
+    body_bbox_height real,
+    body_confidence real,
+
+    -- Age/gender estimation
+    age_estimate real,
+    gender char(1) CHECK (gender IN ('M', 'F', 'U')),
+    gender_confidence real,
+    mivolo_output jsonb,
+
     -- Clustering fields
+    person_id bigint,
     cluster_status text CHECK (cluster_status IN ('auto', 'pending', 'manual', 'unassigned', 'constrained')) DEFAULT NULL,
-    cluster_id bigint REFERENCES "cluster"(id) ON DELETE SET NULL,
-    cluster_confidence DECIMAL(3, 2) DEFAULT 0, -- Cluster assignment confidence 0.00-1.00
+    cluster_id bigint,
+    cluster_confidence real DEFAULT 0,
+
     -- Unassigned pool tracking
-    unassigned_since timestamptz DEFAULT NULL, -- When face was added to unassigned pool
+    unassigned_since timestamptz DEFAULT NULL,
+
+    -- Detector metadata
+    detector_model text,
+    detector_version text,
+
+    -- Timestamps
+    created_at timestamptz DEFAULT now(),
+
     FOREIGN KEY (photo_id) REFERENCES photo(id) ON DELETE CASCADE,
-    FOREIGN KEY (person_id) REFERENCES person(id) ON DELETE SET NULL
+    FOREIGN KEY (person_id) REFERENCES person(id) ON DELETE SET NULL,
+    FOREIGN KEY (cluster_id) REFERENCES "cluster"(id) ON DELETE SET NULL
 );
 
--- Indexes for face detection performance
-CREATE INDEX IF NOT EXISTS idx_face_photo_id ON face(photo_id);
+-- Indexes for person detection performance
+CREATE INDEX IF NOT EXISTS idx_person_detection_photo_id ON person_detection(photo_id);
 
-CREATE INDEX IF NOT EXISTS idx_face_person_id ON face(person_id);
+CREATE INDEX IF NOT EXISTS idx_person_detection_person_id ON person_detection(person_id);
 
-CREATE INDEX IF NOT EXISTS idx_face_confidence ON face(confidence);
+CREATE INDEX IF NOT EXISTS idx_person_detection_face_confidence ON person_detection(face_confidence);
 
-CREATE INDEX IF NOT EXISTS idx_face_cluster_status ON face(cluster_status);
+CREATE INDEX IF NOT EXISTS idx_person_detection_cluster_status ON person_detection(cluster_status);
 
-CREATE INDEX IF NOT EXISTS idx_face_cluster_id ON face(cluster_id);
+CREATE INDEX IF NOT EXISTS idx_person_detection_cluster_id ON person_detection(cluster_id);
+
+CREATE INDEX IF NOT EXISTS idx_person_detection_unassigned ON person_detection(unassigned_since) WHERE cluster_id IS NULL;
+
+CREATE INDEX IF NOT EXISTS idx_person_detection_gender ON person_detection(gender);
+
+CREATE INDEX IF NOT EXISTS idx_person_detection_age ON person_detection(age_estimate);
 
 CREATE INDEX IF NOT EXISTS idx_person_first_name ON person(first_name);
 CREATE INDEX IF NOT EXISTS idx_person_last_name ON person(last_name);
 
 -- Face-level embeddings (for clustering & recognition)
 CREATE TABLE IF NOT EXISTS face_embedding(
-    face_id bigint PRIMARY KEY REFERENCES face(id) ON DELETE CASCADE,
+    person_detection_id bigint PRIMARY KEY REFERENCES person_detection(id) ON DELETE CASCADE,
     embedding vector(512) NOT NULL
 );
 
@@ -176,9 +213,9 @@ CREATE TABLE IF NOT EXISTS "cluster"(
     id bigserial PRIMARY KEY,
     face_count bigint DEFAULT 0,
     face_count_at_last_medoid bigint DEFAULT 0, -- For threshold-based medoid recomputation
-    representative_face_id bigint REFERENCES face(id) ON DELETE SET NULL,
+    representative_detection_id bigint REFERENCES person_detection(id) ON DELETE SET NULL,
     centroid VECTOR(512),
-    medoid_face_id bigint REFERENCES face(id) ON DELETE SET NULL,
+    medoid_detection_id bigint REFERENCES person_detection(id) ON DELETE SET NULL,
     person_id bigint REFERENCES person(id) ON DELETE SET NULL,
     -- Verification status to protect human-verified clusters
     verified boolean DEFAULT false,
@@ -194,7 +231,7 @@ CREATE TABLE IF NOT EXISTS "cluster"(
 -- Tracks potential cluster assignments requiring review
 CREATE TABLE IF NOT EXISTS face_match_candidate(
     candidate_id bigserial PRIMARY KEY,
-    face_id bigint REFERENCES face(id) ON DELETE CASCADE,
+    detection_id bigint REFERENCES person_detection(id) ON DELETE CASCADE,
     cluster_id bigint REFERENCES "cluster"(id) ON DELETE CASCADE,
     similarity float NOT NULL,
     status text CHECK (status IN ('pending', 'accepted', 'rejected')) DEFAULT 'pending',
@@ -204,32 +241,30 @@ CREATE TABLE IF NOT EXISTS face_match_candidate(
 -- Indexes for clustering performance
 CREATE INDEX IF NOT EXISTS idx_cluster_centroid ON "cluster" USING ivfflat(centroid vector_cosine_ops) WITH (lists = 100);
 
-CREATE INDEX IF NOT EXISTS idx_face_match_candidate_face ON face_match_candidate(face_id);
+CREATE INDEX IF NOT EXISTS idx_face_match_candidate_detection ON face_match_candidate(detection_id);
 
 CREATE INDEX IF NOT EXISTS idx_face_match_candidate_status ON face_match_candidate(status);
 
-CREATE INDEX IF NOT EXISTS idx_face_unassigned ON face(unassigned_since) WHERE cluster_id IS NULL;
-
--- Must-link constraint: forces faces to be in the same cluster
+-- Must-link constraint: forces detections to be in the same cluster
 CREATE TABLE IF NOT EXISTS must_link(
     id bigserial PRIMARY KEY,
-    face_id_1 bigint NOT NULL REFERENCES face(id) ON DELETE CASCADE,
-    face_id_2 bigint NOT NULL REFERENCES face(id) ON DELETE CASCADE,
+    detection_id_1 bigint NOT NULL REFERENCES person_detection(id) ON DELETE CASCADE,
+    detection_id_2 bigint NOT NULL REFERENCES person_detection(id) ON DELETE CASCADE,
     created_by text DEFAULT 'human', -- 'human' or 'system'
     created_at timestamptz DEFAULT NOW(),
-    UNIQUE(face_id_1, face_id_2),
-    CHECK (face_id_1 < face_id_2) -- Canonical ordering to prevent duplicates
+    UNIQUE(detection_id_1, detection_id_2),
+    CHECK (detection_id_1 < detection_id_2) -- Canonical ordering to prevent duplicates
 );
 
--- Cannot-link constraint: prevents faces from being in the same cluster
+-- Cannot-link constraint: prevents detections from being in the same cluster
 CREATE TABLE IF NOT EXISTS cannot_link(
     id bigserial PRIMARY KEY,
-    face_id_1 bigint NOT NULL REFERENCES face(id) ON DELETE CASCADE,
-    face_id_2 bigint NOT NULL REFERENCES face(id) ON DELETE CASCADE,
+    detection_id_1 bigint NOT NULL REFERENCES person_detection(id) ON DELETE CASCADE,
+    detection_id_2 bigint NOT NULL REFERENCES person_detection(id) ON DELETE CASCADE,
     created_by text DEFAULT 'human',
     created_at timestamptz DEFAULT NOW(),
-    UNIQUE(face_id_1, face_id_2),
-    CHECK (face_id_1 < face_id_2)
+    UNIQUE(detection_id_1, detection_id_2),
+    CHECK (detection_id_1 < detection_id_2)
 );
 
 -- Cluster-level cannot-link for efficiency (prevents merging)
@@ -243,11 +278,78 @@ CREATE TABLE IF NOT EXISTS cluster_cannot_link(
 );
 
 -- Indexes for constraint lookups
-CREATE INDEX IF NOT EXISTS idx_must_link_face1 ON must_link(face_id_1);
-CREATE INDEX IF NOT EXISTS idx_must_link_face2 ON must_link(face_id_2);
-CREATE INDEX IF NOT EXISTS idx_cannot_link_face1 ON cannot_link(face_id_1);
-CREATE INDEX IF NOT EXISTS idx_cannot_link_face2 ON cannot_link(face_id_2);
+CREATE INDEX IF NOT EXISTS idx_must_link_detection1 ON must_link(detection_id_1);
+CREATE INDEX IF NOT EXISTS idx_must_link_detection2 ON must_link(detection_id_2);
+CREATE INDEX IF NOT EXISTS idx_cannot_link_detection1 ON cannot_link(detection_id_1);
+CREATE INDEX IF NOT EXISTS idx_cannot_link_detection2 ON cannot_link(detection_id_2);
 CREATE INDEX IF NOT EXISTS idx_cluster_cannot_link_c1 ON cluster_cannot_link(cluster_id_1);
 CREATE INDEX IF NOT EXISTS idx_cluster_cannot_link_c2 ON cluster_cannot_link(cluster_id_2);
 CREATE INDEX IF NOT EXISTS idx_cluster_verified ON "cluster"(verified) WHERE verified = true;
 
+-- Helper functions for constraint management
+
+-- Function to add a must-link constraint with canonical ordering
+CREATE OR REPLACE FUNCTION add_must_link(p_detection_id_1 bigint, p_detection_id_2 bigint, p_created_by text DEFAULT 'human')
+RETURNS bigint AS $$
+DECLARE
+    v_id bigint;
+    v_detection_1 bigint;
+    v_detection_2 bigint;
+BEGIN
+    -- Ensure canonical ordering
+    IF p_detection_id_1 < p_detection_id_2 THEN
+        v_detection_1 := p_detection_id_1;
+        v_detection_2 := p_detection_id_2;
+    ELSE
+        v_detection_1 := p_detection_id_2;
+        v_detection_2 := p_detection_id_1;
+    END IF;
+
+    INSERT INTO must_link (detection_id_1, detection_id_2, created_by)
+    VALUES (v_detection_1, v_detection_2, p_created_by)
+    ON CONFLICT (detection_id_1, detection_id_2) DO NOTHING
+    RETURNING id INTO v_id;
+
+    RETURN v_id;
+END;
+$$ LANGUAGE plpgsql;
+
+-- Function to add a cannot-link constraint with canonical ordering
+CREATE OR REPLACE FUNCTION add_cannot_link(p_detection_id_1 bigint, p_detection_id_2 bigint, p_created_by text DEFAULT 'human')
+RETURNS bigint AS $$
+DECLARE
+    v_id bigint;
+    v_detection_1 bigint;
+    v_detection_2 bigint;
+BEGIN
+    -- Ensure canonical ordering
+    IF p_detection_id_1 < p_detection_id_2 THEN
+        v_detection_1 := p_detection_id_1;
+        v_detection_2 := p_detection_id_2;
+    ELSE
+        v_detection_1 := p_detection_id_2;
+        v_detection_2 := p_detection_id_1;
+    END IF;
+
+    INSERT INTO cannot_link (detection_id_1, detection_id_2, created_by)
+    VALUES (v_detection_1, v_detection_2, p_created_by)
+    ON CONFLICT (detection_id_1, detection_id_2) DO NOTHING
+    RETURNING id INTO v_id;
+
+    RETURN v_id;
+END;
+$$ LANGUAGE plpgsql;
+
+-- Function to check if a constraint violation exists
+CREATE OR REPLACE FUNCTION check_constraint_violations()
+RETURNS TABLE(constraint_id bigint, cluster_id bigint, detection_id_1 bigint, detection_id_2 bigint) AS $$
+BEGIN
+    RETURN QUERY
+    SELECT cl.id, pd1.cluster_id, cl.detection_id_1, cl.detection_id_2
+    FROM cannot_link cl
+    JOIN person_detection pd1 ON cl.detection_id_1 = pd1.id
+    JOIN person_detection pd2 ON cl.detection_id_2 = pd2.id
+    WHERE pd1.cluster_id = pd2.cluster_id
+      AND pd1.cluster_id IS NOT NULL;
+END;
+$$ LANGUAGE plpgsql;

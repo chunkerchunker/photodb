@@ -92,8 +92,8 @@ class TestPersonDetectorUnit:
     def test_detector_initialization_with_custom_confidence(
         self, mock_yolo, mock_embedding_extractor, monkeypatch
     ):
-        """Test detector respects DETECTION_CONFIDENCE env var."""
-        monkeypatch.setenv("DETECTION_CONFIDENCE", "0.7")
+        """Test detector respects DETECTION_MIN_CONFIDENCE env var."""
+        monkeypatch.setenv("DETECTION_MIN_CONFIDENCE", "0.7")
         with patch("src.photodb.utils.person_detector.YOLO", return_value=mock_yolo):
             with patch(
                 "src.photodb.utils.person_detector.EmbeddingExtractor",

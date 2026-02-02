@@ -544,8 +544,8 @@ Add new section after "Age/Gender Stage Configuration":
 ```markdown
 ### Face Embedding Configuration
 
-- `INSIGHTFACE_MODEL`: InsightFace model pack name (default: `buffalo_l`)
-- `INSIGHTFACE_DET_SIZE`: Detection input size (default: `640`)
+- `EMBEDDING_MODEL_NAME`: InsightFace model pack name (default: `buffalo_l`)
+- `EMBEDDING_MODEL_ROOT`: Root directory for InsightFace models (default: `~/.insightface/models`)
 
 **Hardware Acceleration:**
 - **macOS:** Uses CoreML via `onnxruntime-silicon` for Neural Engine acceleration (thread-safe)

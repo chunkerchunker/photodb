@@ -123,7 +123,7 @@ class PersonDetector:
                 self.device = "cpu"
 
         # Get minimum confidence from env
-        self.min_confidence = float(os.environ.get("DETECTION_CONFIDENCE", "0.5"))
+        self.min_confidence = float(os.environ.get("DETECTION_MIN_CONFIDENCE", "0.5"))
 
         # Load YOLO model
         if self.using_coreml:

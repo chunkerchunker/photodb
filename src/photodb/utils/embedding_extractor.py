@@ -113,7 +113,7 @@ class EmbeddingExtractor:
 
     def __init__(
         self,
-        model_name: str = "buffalo_l",
+        model_name: Optional[str] = None,
         det_size: Tuple[int, int] = (640, 640),
         model_root: Optional[str] = None,
     ):
@@ -122,23 +122,25 @@ class EmbeddingExtractor:
 
         Args:
             model_name: InsightFace model name. Default "buffalo_l" uses ArcFace
-                       with ResNet100 backbone for best accuracy.
+                       with ResNet100 backbone for best accuracy. Can be overridden
+                       with EMBEDDING_MODEL_NAME environment variable.
             det_size: Detection size tuple (width, height). Default (640, 640).
                      This parameter is kept for API compatibility but not used
                      since we use external YOLO detection.
             model_root: Root directory for InsightFace models. Default uses
-                       ~/.insightface/models
+                       ~/.insightface/models. Can be overridden with
+                       EMBEDDING_MODEL_ROOT environment variable.
         """
-        self.model_name = model_name
+        self.model_name = model_name or os.environ.get("EMBEDDING_MODEL_NAME", "buffalo_l")
         self.det_size = det_size
-        self.model_root = model_root or DEFAULT_MODEL_ROOT
+        self.model_root = model_root or os.environ.get("EMBEDDING_MODEL_ROOT") or DEFAULT_MODEL_ROOT
 
         # Get optimal providers for current platform
         self.providers = _get_providers()
         logger.info(f"EmbeddingExtractor using ONNX providers: {self.providers}")
 
         # Find and load the recognition model
-        model_path = _ensure_model_available(model_name, self.model_root)
+        model_path = _ensure_model_available(self.model_name, self.model_root)
         logger.info(f"Loading ArcFace model from: {model_path}")
 
         # Load the ArcFace model directly using model_zoo

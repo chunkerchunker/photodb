@@ -627,7 +627,7 @@ class PhotoRepository:
                     "SELECT embedding FROM face_embedding WHERE face_id = %s", (face_id,)
                 )
                 row = cursor.fetchone()
-                return list(row[0]) if row else None
+                return [float(x) for x in row[0]] if row else None
 
     def find_similar_faces(
         self, query_embedding: List[float], threshold: float = 0.6, limit: int = 10
@@ -1721,7 +1721,7 @@ class PhotoRepository:
                     (detection_id,),
                 )
                 row = cursor.fetchone()
-                return list(row[0]) if row else None
+                return [float(x) for x in row[0]] if row else None
 
     def remove_detection_from_cluster(
         self,
@@ -1997,7 +1997,7 @@ class PhotoRepository:
             category_id=row[1],
             label=row[2],
             prompt_text=row[3],
-            embedding=list(row[4]) if row[4] else None,
+            embedding=[float(x) for x in row[4]] if row[4] is not None else None,
             model_name=row[5],
             model_version=row[6],
             display_name=row[7],

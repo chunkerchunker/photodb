@@ -49,6 +49,26 @@ FACE_GAZE_PROMPTS = [
     ("eyes_closed", "a photo of a person with eyes closed"),
 ]
 
+FACE_EXPRESSION_PROMPTS = [
+    ("smiling", "a photo of a person smiling with teeth showing"),
+    ("grinning", "a photo of a person with a wide grin"),
+    ("slight_smile", "a photo of a person with a slight subtle smile"),
+    ("frowning", "a photo of a person frowning with furrowed brow"),
+    ("pouting", "a photo of a person pouting with pursed lips"),
+    ("laughing", "a photo of a person laughing with mouth open"),
+    ("crying", "a photo of a person crying with tears"),
+    ("yawning", "a photo of a person yawning with mouth wide open"),
+    ("squinting", "a photo of a person squinting with narrowed eyes"),
+    ("wide_eyed", "a photo of a person with wide open eyes"),
+    ("raised_eyebrows", "a photo of a person with raised eyebrows"),
+    ("winking", "a photo of a person winking with one eye closed"),
+    ("tongue_out", "a photo of a person sticking tongue out"),
+    ("biting_lip", "a photo of a person biting their lip"),
+    ("pensive", "a photo of a person with a thoughtful pensive look"),
+    ("serious", "a photo of a person with a serious stern expression"),
+    ("relaxed", "a photo of a person with a relaxed calm face"),
+]
+
 SCENE_MOOD_PROMPTS = [
     ("joyful", "a joyful happy celebratory cheerful scene"),
     ("peaceful", "a peaceful calm serene tranquil scene"),
@@ -132,6 +152,7 @@ SCENE_SOCIAL_PROMPTS = [
 PROMPT_SETS = {
     "face_emotion": FACE_EMOTION_PROMPTS,
     "face_gaze": FACE_GAZE_PROMPTS,
+    "face_expression": FACE_EXPRESSION_PROMPTS,
     "scene_mood": SCENE_MOOD_PROMPTS,
     "scene_setting": SCENE_SETTING_PROMPTS,
     "scene_activity": SCENE_ACTIVITY_PROMPTS,
@@ -233,7 +254,7 @@ def main():
         logger.exception("Full traceback:")
         sys.exit(1)
     finally:
-        pool.close()
+        pool.close_all()
 
 
 if __name__ == "__main__":

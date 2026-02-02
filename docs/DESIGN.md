@@ -1,6 +1,6 @@
 # PhotoDB Design Document
 
-PhotoDB is a personal photo indexing pipeline that processes photos through multiple stages to create a searchable, navigable database. It combines local processing (file normalization, metadata extraction, face detection, clustering) with remote LLM-based enrichment.
+PhotoDB is a personal photo indexing pipeline that processes photos through multiple stages to create a searchable, navigable database. It combines local processing (file normalization, metadata extraction, person detection, age/gender estimation, clustering) with remote LLM-based enrichment.
 
 ## Architecture Overview
 
@@ -12,8 +12,9 @@ Photo Files (raw)
 │  LOCAL PROCESSING (process-local CLI)               │
 │  ├─ Stage 1: Normalize - Convert to PNG, resize     │
 │  ├─ Stage 2: Metadata - Extract EXIF data           │
-│  ├─ Stage 3: Faces - Detect faces, extract embed.   │
-│  └─ Stage 4: Clustering - Group faces by identity   │
+│  ├─ Stage 3: Detection - YOLO face+body detection   │
+│  ├─ Stage 4: Age/Gender - MiVOLO estimation         │
+│  └─ Stage 5: Clustering - Group detections by ID    │
 └─────────────────────────────────────────────────────┘
        │
        ▼ (PostgreSQL + pgvector)
@@ -56,7 +57,8 @@ uv run process-local /path/to/photos --parallel 500
 # Specific stage only
 uv run process-local /path/to/photos --stage normalize
 uv run process-local /path/to/photos --stage metadata
-uv run process-local /path/to/photos --stage faces
+uv run process-local /path/to/photos --stage detection
+uv run process-local /path/to/photos --stage age_gender
 uv run process-local /path/to/photos --stage clustering
 
 # Force reprocessing
@@ -161,57 +163,83 @@ Extracts EXIF/TIFF/IFD metadata from original images.
 
 **Output**: Metadata record with captured_at, GPS, and full EXIF
 
-### Stage 3: Faces
+### Stage 3: Detection
 
-**File**: `src/photodb/stages/faces.py`
+**File**: `src/photodb/stages/detection.py`
 
-Detects faces and extracts embeddings for clustering.
+Detects faces and bodies using YOLOv8x, extracts face embeddings for clustering.
 
 **Process**:
 1. Load normalized image
-2. Detect faces using MTCNN (Multi-task Cascaded CNNs)
-3. Filter by confidence threshold (default: 0.85)
-4. Extract 512-dimensional FaceNet embeddings (InceptionResnetV1)
-5. Store face records with bounding boxes
-6. Save embeddings in pgvector format
+2. Run YOLOv8x person_face model (detects both faces and bodies)
+3. Match faces to bodies based on spatial containment
+4. Filter by confidence threshold (default: 0.5)
+5. Extract 512-dimensional FaceNet embeddings for faces (InceptionResnetV1)
+6. Store person_detection records with face and body bounding boxes
+7. Save face embeddings in pgvector format
 
 **Key features**:
+- YOLOv8x person_face model for unified face+body detection
+- Face-to-body matching via spatial containment algorithm
 - PyTorch with auto device detection (MPS/CUDA/CPU)
-- `FACE_DETECTION_FORCE_CPU=true` for CPU fallback
-- MTCNN parameters: margin=20, min_face_size=20
+- `DETECTION_FORCE_CPU=true` for CPU fallback
 - L2-normalized embeddings for cosine similarity
+- Supports face-only, body-only, and face+body detections
 
-**Output**: Face records + pgvector embeddings
+**Output**: PersonDetection records + pgvector embeddings (for faces)
 
-### Stage 4: Clustering
+### Stage 4: Age/Gender
+
+**File**: `src/photodb/stages/age_gender.py`
+
+Estimates age and gender using MiVOLO model on existing detections.
+
+**Process**:
+1. Load existing person_detection records for photo
+2. For each detection with face or body bbox:
+   - Run MiVOLO prediction with available bboxes
+   - MiVOLO performs better with both face AND body
+3. Update detection records with age_estimate, gender, gender_confidence
+4. Store full MiVOLO output in mivolo_output JSONB field
+
+**Key features**:
+- MiVOLO v2 model (safetensors format)
+- Uses both face and body bboxes for improved accuracy
+- Graceful degradation if MiVOLO not installed
+- `MIVOLO_FORCE_CPU=true` for CPU fallback
+- Gender stored as CHAR(1): 'M', 'F', or 'U' (unknown)
+
+**Output**: Updated PersonDetection records with age/gender data
+
+### Stage 5: Clustering
 
 **File**: `src/photodb/stages/clustering.py`
 
-Constrained incremental clustering for face identity grouping.
+Constrained incremental clustering for person identity grouping based on face embeddings.
 
-**Algorithm** (per-face with constraints):
+**Algorithm** (per-detection with constraints):
 
-1. **Check must-link constraints** - if face has must-link to clustered face, assign directly
-2. **Find K nearest neighbors** (faces, not clusters) using pgvector
+1. **Check must-link constraints** - if detection has must-link to clustered detection, assign directly
+2. **Find K nearest neighbors** (detections, not clusters) using pgvector
 3. **Calculate core distance confidence** - mean distance to K neighbors
 4. **Filter by cannot-link constraints** - remove forbidden clusters
 5. **Apply decision rules**:
    - **No valid matches**: Add to unassigned pool
    - **Single valid cluster**: Assign (stricter threshold for verified clusters)
    - **Multiple valid clusters**: Mark for manual review
-6. **Unassigned pool**: When enough similar unassigned faces accumulate, form new cluster
+6. **Unassigned pool**: When enough similar unassigned detections accumulate, form new cluster
 
-**Pool Cluster Formation** (prevents chaining of dissimilar faces):
+**Pool Cluster Formation** (prevents chaining of dissimilar detections):
 
-1. Calculate centroid from all similar unassigned faces
-2. Filter to only faces within `POOL_CLUSTERING_THRESHOLD` of centroid
-3. Recalculate centroid with filtered faces only
-4. Find medoid (face closest to centroid)
-5. Assign faces with confidence based on distance to centroid
+1. Calculate centroid from all similar unassigned detections
+2. Filter to only detections within `POOL_CLUSTERING_THRESHOLD` of centroid
+3. Recalculate centroid with filtered detections only
+4. Find medoid (detection closest to centroid)
+5. Assign detections with confidence based on distance to centroid
 
 **Inline Medoid Recomputation**:
 
-When a cluster grows by `MEDOID_RECOMPUTE_THRESHOLD` (default 25%) since last medoid computation, the medoid is recomputed inline during face assignment. This uses `face_count_at_last_medoid` to track when recomputation is needed.
+When a cluster grows by `MEDOID_RECOMPUTE_THRESHOLD` (default 25%) since last medoid computation, the medoid is recomputed inline during detection assignment. This uses `face_count_at_last_medoid` to track when recomputation is needed.
 
 **Concurrency Safety**:
 
@@ -285,7 +313,7 @@ processing_status (
     photo_id, stage, status, processed_at, error_message
 )
 -- status: 'pending' | 'processing' | 'completed' | 'failed'
--- stage: 'normalize' | 'metadata' | 'faces' | 'clustering' | 'enrich'
+-- stage: 'normalize' | 'metadata' | 'detection' | 'age_gender' | 'clustering' | 'enrich'
 ```
 
 ### LLM Analysis Tables
@@ -310,38 +338,55 @@ batch_job (
 )
 ```
 
-### Face Detection & Clustering Tables
+### Person Detection & Clustering Tables
 
 ```sql
--- Named individuals
-person (id, name, created_at, updated_at)
+-- Named individuals (with aggregated age/gender)
+person (
+    id, first_name, last_name,
+    estimated_birth_year, birth_year_stddev,  -- Aggregated from detections
+    gender, gender_confidence,                 -- Aggregated from detections
+    age_gender_sample_count, age_gender_updated_at,
+    created_at, updated_at
+)
 
--- Detected faces
-face (
-    id, photo_id, bbox_x, bbox_y, bbox_width, bbox_height,
-    confidence, person_id, cluster_status, cluster_id, cluster_confidence,
-    unassigned_since  -- When added to unassigned pool
+-- Detected faces and bodies (replaces old face table)
+person_detection (
+    id, photo_id,
+    -- Face bounding box (nullable - may have body-only detection)
+    face_bbox_x, face_bbox_y, face_bbox_width, face_bbox_height, face_confidence,
+    -- Body bounding box (nullable - may have face-only detection)
+    body_bbox_x, body_bbox_y, body_bbox_width, body_bbox_height, body_confidence,
+    -- Age/gender estimation (from MiVOLO)
+    age_estimate, gender, gender_confidence, mivolo_output JSONB,
+    -- Clustering
+    person_id, cluster_status, cluster_id, cluster_confidence,
+    unassigned_since,  -- When added to unassigned pool
+    -- Detector metadata
+    detector_model, detector_version,
+    created_at
 )
 -- cluster_status: 'auto' | 'pending' | 'manual' | 'unassigned' | 'constrained'
+-- gender: 'M' | 'F' | 'U' (unknown)
 
--- Face embeddings (pgvector)
+-- Face embeddings (pgvector) - only for detections with faces
 face_embedding (
-    face_id, embedding VECTOR(512)
+    person_detection_id, embedding VECTOR(512)
 )
 -- IVFFlat index for similarity search
 
 -- Identity clusters
 cluster (
-    id, face_count, representative_face_id,
-    centroid VECTOR(512), medoid_face_id,
+    id, face_count, representative_detection_id,
+    centroid VECTOR(512), medoid_detection_id,
     face_count_at_last_medoid,  -- Tracks when to recompute medoid
     person_id, verified, verified_at, verified_by,  -- Cluster verification
     created_at, updated_at
 )
 
--- Ambiguous face matches for review
+-- Ambiguous detection matches for review
 face_match_candidate (
-    candidate_id, face_id, cluster_id, similarity,
+    candidate_id, detection_id, cluster_id, similarity,
     status, created_at
 )
 -- status: 'pending' | 'accepted' | 'rejected'
@@ -350,15 +395,15 @@ face_match_candidate (
 ### Constraint Tables
 
 ```sql
--- Must-link: forces faces into same cluster
+-- Must-link: forces detections into same cluster
 must_link (
-    id, face_id_1, face_id_2, created_by, created_at
+    id, detection_id_1, detection_id_2, created_by, created_at
 )
--- CHECK: face_id_1 < face_id_2 (canonical ordering)
+-- CHECK: detection_id_1 < detection_id_2 (canonical ordering)
 
--- Cannot-link: prevents faces from sharing cluster
+-- Cannot-link: prevents detections from sharing cluster
 cannot_link (
-    id, face_id_1, face_id_2, created_by, created_at
+    id, detection_id_1, detection_id_2, created_by, created_at
 )
 
 -- Cluster-level cannot-link (prevents cluster merging)
@@ -378,8 +423,11 @@ CREATE INDEX idx_cluster_centroid ON cluster
     USING ivfflat(centroid vector_cosine_ops) WITH (lists = 100);
 
 -- Common queries
-CREATE INDEX idx_face_cluster_id ON face(cluster_id);
-CREATE INDEX idx_face_cluster_status ON face(cluster_status);
+CREATE INDEX idx_person_detection_cluster_id ON person_detection(cluster_id);
+CREATE INDEX idx_person_detection_cluster_status ON person_detection(cluster_status);
+CREATE INDEX idx_person_detection_photo_id ON person_detection(photo_id);
+CREATE INDEX idx_person_detection_gender ON person_detection(gender);
+CREATE INDEX idx_person_detection_age ON person_detection(age_estimate);
 CREATE INDEX idx_processing_status ON processing_status(status, stage);
 ```
 
@@ -490,8 +538,15 @@ BATCH_REQUESTS_PATH=./batch_requests
 
 # Processing
 RESIZE_SCALE=1.0                   # Image resize multiplier
-FACE_MIN_CONFIDENCE=0.85           # Face detection threshold
-FACE_DETECTION_FORCE_CPU=false     # Force CPU for face detection
+
+# Detection Stage (YOLO)
+DETECTION_MODEL_PATH=models/yolov8x_person_face.pt
+DETECTION_MIN_CONFIDENCE=0.5       # Detection confidence threshold
+DETECTION_FORCE_CPU=false          # Force CPU for detection
+
+# Age/Gender Stage (MiVOLO)
+MIVOLO_MODEL_PATH=models/mivolo_v2.safetensors
+MIVOLO_FORCE_CPU=false             # Force CPU for MiVOLO
 
 # Clustering (constrained incremental)
 CLUSTERING_THRESHOLD=0.45          # Face similarity threshold for existing clusters
@@ -572,24 +627,41 @@ photodb/
 │   │   ├── base.py            # BaseStage class
 │   │   ├── normalize.py       # Stage 1
 │   │   ├── metadata.py        # Stage 2
-│   │   ├── faces.py           # Stage 3
-│   │   ├── clustering.py      # Stage 4
+│   │   ├── detection.py       # Stage 3 (YOLO face+body)
+│   │   ├── age_gender.py      # Stage 4 (MiVOLO)
+│   │   ├── clustering.py      # Stage 5
 │   │   └── enrich.py          # Stage R1
 │   ├── models/
 │   │   └── photo_analysis.py  # Pydantic LLM response schema
 │   └── utils/
 │       ├── exif.py            # EXIF extraction
 │       ├── image.py           # Image handling
-│       ├── face_extractor.py  # MTCNN + FaceNet
+│       ├── person_detector.py # YOLO + FaceNet
+│       ├── age_gender_aggregator.py  # Person-level aggregation
 │       └── maintenance.py     # Cluster maintenance
 ├── prompts/
 │   └── system_prompt.md       # LLM system prompt
 ├── schema.sql                 # Database schema
+├── scripts/
+│   └── download_models.sh     # Download YOLO + MiVOLO models
+├── migrations/                # Database migrations
 ├── tests/                     # Test suite
 └── docs/
     ├── DESIGN.md              # This document
     └── BEDROCK_SETUP.md       # AWS Bedrock configuration
 ```
+
+## Model Setup
+
+Download required models for detection and age/gender estimation:
+
+```bash
+./scripts/download_models.sh
+```
+
+This downloads:
+- `yolov8x_person_face.pt` (137 MB) - YOLO face+body detector
+- `mivolo_v2.safetensors` (115 MB) - MiVOLO age/gender model
 
 ## Future Enhancements
 
@@ -599,3 +671,4 @@ photodb/
 - Multi-modal clustering using photo metadata (time, location proximity)
 - Full-text search on LLM descriptions
 - Geographic clustering and location inference
+- Timeline reconstruction using person age estimates across photos

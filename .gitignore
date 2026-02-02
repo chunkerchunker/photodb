@@ -31,3 +31,9 @@ logs/
 
 # Worktrees
 .worktrees/
+
+# ML Models
+*.pt
+*.pth
+*.onnx
+models/

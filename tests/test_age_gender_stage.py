@@ -2,7 +2,8 @@
 Tests for AgeGenderStage.
 
 Tests the age/gender estimation stage that uses MiVOLO to estimate age and gender
-for existing person detections.
+for existing person detections. MiVOLO runs its own detection and results are
+matched to existing detections via IoU.
 """
 
 import pytest
@@ -47,14 +48,12 @@ class TestAgeGenderStageUnit:
 
     @pytest.fixture
     def mock_mivolo_predictor(self):
-        """Create a mock MiVOLOPredictor."""
+        """Create a mock MiVOLOPredictor that returns list of predictions."""
         predictor = MagicMock()
-        predictor.predict.return_value = {
-            "age": 25.5,
-            "gender": "M",
-            "gender_confidence": 0.95,
-        }
+        # Default: return empty list (no predictions)
+        predictor.predict.return_value = []
         predictor._available = True
+        predictor._lock = MagicMock()
         return predictor
 
     def test_stage_name_is_age_gender(self, mock_repository, config, mock_mivolo_predictor):
@@ -169,9 +168,10 @@ class TestAgeGenderStageUnit:
     def test_process_photo_updates_detection_with_age_gender(
         self, mock_repository, config, mock_mivolo_predictor, sample_image
     ):
-        """Test that age/gender data is updated for detections with faces."""
+        """Test that age/gender data is updated for detections matched by IoU."""
         from src.photodb.database.models import PersonDetection
 
+        # Existing detection in database
         detection = PersonDetection(
             id=10,
             photo_id=1,
@@ -188,11 +188,16 @@ class TestAgeGenderStageUnit:
         )
         mock_repository.get_detections_for_photo.return_value = [detection]
 
-        mock_mivolo_predictor.predict.return_value = {
-            "age": 32.5,
-            "gender": "F",
-            "gender_confidence": 0.92,
-        }
+        # MiVOLO prediction with overlapping face bbox (high IoU)
+        mock_mivolo_predictor.predict.return_value = [
+            {
+                "face_bbox": (100, 50, 100, 100),  # Same as detection
+                "body_bbox": (50, 20, 250, 380),
+                "age": 32.5,
+                "gender": "F",
+                "gender_confidence": 0.92,
+            }
+        ]
 
         with patch(
             "src.photodb.stages.age_gender.MiVOLOPredictor",
@@ -226,10 +231,10 @@ class TestAgeGenderStageUnit:
             assert call_args[1]["gender"] == "F"
             assert call_args[1]["gender_confidence"] == 0.92
 
-    def test_process_photo_passes_face_bbox_to_predictor(
+    def test_process_photo_calls_predict_with_image_path(
         self, mock_repository, config, mock_mivolo_predictor, sample_image
     ):
-        """Test that face bounding box is passed to MiVOLO predictor."""
+        """Test that predict is called with the normalized image path."""
         from src.photodb.database.models import PersonDetection
 
         detection = PersonDetection(
@@ -242,6 +247,7 @@ class TestAgeGenderStageUnit:
             face_confidence=0.95,
         )
         mock_repository.get_detections_for_photo.return_value = [detection]
+        mock_mivolo_predictor.predict.return_value = []
 
         with patch(
             "src.photodb.stages.age_gender.MiVOLOPredictor",
@@ -265,16 +271,18 @@ class TestAgeGenderStageUnit:
 
             stage.process_photo(photo, Path("/path/to/photo.jpg"))
 
-            # Check that predict was called with face bbox
-            call_kwargs = mock_mivolo_predictor.predict.call_args[1]
-            assert call_kwargs["face_bbox"] == (100, 50, 80, 100)
+            # Check that predict was called with the image path string
+            mock_mivolo_predictor.predict.assert_called_once()
+            call_args = mock_mivolo_predictor.predict.call_args[0]
+            assert sample_image.name in call_args[0]
 
-    def test_process_photo_passes_body_bbox_to_predictor(
+    def test_process_photo_matches_by_body_bbox_when_no_face(
         self, mock_repository, config, mock_mivolo_predictor, sample_image
     ):
-        """Test that body bounding box is passed to MiVOLO predictor."""
+        """Test that matching works via body bbox when face bbox is not available."""
         from src.photodb.database.models import PersonDetection
 
+        # Detection with only body bbox
         detection = PersonDetection(
             id=10,
             photo_id=1,
@@ -286,6 +294,17 @@ class TestAgeGenderStageUnit:
         )
         mock_repository.get_detections_for_photo.return_value = [detection]
 
+        # MiVOLO prediction with matching body bbox
+        mock_mivolo_predictor.predict.return_value = [
+            {
+                "face_bbox": None,
+                "body_bbox": (50, 20, 250, 380),  # Same as detection
+                "age": 28.0,
+                "gender": "M",
+                "gender_confidence": 0.88,
+            }
+        ]
+
         with patch(
             "src.photodb.stages.age_gender.MiVOLOPredictor",
             return_value=mock_mivolo_predictor,
@@ -306,16 +325,17 @@ class TestAgeGenderStageUnit:
                 updated_at=datetime.now(timezone.utc),
             )
 
-            stage.process_photo(photo, Path("/path/to/photo.jpg"))
+            result = stage.process_photo(photo, Path("/path/to/photo.jpg"))
 
-            # Check that predict was called with body bbox
-            call_kwargs = mock_mivolo_predictor.predict.call_args[1]
-            assert call_kwargs["body_bbox"] == (50, 20, 250, 380)
+            assert result is True
+            mock_repository.update_detection_age_gender.assert_called_once()
+            call_args = mock_repository.update_detection_age_gender.call_args
+            assert call_args[1]["detection_id"] == 10
 
-    def test_process_photo_handles_multiple_detections(
+    def test_process_photo_handles_multiple_predictions(
         self, mock_repository, config, mock_mivolo_predictor, sample_image
     ):
-        """Test that multiple detections are all processed."""
+        """Test that multiple MiVOLO predictions are matched to multiple detections."""
         from src.photodb.database.models import PersonDetection
 
         detections = [
@@ -340,6 +360,24 @@ class TestAgeGenderStageUnit:
         ]
         mock_repository.get_detections_for_photo.return_value = detections
 
+        # Two MiVOLO predictions matching each detection
+        mock_mivolo_predictor.predict.return_value = [
+            {
+                "face_bbox": (100, 50, 80, 100),
+                "body_bbox": None,
+                "age": 25.0,
+                "gender": "M",
+                "gender_confidence": 0.9,
+            },
+            {
+                "face_bbox": (300, 50, 90, 110),
+                "body_bbox": None,
+                "age": 30.0,
+                "gender": "F",
+                "gender_confidence": 0.85,
+            },
+        ]
+
         with patch(
             "src.photodb.stages.age_gender.MiVOLOPredictor",
             return_value=mock_mivolo_predictor,
@@ -363,22 +401,38 @@ class TestAgeGenderStageUnit:
             result = stage.process_photo(photo, Path("/path/to/photo.jpg"))
 
             assert result is True
-            assert mock_mivolo_predictor.predict.call_count == 2
+            # predict is called once for the whole image
+            assert mock_mivolo_predictor.predict.call_count == 1
+            # update is called for each matched detection
             assert mock_repository.update_detection_age_gender.call_count == 2
 
-    def test_process_photo_skips_detection_without_face_or_body(
+    def test_process_photo_skips_low_iou_predictions(
         self, mock_repository, config, mock_mivolo_predictor, sample_image
     ):
-        """Test that detections without face or body bboxes are skipped."""
+        """Test that predictions with low IoU are not matched."""
         from src.photodb.database.models import PersonDetection
 
-        # Detection with no face or body bbox (shouldn't happen but handle it)
         detection = PersonDetection(
             id=10,
             photo_id=1,
-            # No face_bbox_* or body_bbox_* fields set
+            face_bbox_x=100,
+            face_bbox_y=50,
+            face_bbox_width=80,
+            face_bbox_height=100,
+            face_confidence=0.95,
         )
         mock_repository.get_detections_for_photo.return_value = [detection]
+
+        # MiVOLO prediction with non-overlapping bbox (low IoU)
+        mock_mivolo_predictor.predict.return_value = [
+            {
+                "face_bbox": (500, 400, 80, 100),  # Far from detection
+                "body_bbox": None,
+                "age": 25.0,
+                "gender": "M",
+                "gender_confidence": 0.9,
+            }
+        ]
 
         with patch(
             "src.photodb.stages.age_gender.MiVOLOPredictor",
@@ -403,13 +457,13 @@ class TestAgeGenderStageUnit:
             result = stage.process_photo(photo, Path("/path/to/photo.jpg"))
 
             assert result is True
-            mock_mivolo_predictor.predict.assert_not_called()
+            # No match due to low IoU
             mock_repository.update_detection_age_gender.assert_not_called()
 
-    def test_process_photo_does_not_update_when_no_prediction(
+    def test_process_photo_returns_true_when_no_predictions(
         self, mock_repository, config, mock_mivolo_predictor, sample_image
     ):
-        """Test that update is not called when predictor returns no results."""
+        """Test that process_photo returns True when MiVOLO returns no predictions."""
         from src.photodb.database.models import PersonDetection
 
         detection = PersonDetection(
@@ -422,13 +476,7 @@ class TestAgeGenderStageUnit:
             face_confidence=0.95,
         )
         mock_repository.get_detections_for_photo.return_value = [detection]
-
-        # Predictor returns no useful data
-        mock_mivolo_predictor.predict.return_value = {
-            "age": None,
-            "gender": "U",
-            "gender_confidence": 0.0,
-        }
+        mock_mivolo_predictor.predict.return_value = []
 
         with patch(
             "src.photodb.stages.age_gender.MiVOLOPredictor",
@@ -454,102 +502,6 @@ class TestAgeGenderStageUnit:
 
             assert result is True
             mock_repository.update_detection_age_gender.assert_not_called()
-
-    def test_process_photo_updates_when_age_only(
-        self, mock_repository, config, mock_mivolo_predictor, sample_image
-    ):
-        """Test that update is called when only age is available."""
-        from src.photodb.database.models import PersonDetection
-
-        detection = PersonDetection(
-            id=10,
-            photo_id=1,
-            face_bbox_x=100,
-            face_bbox_y=50,
-            face_bbox_width=80,
-            face_bbox_height=100,
-            face_confidence=0.95,
-        )
-        mock_repository.get_detections_for_photo.return_value = [detection]
-
-        mock_mivolo_predictor.predict.return_value = {
-            "age": 45.0,
-            "gender": "U",
-            "gender_confidence": 0.0,
-        }
-
-        with patch(
-            "src.photodb.stages.age_gender.MiVOLOPredictor",
-            return_value=mock_mivolo_predictor,
-        ):
-            from src.photodb.stages.age_gender import AgeGenderStage
-            from src.photodb.database.models import Photo
-
-            stage = AgeGenderStage(mock_repository, config)
-            photo = Photo(
-                id=1,
-                filename="/path/to/photo.jpg",
-                normalized_path=sample_image.name,
-                width=640,
-                height=480,
-                normalized_width=640,
-                normalized_height=480,
-                created_at=datetime.now(timezone.utc),
-                updated_at=datetime.now(timezone.utc),
-            )
-
-            result = stage.process_photo(photo, Path("/path/to/photo.jpg"))
-
-            assert result is True
-            mock_repository.update_detection_age_gender.assert_called_once()
-
-    def test_process_photo_updates_when_gender_only(
-        self, mock_repository, config, mock_mivolo_predictor, sample_image
-    ):
-        """Test that update is called when only gender is available."""
-        from src.photodb.database.models import PersonDetection
-
-        detection = PersonDetection(
-            id=10,
-            photo_id=1,
-            face_bbox_x=100,
-            face_bbox_y=50,
-            face_bbox_width=80,
-            face_bbox_height=100,
-            face_confidence=0.95,
-        )
-        mock_repository.get_detections_for_photo.return_value = [detection]
-
-        mock_mivolo_predictor.predict.return_value = {
-            "age": None,
-            "gender": "F",
-            "gender_confidence": 0.88,
-        }
-
-        with patch(
-            "src.photodb.stages.age_gender.MiVOLOPredictor",
-            return_value=mock_mivolo_predictor,
-        ):
-            from src.photodb.stages.age_gender import AgeGenderStage
-            from src.photodb.database.models import Photo
-
-            stage = AgeGenderStage(mock_repository, config)
-            photo = Photo(
-                id=1,
-                filename="/path/to/photo.jpg",
-                normalized_path=sample_image.name,
-                width=640,
-                height=480,
-                normalized_width=640,
-                normalized_height=480,
-                created_at=datetime.now(timezone.utc),
-                updated_at=datetime.now(timezone.utc),
-            )
-
-            result = stage.process_photo(photo, Path("/path/to/photo.jpg"))
-
-            assert result is True
-            mock_repository.update_detection_age_gender.assert_called_once()
 
     def test_process_photo_handles_exception(
         self, mock_repository, config, mock_mivolo_predictor, sample_image
@@ -629,11 +581,13 @@ class TestAgeGenderStageUnit:
         mock_repository.get_detections_for_photo.return_value = [detection]
 
         mivolo_result = {
+            "face_bbox": (100, 50, 80, 100),
+            "body_bbox": None,
             "age": 32.5,
             "gender": "M",
             "gender_confidence": 0.95,
         }
-        mock_mivolo_predictor.predict.return_value = mivolo_result
+        mock_mivolo_predictor.predict.return_value = [mivolo_result]
 
         with patch(
             "src.photodb.stages.age_gender.MiVOLOPredictor",
@@ -660,6 +614,60 @@ class TestAgeGenderStageUnit:
             call_args = mock_repository.update_detection_age_gender.call_args
             assert call_args[1]["mivolo_output"] == mivolo_result
 
+    def test_handles_detection_with_partial_bbox(
+        self, mock_repository, config, mock_mivolo_predictor, sample_image
+    ):
+        """Test that detections with partial bbox data (some None) are handled."""
+        from src.photodb.database.models import PersonDetection
+
+        # Detection with only x coordinate set (invalid state, but should not crash)
+        detection = PersonDetection(
+            id=10,
+            photo_id=1,
+            face_bbox_x=100,
+            face_bbox_y=None,  # Missing
+            face_bbox_width=None,  # Missing
+            face_bbox_height=None,  # Missing
+            face_confidence=0.95,
+        )
+        mock_repository.get_detections_for_photo.return_value = [detection]
+
+        mock_mivolo_predictor.predict.return_value = [
+            {
+                "face_bbox": (100, 50, 80, 100),
+                "body_bbox": None,
+                "age": 25.0,
+                "gender": "M",
+                "gender_confidence": 0.9,
+            }
+        ]
+
+        with patch(
+            "src.photodb.stages.age_gender.MiVOLOPredictor",
+            return_value=mock_mivolo_predictor,
+        ):
+            from src.photodb.stages.age_gender import AgeGenderStage
+            from src.photodb.database.models import Photo
+
+            stage = AgeGenderStage(mock_repository, config)
+            photo = Photo(
+                id=1,
+                filename="/path/to/photo.jpg",
+                normalized_path=sample_image.name,
+                width=640,
+                height=480,
+                normalized_width=640,
+                normalized_height=480,
+                created_at=datetime.now(timezone.utc),
+                updated_at=datetime.now(timezone.utc),
+            )
+
+            # Should not crash
+            result = stage.process_photo(photo, Path("/path/to/photo.jpg"))
+            assert result is True
+            # No match because detection bbox is incomplete
+            mock_repository.update_detection_age_gender.assert_not_called()
+
 
 class TestMiVOLOPredictorUnit:
     """Unit tests for MiVOLOPredictor wrapper class."""
@@ -672,18 +680,13 @@ class TestMiVOLOPredictorUnit:
 
             predictor = MiVOLOPredictor(
                 checkpoint_path="models/mivolo.pth",
+                detector_weights_path="models/yolo.pt",
                 device="cpu",
             )
 
-            # Should return default values when MiVOLO is unavailable
-            result = predictor.predict(
-                image_path="/path/to/image.jpg",
-                face_bbox=(100, 50, 80, 100),
-            )
-
-            assert result["age"] is None
-            assert result["gender"] == "U"
-            assert result["gender_confidence"] == 0.0
+            # Should return empty list when MiVOLO is unavailable
+            result = predictor.predict("/path/to/image.jpg")
+            assert result == []
 
     def test_predictor_available_flag(self):
         """Test that _available flag is set correctly."""
@@ -692,7 +695,74 @@ class TestMiVOLOPredictorUnit:
 
             predictor = MiVOLOPredictor(
                 checkpoint_path="models/mivolo.pth",
+                detector_weights_path="models/yolo.pt",
                 device="cpu",
             )
 
             assert predictor._available is False
+
+    def test_predictor_has_thread_lock(self):
+        """Test that predictor has a threading lock for thread safety."""
+        with patch.dict("sys.modules", {"mivolo": None, "mivolo.predictor": None}):
+            from src.photodb.stages.age_gender import MiVOLOPredictor
+            import threading
+
+            predictor = MiVOLOPredictor(
+                checkpoint_path="models/mivolo.pth",
+                detector_weights_path="models/yolo.pt",
+                device="cpu",
+            )
+
+            assert hasattr(predictor, "_lock")
+            assert isinstance(predictor._lock, type(threading.Lock()))
+
+
+class TestComputeIoU:
+    """Tests for the _compute_iou helper function."""
+
+    def test_identical_boxes(self):
+        """Test IoU of identical boxes is 1.0."""
+        from src.photodb.stages.age_gender import _compute_iou
+
+        bbox = (100, 100, 50, 50)
+        assert _compute_iou(bbox, bbox) == 1.0
+
+    def test_no_overlap(self):
+        """Test IoU of non-overlapping boxes is 0.0."""
+        from src.photodb.stages.age_gender import _compute_iou
+
+        bbox1 = (0, 0, 50, 50)
+        bbox2 = (100, 100, 50, 50)
+        assert _compute_iou(bbox1, bbox2) == 0.0
+
+    def test_partial_overlap(self):
+        """Test IoU of partially overlapping boxes."""
+        from src.photodb.stages.age_gender import _compute_iou
+
+        bbox1 = (0, 0, 100, 100)
+        bbox2 = (50, 50, 100, 100)
+        # Intersection: 50x50 = 2500
+        # Union: 10000 + 10000 - 2500 = 17500
+        # IoU: 2500/17500 ≈ 0.143
+        iou = _compute_iou(bbox1, bbox2)
+        assert 0.14 < iou < 0.15
+
+    def test_contained_box(self):
+        """Test IoU when one box is fully contained in another."""
+        from src.photodb.stages.age_gender import _compute_iou
+
+        bbox1 = (0, 0, 100, 100)
+        bbox2 = (25, 25, 50, 50)
+        # Intersection: 50x50 = 2500
+        # Union: 10000 + 2500 - 2500 = 10000
+        # IoU: 2500/10000 = 0.25
+        iou = _compute_iou(bbox1, bbox2)
+        assert iou == 0.25
+
+    def test_zero_area_box(self):
+        """Test IoU with zero area box returns 0.0."""
+        from src.photodb.stages.age_gender import _compute_iou
+
+        bbox1 = (100, 100, 0, 0)  # Zero area
+        bbox2 = (100, 100, 50, 50)
+        assert _compute_iou(bbox1, bbox2) == 0.0

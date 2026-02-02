@@ -354,8 +354,14 @@ class AgeGenderStage(BaseStage):
                 best_iou = 0.3  # Minimum IoU threshold
 
                 for detection in detections:
-                    # Try matching by face bbox first
-                    if prediction["face_bbox"] is not None and detection.face_bbox_x is not None:
+                    # Try matching by face bbox first (all coordinates must be present)
+                    if (
+                        prediction["face_bbox"] is not None
+                        and detection.face_bbox_x is not None
+                        and detection.face_bbox_y is not None
+                        and detection.face_bbox_width is not None
+                        and detection.face_bbox_height is not None
+                    ):
                         det_face_bbox = (
                             detection.face_bbox_x,
                             detection.face_bbox_y,
@@ -367,8 +373,14 @@ class AgeGenderStage(BaseStage):
                             best_iou = iou
                             best_match = detection
 
-                    # Also try matching by body bbox
-                    if prediction["body_bbox"] is not None and detection.body_bbox_x is not None:
+                    # Also try matching by body bbox (all coordinates must be present)
+                    if (
+                        prediction["body_bbox"] is not None
+                        and detection.body_bbox_x is not None
+                        and detection.body_bbox_y is not None
+                        and detection.body_bbox_width is not None
+                        and detection.body_bbox_height is not None
+                    ):
                         det_body_bbox = (
                             detection.body_bbox_x,
                             detection.body_bbox_y,

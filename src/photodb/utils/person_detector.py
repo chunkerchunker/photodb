@@ -10,15 +10,29 @@ import torch
 from facenet_pytorch import InceptionResnetV1
 from PIL import Image
 
-# PyTorch 2.6+ requires explicit allowlisting of classes for model loading
-# We need to do this before importing YOLO which may trigger model loading
-try:
-    from ultralytics.nn.tasks import DetectionModel
-    torch.serialization.add_safe_globals([DetectionModel])
-except ImportError:
-    pass  # Older ultralytics versions don't need this
-
 from ultralytics import YOLO
+
+
+def _load_yolo_model(model_path: str) -> YOLO:
+    """
+    Load YOLO model with PyTorch 2.6+ compatibility.
+
+    PyTorch 2.6 changed weights_only default to True, breaking older ultralytics.
+    We temporarily patch torch.load for model loading since we trust models from
+    official sources (HuggingFace/Ultralytics).
+    """
+    original_torch_load = torch.load
+
+    def patched_load(*args, **kwargs):
+        if "weights_only" not in kwargs:
+            kwargs["weights_only"] = False
+        return original_torch_load(*args, **kwargs)
+
+    try:
+        torch.load = patched_load
+        return YOLO(model_path)
+    finally:
+        torch.load = original_torch_load
 
 
 class PersonDetector:
@@ -64,8 +78,8 @@ class PersonDetector:
         # Get minimum confidence from env
         self.min_confidence = float(os.environ.get("DETECTION_CONFIDENCE", "0.5"))
 
-        # Load YOLO model
-        self.model = YOLO(model_path)
+        # Load YOLO model (with PyTorch 2.6+ compatibility patch)
+        self.model = _load_yolo_model(model_path)
 
         # Load FaceNet embedding model
         self.facenet = InceptionResnetV1(pretrained="vggface2").eval()

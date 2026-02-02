@@ -19,9 +19,11 @@ load_dotenv(os.getenv("ENV_FILE", "./.env"))
 @click.option("--force", is_flag=True, help="Force reprocessing of already processed photos")
 @click.option(
     "--stage",
-    type=click.Choice(["all", "normalize", "metadata", "faces", "clustering"]),
+    type=click.Choice(
+        ["all", "normalize", "metadata", "detection", "age_gender", "clustering", "faces"]
+    ),
     default="all",
-    help="Specific stage to run",
+    help="Specific stage to run (faces is a legacy alias for detection)",
 )
 @click.option("--recursive/--no-recursive", default=True, help="Process directories recursively")
 @click.option("--pattern", default="*", help='File pattern to match (e.g., "*.jpg")')
@@ -48,7 +50,7 @@ def main(
 ):
     """
     Process photos locally from PATH (file or directory).
-    
+
     This tool handles local processing stages (normalize, metadata extraction, and face detection)
     with support for parallel processing.
 
@@ -80,9 +82,9 @@ def main(
         max_connections = min(parallel, 50)  # Use at most 50 connections
         min_connections = min(2, max_connections)  # Ensure min_conn <= max_conn
         with ConnectionPool(
-            connection_string=config_data.get("DATABASE_URL"), 
-            min_conn=min_connections, 
-            max_conn=max_connections
+            connection_string=config_data.get("DATABASE_URL"),
+            min_conn=min_connections,
+            max_conn=max_connections,
         ) as connection_pool:
             logger.info(
                 f"Created connection pool with max {max_connections} connections for {parallel} workers"
@@ -104,7 +106,6 @@ def main(
                 parallel=parallel,
                 max_photos=max_photos,
             ) as processor:
-
                 if input_path.is_file():
                     logger.info(f"Processing single file: {input_path}")
                     result = processor.process_file(input_path, stage)

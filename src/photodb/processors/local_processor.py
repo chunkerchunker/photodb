@@ -8,7 +8,8 @@ from ..database.repository import PhotoRepository
 from ..database.connection import ConnectionPool
 from ..stages.normalize import NormalizeStage
 from ..stages.metadata import MetadataStage
-from ..stages.faces import FacesStage
+from ..stages.detection import DetectionStage
+from ..stages.age_gender import AgeGenderStage
 from ..stages.clustering import ClusteringStage
 
 logger = logging.getLogger(__name__)
@@ -44,7 +45,8 @@ class LocalProcessor(BaseProcessor):
         self.stages = {
             "normalize": NormalizeStage(repository, config),
             "metadata": MetadataStage(repository, config),
-            "faces": FacesStage(repository, config),
+            "detection": DetectionStage(repository, config),
+            "age_gender": AgeGenderStage(repository, config),
             "clustering": ClusteringStage(repository, config),
         }
 
@@ -62,10 +64,13 @@ class LocalProcessor(BaseProcessor):
         self.close()
 
     def _get_stages(self, stage: str) -> List[str]:
-        """Get list of stages to run (normalize, metadata, faces, and clustering)."""
+        """Get list of stages to run (normalize, metadata, detection, age_gender, clustering)."""
         if stage == "all":
-            return ["normalize", "metadata", "faces", "clustering"]
-        elif stage in ["normalize", "metadata", "faces", "clustering"]:
+            return ["normalize", "metadata", "detection", "age_gender", "clustering"]
+        elif stage == "faces":
+            # Legacy alias: "faces" maps to "detection"
+            return ["detection"]
+        elif stage in ["normalize", "metadata", "detection", "age_gender", "clustering"]:
             return [stage]
         else:
             raise ValueError(f"Invalid stage for LocalProcessor: {stage}")
@@ -190,8 +195,11 @@ class LocalProcessor(BaseProcessor):
                     "metadata": MetadataStage(pooled_repo, self.config)
                     if "metadata" in stages
                     else None,
-                    "faces": FacesStage(pooled_repo, self.config)
-                    if "faces" in stages
+                    "detection": DetectionStage(pooled_repo, self.config)
+                    if "detection" in stages
+                    else None,
+                    "age_gender": AgeGenderStage(pooled_repo, self.config)
+                    if "age_gender" in stages
                     else None,
                     "clustering": ClusteringStage(pooled_repo, self.config)
                     if "clustering" in stages

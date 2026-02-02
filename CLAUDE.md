@@ -187,7 +187,7 @@ The application uses environment variables and optional config files:
 
 ### Age/Gender Stage Configuration
 
-- `MIVOLO_MODEL_PATH`: Path to MiVOLO checkpoint (default: `models/mivolo_imdb.pth.tar`)
+- `MIVOLO_MODEL_PATH`: Path to MiVOLO checkpoint (default: `models/mivolo_v2.safetensors`)
 - `MIVOLO_FORCE_CPU`: Force CPU mode for MiVOLO inference (default: `false`)
 
 ## Performance Considerations

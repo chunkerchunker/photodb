@@ -7,7 +7,7 @@ from datetime import datetime
 
 from photodb.database.repository import PhotoRepository
 
-from ..database.models import Photo, ProcessingStatus, Status
+from ..database.models import Photo, ProcessingStatus
 
 logger = logging.getLogger(__name__)
 

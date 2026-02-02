@@ -46,3 +46,9 @@ target-version = "py313"
 
 [tool.uv.sources]
 mivolo = { git = "https://github.com/WildChlamydia/MiVOLO.git" }
+
+[dependency-groups]
+dev = [
+    "pyright>=1.1.404",
+    "ruff>=0.12.11",
+]

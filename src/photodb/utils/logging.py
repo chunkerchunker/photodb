@@ -3,7 +3,6 @@ import sys
 from pathlib import Path
 from logging.handlers import TimedRotatingFileHandler
 import os
-import fcntl
 
 
 def setup_logging(level: int = logging.INFO) -> logging.Logger:

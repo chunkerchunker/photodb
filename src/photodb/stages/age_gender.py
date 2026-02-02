@@ -165,7 +165,7 @@ class AgeGenderStage(BaseStage):
         # Get checkpoint path from config or environment
         checkpoint_path = config.get(
             "MIVOLO_MODEL_PATH",
-            os.getenv("MIVOLO_MODEL_PATH", "models/mivolo_imdb.pth.tar"),
+            os.getenv("MIVOLO_MODEL_PATH", "models/mivolo_v2.safetensors"),
         )
 
         self.predictor = MiVOLOPredictor(

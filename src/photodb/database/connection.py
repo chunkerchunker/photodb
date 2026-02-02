@@ -1,12 +1,10 @@
 import psycopg
-from psycopg import sql
 from psycopg_pool import ConnectionPool as PsycopgPool
 import os
 from pathlib import Path
 from contextlib import contextmanager
 from typing import Optional, Generator, Any
 import logging
-import numpy as np
 from pgvector.psycopg import register_vector
 
 logger = logging.getLogger(__name__)

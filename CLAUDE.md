@@ -198,6 +198,18 @@ The application uses environment variables and optional config files:
 
 *Tested with mivolo 0.6.0.dev0 (git HEAD) on 2026-02-01. Future versions may fix these issues.*
 
+### Face Embedding Configuration
+
+- `EMBEDDING_MODEL_NAME`: InsightFace model pack name (default: `buffalo_l`)
+- `EMBEDDING_MODEL_ROOT`: Custom model directory (default: `~/.insightface/models`)
+
+**Hardware Acceleration:**
+- **macOS:** Uses CoreML via ONNX Runtime for Neural Engine acceleration (thread-safe)
+- **CUDA:** Uses CUDA via ONNX Runtime for GPU acceleration
+- **CPU:** Falls back to CPU if no accelerators available
+
+**Model Location:** InsightFace models auto-download to `~/.insightface/models/` on first use.
+
 ### Free-threaded Python
 
 **Not currently usable** due to two blockers:
@@ -207,6 +219,9 @@ The application uses environment variables and optional config files:
 2. **MiVOLO thread safety**: Even if opencv were available, MiVOLO inference must be serialized (see above), so free-threaded Python wouldn't improve throughput for the age/gender stage.
 
 Use standard Python 3.13 for now. The detection stage uses CoreML which is already thread-safe and parallel.
+
+Note: InsightFace (face embeddings) uses ONNX Runtime which is thread-safe, so it would
+benefit from free-threaded Python once the opencv blocker is resolved.
 
 ## Performance Considerations
 

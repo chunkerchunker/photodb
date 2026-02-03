@@ -158,7 +158,7 @@ class PhotoRepository:
                     (
                         status.photo_id,
                         status.stage,
-                        status.status,
+                        status.status.value if hasattr(status.status, "value") else status.status,
                         status.processed_at,
                         status.error_message,
                     ),

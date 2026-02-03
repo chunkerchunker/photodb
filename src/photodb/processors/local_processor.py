@@ -202,7 +202,11 @@ class LocalProcessor(BaseProcessor):
         return self._process_single_file(file_path, stage, self.stages)
 
     def process_directory(
-        self, directory: Path, stage: Optional[str] = None, recursive: bool = True, pattern: str = "*"
+        self,
+        directory: Path,
+        stage: Optional[str] = None,
+        recursive: bool = True,
+        pattern: str = "*",
     ) -> ProcessingResult:
         """Process all matching files in a directory."""
         stage = stage or self.stage

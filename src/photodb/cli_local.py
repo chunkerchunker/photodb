@@ -29,11 +29,10 @@ from .utils.logging import setup_logging  # noqa: E402
             "age_gender",
             "clustering",
             "scene_analysis",
-            "faces",
         ]
     ),
     default="all",
-    help="Specific stage to run (faces is a legacy alias for detection)",
+    help="Specific stage to run",
 )
 @click.option("--recursive/--no-recursive", default=True, help="Process directories recursively")
 @click.option("--pattern", default="*", help='File pattern to match (e.g., "*.jpg")')

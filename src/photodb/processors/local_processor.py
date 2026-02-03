@@ -27,9 +27,11 @@ class LocalProcessor(BaseProcessor):
         dry_run: bool = False,
         parallel: int = 1,
         max_photos: Optional[int] = None,
+        stage: str = "all",
     ):
         super().__init__(repository, config, force, dry_run, max_photos)
         self.parallel = max(1, parallel)
+        self.stage = stage
 
         # Create connection pool for parallel processing
         if parallel > 1:
@@ -42,23 +44,36 @@ class LocalProcessor(BaseProcessor):
         else:
             self.connection_pool = None
 
-        # Create all local processing stages
-        self.stages = {
-            "normalize": NormalizeStage(repository, config),
-            "metadata": MetadataStage(repository, config),
-            "detection": DetectionStage(repository, config),
-            "age_gender": AgeGenderStage(repository, config),
-            "clustering": ClusteringStage(repository, config),
-            "scene_analysis": SceneAnalysisStage(repository, config),
-        }
+        # Only create stages that will be used (avoids loading large ML models unnecessarily)
+        stages_to_create = self._get_stages(stage)
+        self.stages: dict = {}
 
-        # Cache ML models for sharing across threads (they're expensive to load)
-        # CoreML models are thread-safe, PyTorch MPS models are not
-        self._shared_detector = self.stages["detection"].detector
-        self._shared_mivolo = self.stages["age_gender"].predictor
-        self._shared_scene_analyzer = self.stages["scene_analysis"].analyzer
-        self._shared_prompt_cache = self.stages["scene_analysis"].prompt_cache
-        self._shared_apple_classifier = self.stages["scene_analysis"].apple_classifier
+        # Cache shared ML models for thread reuse (only if stage is loaded)
+        self._shared_detector = None
+        self._shared_mivolo = None
+        self._shared_scene_analyzer = None
+        self._shared_prompt_cache = None
+        self._shared_apple_classifier = None
+
+        logger.info(f"Loading stages: {', '.join(stages_to_create)}")
+
+        if "normalize" in stages_to_create:
+            self.stages["normalize"] = NormalizeStage(repository, config)
+        if "metadata" in stages_to_create:
+            self.stages["metadata"] = MetadataStage(repository, config)
+        if "detection" in stages_to_create:
+            self.stages["detection"] = DetectionStage(repository, config)
+            self._shared_detector = self.stages["detection"].detector
+        if "age_gender" in stages_to_create:
+            self.stages["age_gender"] = AgeGenderStage(repository, config)
+            self._shared_mivolo = self.stages["age_gender"].predictor
+        if "clustering" in stages_to_create:
+            self.stages["clustering"] = ClusteringStage(repository, config)
+        if "scene_analysis" in stages_to_create:
+            self.stages["scene_analysis"] = SceneAnalysisStage(repository, config)
+            self._shared_scene_analyzer = self.stages["scene_analysis"].analyzer
+            self._shared_prompt_cache = self.stages["scene_analysis"].prompt_cache
+            self._shared_apple_classifier = self.stages["scene_analysis"].apple_classifier
 
     def close(self):
         """Clean up resources, including connection pool."""
@@ -181,14 +196,16 @@ class LocalProcessor(BaseProcessor):
 
         return result
 
-    def process_file(self, file_path: Path, stage: str = "all") -> ProcessingResult:
+    def process_file(self, file_path: Path, stage: Optional[str] = None) -> ProcessingResult:
         """Process a single file through specified stages."""
+        stage = stage or self.stage
         return self._process_single_file(file_path, stage, self.stages)
 
     def process_directory(
-        self, directory: Path, stage: str = "all", recursive: bool = True, pattern: str = "*"
+        self, directory: Path, stage: Optional[str] = None, recursive: bool = True, pattern: str = "*"
     ) -> ProcessingResult:
         """Process all matching files in a directory."""
+        stage = stage or self.stage
         result = ProcessingResult()
         supported_extensions = {
             ".jpg",
@@ -217,6 +234,7 @@ class LocalProcessor(BaseProcessor):
                 if "metadata" in stages_list:
                     pooled_stages["metadata"] = MetadataStage(pooled_repo, self.config)
                 if "detection" in stages_list:
+                    assert self._shared_detector is not None  # Loaded in __init__
                     detection_stage = DetectionStage.__new__(DetectionStage)
                     detection_stage.repository = pooled_repo
                     detection_stage.config = self.config
@@ -224,6 +242,7 @@ class LocalProcessor(BaseProcessor):
                     detection_stage.detector = self._shared_detector  # Reuse shared model
                     pooled_stages["detection"] = detection_stage
                 if "age_gender" in stages_list:
+                    assert self._shared_mivolo is not None  # Loaded in __init__
                     age_gender_stage = AgeGenderStage.__new__(AgeGenderStage)
                     age_gender_stage.repository = pooled_repo
                     age_gender_stage.config = self.config
@@ -233,6 +252,8 @@ class LocalProcessor(BaseProcessor):
                 if "clustering" in stages_list:
                     pooled_stages["clustering"] = ClusteringStage(pooled_repo, self.config)
                 if "scene_analysis" in stages_list:
+                    assert self._shared_scene_analyzer is not None  # Loaded in __init__
+                    assert self._shared_prompt_cache is not None  # Loaded in __init__
                     scene_stage = SceneAnalysisStage.__new__(SceneAnalysisStage)
                     scene_stage.repository = pooled_repo
                     scene_stage.config = self.config

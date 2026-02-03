@@ -108,6 +108,7 @@ def main(
                 sys.exit(1)
 
             # Create local processor for parallel processing
+            # Pass stage to constructor so only required ML models are loaded
             with LocalProcessor(
                 repository=repository,
                 config=config_data,
@@ -115,14 +116,15 @@ def main(
                 dry_run=dry_run,
                 parallel=parallel,
                 max_photos=max_photos,
+                stage=stage,
             ) as processor:
                 if input_path.is_file():
                     logger.info(f"Processing single file: {input_path}")
-                    result = processor.process_file(input_path, stage)
+                    result = processor.process_file(input_path)
                 else:
                     logger.info(f"Processing directory: {input_path}")
                     result = processor.process_directory(
-                        input_path, stage=stage, recursive=recursive, pattern=pattern
+                        input_path, recursive=recursive, pattern=pattern
                     )
 
             report_results(result, logger)

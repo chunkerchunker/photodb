@@ -1,6 +1,6 @@
 import { Calendar, Check, FolderPlus, Plus, Search, User, Users, XCircle } from "lucide-react";
 import { useCallback, useEffect, useState } from "react";
-import { Link, redirect, useFetcher } from "react-router";
+import { Link, redirect, useFetcher, useNavigate } from "react-router";
 import { Breadcrumb } from "~/components/breadcrumb";
 import { Layout } from "~/components/layout";
 import { Badge } from "~/components/ui/badge";
@@ -16,6 +16,7 @@ import {
   DialogTrigger,
 } from "~/components/ui/dialog";
 import { Input } from "~/components/ui/input";
+import { Slider } from "~/components/ui/slider";
 import { addFacesToCluster, createClusterFromFaces, getFaceDetails, getSimilarFaces } from "~/lib/db.server";
 import { cn } from "~/lib/utils";
 import type { Route } from "./+types/face.$id.similar";
@@ -200,7 +201,28 @@ export default function SimilarFacesPage({ loaderData }: Route.ComponentProps) {
   const [searchQuery, setSearchQuery] = useState("");
   const [searchResults, setSearchResults] = useState<SearchCluster[]>([]);
   const [isSearching, setIsSearching] = useState(false);
+  const [sliderValue, setSliderValue] = useState(threshold);
   const fetcher = useFetcher();
+  const navigate = useNavigate();
+
+  // Update slider when threshold changes (e.g., from URL)
+  useEffect(() => {
+    setSliderValue(threshold);
+  }, [threshold]);
+
+  const handleThresholdChange = useCallback((value: number[]) => {
+    setSliderValue(value[0]);
+  }, []);
+
+  const handleThresholdCommit = useCallback(
+    (value: number[]) => {
+      const newThreshold = value[0];
+      if (newThreshold !== threshold) {
+        navigate(`/face/${face?.id}/similar?threshold=${newThreshold}`);
+      }
+    },
+    [navigate, face?.id, threshold],
+  );
 
   const unclusteredFaces = similarFaces.filter((f: SimilarFace) => !f.cluster_id);
 
@@ -287,11 +309,21 @@ export default function SimilarFacesPage({ loaderData }: Route.ComponentProps) {
       <div className="space-y-6">
         <Breadcrumb items={breadcrumbItems} />
 
-        <div className="flex items-center justify-between">
-          <div className="flex items-center space-x-4">
-            <h1 className="text-2xl font-bold text-gray-900">Similar Faces</h1>
-            <Badge variant="secondary">{similarFaces.length} found</Badge>
-            <p className="text-xs text-gray-400 inline">Similarity ≥ {Math.round(threshold * 100)}%</p>
+        <div className="flex items-center space-x-4">
+          <h1 className="text-2xl font-bold text-gray-900">Similar Faces</h1>
+          <Badge variant="secondary">{similarFaces.length} found</Badge>
+          <div className="flex items-center space-x-2">
+            <span className="text-xs text-gray-400">≥</span>
+            <Slider
+              value={[sliderValue]}
+              onValueChange={handleThresholdChange}
+              onValueCommit={handleThresholdCommit}
+              min={0.3}
+              max={0.95}
+              step={0.05}
+              className="w-24"
+            />
+            <span className="text-xs text-gray-500 w-8">{Math.round(sliderValue * 100)}%</span>
           </div>
         </div>
 

@@ -34,6 +34,14 @@ from .utils.logging import setup_logging  # noqa: E402
     default="all",
     help="Specific stage to run",
 )
+@click.option(
+    "--exclude",
+    type=click.Choice(
+        ["normalize", "metadata", "detection", "age_gender", "clustering", "scene_analysis"]
+    ),
+    multiple=True,
+    help="Stages to exclude (can be specified multiple times)",
+)
 @click.option("--recursive/--no-recursive", default=True, help="Process directories recursively")
 @click.option("--pattern", default="*", help='File pattern to match (e.g., "*.jpg")')
 @click.option("--verbose", is_flag=True, help="Enable verbose logging")
@@ -48,6 +56,7 @@ def main(
     path: str,
     force: bool,
     stage: str,
+    exclude: tuple,
     recursive: bool,
     pattern: str,
     verbose: bool,
@@ -116,6 +125,7 @@ def main(
                 parallel=parallel,
                 max_photos=max_photos,
                 stage=stage,
+                exclude=list(exclude),
             ) as processor:
                 if input_path.is_file():
                     logger.info(f"Processing single file: {input_path}")

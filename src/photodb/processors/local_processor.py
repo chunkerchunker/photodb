@@ -28,10 +28,12 @@ class LocalProcessor(BaseProcessor):
         parallel: int = 1,
         max_photos: Optional[int] = None,
         stage: str = "all",
+        exclude: Optional[List[str]] = None,
     ):
         super().__init__(repository, config, force, dry_run, max_photos)
         self.parallel = max(1, parallel)
         self.stage = stage
+        self.exclude = exclude or []
 
         # Create connection pool for parallel processing
         if parallel > 1:
@@ -55,6 +57,8 @@ class LocalProcessor(BaseProcessor):
         self._shared_prompt_cache = None
         self._shared_apple_classifier = None
 
+        if self.exclude:
+            logger.info(f"Excluding stages: {', '.join(self.exclude)}")
         logger.info(f"Loading stages: {', '.join(stages_to_create)}")
 
         if "normalize" in stages_to_create:
@@ -90,26 +94,27 @@ class LocalProcessor(BaseProcessor):
 
     def _get_stages(self, stage: str) -> List[str]:
         """Get list of stages to run (normalize, metadata, detection, age_gender, clustering, scene_analysis)."""
-        if stage == "all":
-            return [
-                "normalize",
-                "metadata",
-                "detection",
-                "age_gender",
-                "clustering",
-                "scene_analysis",
-            ]
-        elif stage in [
+        all_stages = [
             "normalize",
             "metadata",
             "detection",
             "age_gender",
             "clustering",
             "scene_analysis",
-        ]:
-            return [stage]
+        ]
+
+        if stage == "all":
+            stages = all_stages
+        elif stage in all_stages:
+            stages = [stage]
         else:
             raise ValueError(f"Invalid stage for LocalProcessor: {stage}")
+
+        # Filter out excluded stages
+        if self.exclude:
+            stages = [s for s in stages if s not in self.exclude]
+
+        return stages
 
     def _process_single_file(
         self, file_path: Path, stage: str, stages_dict: dict

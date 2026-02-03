@@ -5,6 +5,7 @@ export default [
   route("wall", "routes/home.wall.tsx"),
   route("clusters", "routes/clusters.tsx"),
   route("clusters/hidden", "routes/clusters.hidden.tsx"),
+  route("people", "routes/people.tsx"),
   route("cluster/:id", "routes/cluster.$id.tsx"),
   route("year/:year", "routes/year.tsx"),
   route("year/:year/wall", "routes/year.wall.tsx"),
@@ -15,4 +16,6 @@ export default [
   route("api/image/:id", "routes/api.image.$id.tsx"),
   route("api/clusters/search", "routes/api.clusters.search.tsx"),
   route("api/clusters/merge", "routes/api.clusters.merge.tsx"),
+  route("api/cluster/:id/hide", "routes/api.cluster.$id.hide.tsx"),
+  route("api/cluster/:id/rename", "routes/api.cluster.$id.rename.tsx"),
 ] satisfies RouteConfig;

@@ -392,8 +392,36 @@ export default function ClusterDetailView({ loaderData }: Route.ComponentProps) 
     }
   };
 
-  const toggleFaceSelection = (faceId: number) => {
-    setSelectedFaces((prev) => (prev.includes(faceId) ? prev.filter((id) => id !== faceId) : [...prev, faceId]));
+  // Track the last selected face index for shift-click range selection
+  const lastSelectedIndexRef = useRef<number | null>(null);
+
+  const toggleFaceSelection = (faceId: number, shiftKey: boolean = false) => {
+    const clickedIndex = faces.findIndex((f) => f.id === faceId);
+
+    if (shiftKey && lastSelectedIndexRef.current !== null && clickedIndex !== -1) {
+      // Select all faces between last selected and clicked (inclusive)
+      const start = Math.min(lastSelectedIndexRef.current, clickedIndex);
+      const end = Math.max(lastSelectedIndexRef.current, clickedIndex);
+      const rangeIds = faces.slice(start, end + 1).map((f) => f.id);
+
+      setSelectedFaces((prev) => {
+        const newSet = new Set(prev);
+        for (const id of rangeIds) {
+          newSet.add(id);
+        }
+        return Array.from(newSet);
+      });
+      return;
+    }
+
+    // Normal toggle behavior
+    const isDeselecting = selectedFaces.includes(faceId);
+    setSelectedFaces((prev) => (isDeselecting ? prev.filter((id) => id !== faceId) : [...prev, faceId]));
+
+    // Only update anchor when selecting, not deselecting
+    if (!isDeselecting && clickedIndex !== -1) {
+      lastSelectedIndexRef.current = clickedIndex;
+    }
   };
 
   const handleDissociate = () => {
@@ -470,7 +498,28 @@ export default function ClusterDetailView({ loaderData }: Route.ComponentProps) 
 
         <div className="flex items-center justify-between">
           <div className="flex items-center space-x-3">
-            <Users className="h-8 w-8 text-gray-700" />
+            {cluster.rep_photo_id && cluster.rep_bbox_x !== null && cluster.rep_normalized_width ? (
+              <div className="relative w-12 h-12 bg-gray-100 rounded-lg border overflow-hidden flex-shrink-0">
+                <img
+                  src={`/api/image/${cluster.rep_photo_id}`}
+                  alt={displayName}
+                  className="absolute max-w-none max-h-none"
+                  style={getFaceCropStyle(
+                    {
+                      bbox_x: cluster.rep_bbox_x,
+                      bbox_y: cluster.rep_bbox_y,
+                      bbox_width: cluster.rep_bbox_width,
+                      bbox_height: cluster.rep_bbox_height,
+                    },
+                    cluster.rep_normalized_width,
+                    cluster.rep_normalized_height,
+                    48,
+                  )}
+                />
+              </div>
+            ) : (
+              <Users className="h-8 w-8 text-gray-700" />
+            )}
             <h1 className="text-3xl font-bold text-gray-900">{displayName}</h1>
             {cluster.person_name && (
               <Badge variant="secondary" className="text-sm">
@@ -685,8 +734,8 @@ export default function ClusterDetailView({ loaderData }: Route.ComponentProps) 
             <div className="space-y-1">
               <p className="text-sm font-medium text-gray-700">Face actions</p>
               <p className="text-xs text-gray-500">
-                Click faces to select. Select 1 for representative or cutoff. Select multiple to remove (similar faces
-                also removed).
+                Click faces to select, shift-click to select range. Select 1 for representative or cutoff. Select
+                multiple to remove (similar faces also removed).
               </p>
             </div>
             <div className="flex items-center space-x-2">
@@ -743,10 +792,10 @@ export default function ClusterDetailView({ loaderData }: Route.ComponentProps) 
                 return (
                   <Card
                     key={face.id}
-                    className={`hover:shadow-lg transition-all cursor-pointer ${
+                    className={`hover:shadow-lg transition-all cursor-pointer select-none ${
                       isRepresentative && !isSelected ? "ring-2 ring-amber-400" : ""
                     } ${isSelected ? "ring-2 ring-blue-500 bg-blue-50" : "hover:ring-1 hover:ring-gray-300"}`}
-                    onClick={() => toggleFaceSelection(face.id)}
+                    onClick={(e) => toggleFaceSelection(face.id, e.shiftKey)}
                   >
                     <CardContent className="p-4 relative">
                       {isRepresentative && (

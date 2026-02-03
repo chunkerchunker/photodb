@@ -614,9 +614,15 @@ export async function getClusterDetails(clusterId: string) {
            per.first_name, per.last_name,
            per.gender as person_gender, per.gender_confidence as person_gender_confidence,
            per.estimated_birth_year, per.birth_year_stddev,
-           TRIM(CONCAT(per.first_name, ' ', COALESCE(per.last_name, ''))) as person_name
+           TRIM(CONCAT(per.first_name, ' ', COALESCE(per.last_name, ''))) as person_name,
+           rep.face_bbox_x as rep_bbox_x, rep.face_bbox_y as rep_bbox_y,
+           rep.face_bbox_width as rep_bbox_width, rep.face_bbox_height as rep_bbox_height,
+           rep.photo_id as rep_photo_id,
+           p.normalized_width as rep_normalized_width, p.normalized_height as rep_normalized_height
     FROM cluster c
     LEFT JOIN person per ON c.person_id = per.id
+    LEFT JOIN person_detection rep ON c.representative_detection_id = rep.id
+    LEFT JOIN photo p ON rep.photo_id = p.id
     WHERE c.id = $1
   `;
 
@@ -636,7 +642,8 @@ export async function getClusterFaces(clusterId: string, limit = 24, offset = 0)
     FROM person_detection pd
     JOIN photo p ON pd.photo_id = p.id
     WHERE pd.cluster_id = $1
-    ORDER BY pd.cluster_confidence DESC, pd.id
+    ORDER BY (pd.id = (SELECT representative_detection_id FROM cluster WHERE id = $1)) DESC,
+             pd.cluster_confidence DESC, pd.id
     LIMIT $2 OFFSET $3
   `;
 

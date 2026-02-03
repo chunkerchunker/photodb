@@ -9,6 +9,7 @@ import {
   ExternalLink,
   Info,
   MapPin,
+  ScanFace,
   Sparkles,
   Tag,
   User,
@@ -294,41 +295,59 @@ export default function PhotoDetail({ loaderData }: Route.ComponentProps) {
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
           {/* Image Column */}
           <div className="flex flex-col">
-            <div className="relative inline-block size-fit">
-              <img
-                ref={imageMeasureRef}
-                src={`/api/image/${photo.id}`}
-                alt={photo.filename_only}
-                className="w-full h-auto rounded-lg shadow-lg"
-              />
+            <div className="flex items-start gap-2">
+              <div className="relative inline-block size-fit">
+                <img
+                  ref={imageMeasureRef}
+                  src={`/api/image/${photo.id}`}
+                  alt={photo.filename_only}
+                  className="w-full h-auto rounded-lg shadow-lg"
+                />
 
-              {/* Face Overlay */}
-              {showFaces &&
-                photo.faces &&
-                photo.faces.length > 0 &&
-                photo.image_width &&
-                photo.image_height &&
-                imageMeasures &&
-                imageMeasures.width &&
-                imageMeasures.height && (
-                  <FaceOverlay
-                    faces={photo.faces}
-                    originalWidth={photo.image_width}
-                    originalHeight={photo.image_height}
-                    displayWidth={imageMeasures.width}
-                    displayHeight={imageMeasures.height}
-                    hoveredFaceId={hoveredFaceId}
-                    onFaceHover={setHoveredFaceId}
-                    onFaceClick={(face, event) => {
-                      const url = face.cluster_id ? `/cluster/${face.cluster_id}` : `/face/${face.id}/similar`;
-                      if (event.metaKey || event.ctrlKey) {
-                        window.open(url, "_blank");
-                      } else {
-                        navigate(url);
-                      }
-                    }}
-                  />
-                )}
+                {/* Face Overlay */}
+                {showFaces &&
+                  photo.faces &&
+                  photo.faces.length > 0 &&
+                  photo.image_width &&
+                  photo.image_height &&
+                  imageMeasures &&
+                  imageMeasures.width &&
+                  imageMeasures.height && (
+                    <FaceOverlay
+                      faces={photo.faces}
+                      originalWidth={photo.image_width}
+                      originalHeight={photo.image_height}
+                      displayWidth={imageMeasures.width}
+                      displayHeight={imageMeasures.height}
+                      hoveredFaceId={hoveredFaceId}
+                      onFaceHover={setHoveredFaceId}
+                      onFaceClick={(face, event) => {
+                        const url = face.cluster_id ? `/cluster/${face.cluster_id}` : `/face/${face.id}/similar`;
+                        if (event.metaKey || event.ctrlKey) {
+                          window.open(url, "_blank");
+                        } else {
+                          navigate(url);
+                        }
+                      }}
+                    />
+                  )}
+              </div>
+
+              {/* Face toggle button */}
+              {photo.face_count > 0 && (
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  className={cn(
+                    "h-8 w-8 flex-shrink-0",
+                    showFaces ? "text-blue-600 bg-blue-50 hover:bg-blue-100" : "text-gray-400 hover:text-gray-600",
+                  )}
+                  onClick={() => updateFaceState(!showFaces)}
+                  title={showFaces ? "Hide face bounding boxes" : "Show face bounding boxes"}
+                >
+                  <ScanFace className="h-5 w-5" />
+                </Button>
+              )}
             </div>
           </div>
 

@@ -202,8 +202,22 @@ export default function SimilarFacesPage({ loaderData }: Route.ComponentProps) {
   const [searchResults, setSearchResults] = useState<SearchCluster[]>([]);
   const [isSearching, setIsSearching] = useState(false);
   const [sliderValue, setSliderValue] = useState(threshold);
+  const [hideClustered, setHideClustered] = useState(false);
   const fetcher = useFetcher();
   const navigate = useNavigate();
+
+  // Load hideClustered preference from localStorage
+  useEffect(() => {
+    const saved = localStorage.getItem("similarFaces.hideClustered");
+    if (saved !== null) {
+      setHideClustered(saved === "true");
+    }
+  }, []);
+
+  const updateHideClustered = (checked: boolean) => {
+    setHideClustered(checked);
+    localStorage.setItem("similarFaces.hideClustered", String(checked));
+  };
 
   // Update slider when threshold changes (e.g., from URL)
   useEffect(() => {
@@ -225,6 +239,7 @@ export default function SimilarFacesPage({ loaderData }: Route.ComponentProps) {
   );
 
   const unclusteredFaces = similarFaces.filter((f: SimilarFace) => !f.cluster_id);
+  const displayedFaces = hideClustered ? unclusteredFaces : similarFaces;
 
   // Debounced search for clusters
   const searchClusters = useCallback(async (query: string) => {
@@ -324,6 +339,16 @@ export default function SimilarFacesPage({ loaderData }: Route.ComponentProps) {
               className="w-24"
             />
             <span className="text-xs text-gray-500 w-8">{Math.round(sliderValue * 100)}%</span>
+          </div>
+          <div className="flex items-center space-x-2">
+            <Checkbox
+              id="hide-clustered"
+              checked={hideClustered}
+              onCheckedChange={(checked) => updateHideClustered(checked === true)}
+            />
+            <label htmlFor="hide-clustered" className="text-sm text-gray-600 cursor-pointer">
+              Hide clustered
+            </label>
           </div>
         </div>
 
@@ -512,9 +537,9 @@ export default function SimilarFacesPage({ loaderData }: Route.ComponentProps) {
         </div>
 
         {/* Similar faces grid */}
-        {similarFaces.length > 0 ? (
+        {displayedFaces.length > 0 ? (
           <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-6 gap-4">
-            {similarFaces.map((similarFace: SimilarFace) => {
+            {displayedFaces.map((similarFace: SimilarFace) => {
               const faceIdNum = parseInt(similarFace.id, 10);
               const isSelected = selectedFaces.includes(faceIdNum);
               const isClustered = !!similarFace.cluster_id;
@@ -616,8 +641,17 @@ export default function SimilarFacesPage({ loaderData }: Route.ComponentProps) {
         ) : (
           <div className="text-center py-12">
             <Users className="h-16 w-16 text-gray-400 mx-auto mb-4" />
-            <div className="text-gray-500 text-lg">No similar faces found above {Math.round(threshold * 100)}%</div>
-            <p className="text-sm text-gray-400 mt-2">Try lowering the similarity threshold</p>
+            {hideClustered && similarFaces.length > 0 ? (
+              <>
+                <div className="text-gray-500 text-lg">All similar faces are already clustered</div>
+                <p className="text-sm text-gray-400 mt-2">Uncheck "Hide clustered" to see them</p>
+              </>
+            ) : (
+              <>
+                <div className="text-gray-500 text-lg">No similar faces found above {Math.round(threshold * 100)}%</div>
+                <p className="text-sm text-gray-400 mt-2">Try lowering the similarity threshold</p>
+              </>
+            )}
           </div>
         )}
       </div>

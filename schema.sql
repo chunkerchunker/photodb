@@ -264,6 +264,10 @@ CREATE INDEX IF NOT EXISTS idx_cluster_visible
 ON cluster(face_count DESC, id)
 WHERE face_count > 0 AND (hidden = false OR hidden IS NULL);
 
+-- Simple filter index for hidden column (from migration 003)
+CREATE INDEX IF NOT EXISTS idx_cluster_hidden ON cluster(hidden) WHERE hidden = true;
+
+-- Composite index for hidden cluster listing with ORDER BY (from migration 008)
 CREATE INDEX IF NOT EXISTS idx_cluster_hidden_listing
 ON cluster(face_count DESC, id)
 WHERE face_count > 0 AND hidden = true;

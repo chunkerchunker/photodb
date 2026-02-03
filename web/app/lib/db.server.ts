@@ -302,17 +302,19 @@ export async function getPhotoDetails(photoId: number) {
 
   // Get scene analysis data (Apple Vision taxonomy)
   const sceneAnalysisQuery = `
-    SELECT sa.top_labels, sa.all_labels, sa.processing_time_ms,
-           ao.model_name, ao.processed_at
+    SELECT sa.taxonomy_labels, sa.taxonomy_confidences
     FROM scene_analysis sa
-    JOIN analysis_output ao ON sa.analysis_output_id = ao.id
-    WHERE sa.photo_id = $1 AND ao.model_name = 'apple_vision_classify'
-    ORDER BY ao.processed_at DESC
-    LIMIT 1
+    WHERE sa.photo_id = $1
   `;
   const sceneAnalysisResult = await pool.query(sceneAnalysisQuery, [photoId]);
-  if (sceneAnalysisResult.rows.length > 0) {
-    photo.scene_taxonomy = sceneAnalysisResult.rows[0];
+  if (sceneAnalysisResult.rows.length > 0 && sceneAnalysisResult.rows[0].taxonomy_labels) {
+    const row = sceneAnalysisResult.rows[0];
+    // Convert parallel arrays to array of objects for easier frontend consumption
+    const topLabels = row.taxonomy_labels.map((label: string, i: number) => ({
+      label,
+      confidence: row.taxonomy_confidences[i] || 0,
+    }));
+    photo.scene_taxonomy = { top_labels: topLabels };
   }
 
   // Add computed fields

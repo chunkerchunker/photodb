@@ -623,3 +623,236 @@ class BatchJob:
             "batch_discount_applied": self.batch_discount_applied,
             "error_message": self.error_message,
         }
+
+
+@dataclass
+class PromptCategory:
+    """Category for organizing prompts (face_emotion, scene_setting, etc.)."""
+
+    id: Optional[int]
+    name: str
+    target: str  # 'face' or 'scene'
+    selection_mode: str  # 'single' or 'multi'
+    min_confidence: float
+    max_results: int
+    description: Optional[str]
+    display_order: int
+    is_active: bool
+    created_at: Optional[datetime]
+    updated_at: Optional[datetime]
+
+    @classmethod
+    def create(
+        cls,
+        name: str,
+        target: str,
+        selection_mode: str = "single",
+        min_confidence: float = 0.1,
+        max_results: int = 5,
+        description: Optional[str] = None,
+        display_order: int = 0,
+    ) -> "PromptCategory":
+        now = datetime.now(timezone.utc)
+        return cls(
+            id=None,
+            name=name,
+            target=target,
+            selection_mode=selection_mode,
+            min_confidence=min_confidence,
+            max_results=max_results,
+            description=description,
+            display_order=display_order,
+            is_active=True,
+            created_at=now,
+            updated_at=now,
+        )
+
+
+@dataclass
+class PromptEmbedding:
+    """A prompt with precomputed text embedding for zero-shot classification."""
+
+    id: Optional[int]
+    category_id: int
+    label: str
+    prompt_text: str
+    embedding: Optional[List[float]]  # 512-dim vector
+    model_name: str
+    model_version: Optional[str]
+    display_name: Optional[str]
+    parent_label: Optional[str]
+    confidence_boost: float
+    metadata: Optional[Dict[str, Any]]
+    is_active: bool
+    embedding_computed_at: Optional[datetime]
+    created_at: Optional[datetime]
+    updated_at: Optional[datetime]
+
+    @classmethod
+    def create(
+        cls,
+        category_id: int,
+        label: str,
+        prompt_text: str,
+        model_name: str,
+        embedding: Optional[List[float]] = None,
+        display_name: Optional[str] = None,
+        parent_label: Optional[str] = None,
+        confidence_boost: float = 0.0,
+        metadata: Optional[Dict[str, Any]] = None,
+    ) -> "PromptEmbedding":
+        now = datetime.now(timezone.utc)
+        return cls(
+            id=None,
+            category_id=category_id,
+            label=label,
+            prompt_text=prompt_text,
+            embedding=embedding,
+            model_name=model_name,
+            model_version=None,
+            display_name=display_name,
+            parent_label=parent_label,
+            confidence_boost=confidence_boost,
+            metadata=metadata,
+            is_active=True,
+            embedding_computed_at=now if embedding else None,
+            created_at=now,
+            updated_at=now,
+        )
+
+
+@dataclass
+class PhotoTag:
+    """A tag assigned to a photo from prompt-based classification."""
+
+    id: Optional[int]
+    photo_id: int
+    prompt_id: int
+    confidence: float
+    rank_in_category: Optional[int]
+    analysis_output_id: Optional[int]
+    created_at: Optional[datetime]
+
+    @classmethod
+    def create(
+        cls,
+        photo_id: int,
+        prompt_id: int,
+        confidence: float,
+        rank_in_category: Optional[int] = None,
+        analysis_output_id: Optional[int] = None,
+    ) -> "PhotoTag":
+        return cls(
+            id=None,
+            photo_id=photo_id,
+            prompt_id=prompt_id,
+            confidence=confidence,
+            rank_in_category=rank_in_category,
+            analysis_output_id=analysis_output_id,
+            created_at=datetime.now(timezone.utc),
+        )
+
+
+@dataclass
+class DetectionTag:
+    """A tag assigned to a face detection from prompt-based classification."""
+
+    id: Optional[int]
+    detection_id: int
+    prompt_id: int
+    confidence: float
+    rank_in_category: Optional[int]
+    analysis_output_id: Optional[int]
+    created_at: Optional[datetime]
+
+    @classmethod
+    def create(
+        cls,
+        detection_id: int,
+        prompt_id: int,
+        confidence: float,
+        rank_in_category: Optional[int] = None,
+        analysis_output_id: Optional[int] = None,
+    ) -> "DetectionTag":
+        return cls(
+            id=None,
+            detection_id=detection_id,
+            prompt_id=prompt_id,
+            confidence=confidence,
+            rank_in_category=rank_in_category,
+            analysis_output_id=analysis_output_id,
+            created_at=datetime.now(timezone.utc),
+        )
+
+
+@dataclass
+class AnalysisOutput:
+    """Model-agnostic storage for raw analysis outputs."""
+
+    id: Optional[int]
+    photo_id: int
+    model_type: str
+    model_name: str
+    model_version: Optional[str]
+    output: Dict[str, Any]
+    processing_time_ms: Optional[int]
+    device: Optional[str]
+    created_at: Optional[datetime]
+
+    @classmethod
+    def create(
+        cls,
+        photo_id: int,
+        model_type: str,
+        model_name: str,
+        output: Dict[str, Any],
+        model_version: Optional[str] = None,
+        processing_time_ms: Optional[int] = None,
+        device: Optional[str] = None,
+    ) -> "AnalysisOutput":
+        return cls(
+            id=None,
+            photo_id=photo_id,
+            model_type=model_type,
+            model_name=model_name,
+            model_version=model_version,
+            output=output,
+            processing_time_ms=processing_time_ms,
+            device=device,
+            created_at=datetime.now(timezone.utc),
+        )
+
+
+@dataclass
+class SceneAnalysis:
+    """Photo-level scene analysis results."""
+
+    id: Optional[int]
+    photo_id: int
+    taxonomy_labels: Optional[List[str]]
+    taxonomy_confidences: Optional[List[float]]
+    taxonomy_output_id: Optional[int]
+    mobileclip_output_id: Optional[int]
+    created_at: Optional[datetime]
+    updated_at: Optional[datetime]
+
+    @classmethod
+    def create(
+        cls,
+        photo_id: int,
+        taxonomy_labels: Optional[List[str]] = None,
+        taxonomy_confidences: Optional[List[float]] = None,
+        taxonomy_output_id: Optional[int] = None,
+        mobileclip_output_id: Optional[int] = None,
+    ) -> "SceneAnalysis":
+        now = datetime.now(timezone.utc)
+        return cls(
+            id=None,
+            photo_id=photo_id,
+            taxonomy_labels=taxonomy_labels,
+            taxonomy_confidences=taxonomy_confidences,
+            taxonomy_output_id=taxonomy_output_id,
+            mobileclip_output_id=mobileclip_output_id,
+            created_at=now,
+            updated_at=now,
+        )

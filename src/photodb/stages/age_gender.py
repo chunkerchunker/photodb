@@ -75,6 +75,10 @@ class MiVOLOPredictor:
         # Try to import and initialize MiVOLO
         try:
             from types import SimpleNamespace
+
+            # Apply timm compatibility shim before importing mivolo
+            # (MiVOLO needs timm 0.8.x APIs that were changed in 0.9+)
+            from ..utils import timm_compat  # noqa: F401
             from mivolo.predictor import Predictor
 
             # Patch torch.load for PyTorch 2.6+ compatibility

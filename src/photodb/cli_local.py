@@ -20,7 +20,16 @@ load_dotenv(os.getenv("ENV_FILE", "./.env"))
 @click.option(
     "--stage",
     type=click.Choice(
-        ["all", "normalize", "metadata", "detection", "age_gender", "clustering", "faces"]
+        [
+            "all",
+            "normalize",
+            "metadata",
+            "detection",
+            "age_gender",
+            "clustering",
+            "scene_analysis",
+            "faces",
+        ]
     ),
     default="all",
     help="Specific stage to run (faces is a legacy alias for detection)",

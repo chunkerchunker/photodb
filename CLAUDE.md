@@ -14,9 +14,9 @@ Detailed processing design in `docs/DESIGN.md`.
   - `process-local` (`src/photodb/cli_local.py`): Local photo processing (normalize, metadata extraction)
   - `enrich-photos` (`src/photodb/cli_enrich.py`): Remote LLM-based enrichment with batch processing
 - **Processors (`src/photodb/processors.py`)**: Orchestrates parallel photo processing using ThreadPoolExecutor
-- **Stages (`src/photodb/stages/`)**: Processing pipeline stages (normalize, metadata, detection, age_gender, enrich, stats)
+- **Stages (`src/photodb/stages/`)**: Processing pipeline stages (normalize, metadata, detection, age_gender, clustering, scene_analysis, enrich)
   - All stages inherit from `BaseStage` (`src/photodb/stages/base.py`)
-  - Each stage handles a specific aspect: file normalization, metadata extraction, person/face detection, age/gender estimation, enrichment, statistics
+  - Each stage handles a specific aspect: file normalization, metadata extraction, person/face detection, age/gender estimation, face clustering, scene/sentiment analysis, enrichment
 - **Database Layer**: PostgreSQL-based with connection pooling
   - Models (`src/photodb/database/models.py`): Photo, ProcessingStatus, Metadata entities
   - Repository (`src/photodb/database/pg_repository.py`): Data access layer
@@ -33,9 +33,11 @@ Photos flow through stages sequentially but can be processed in parallel. The pi
 2. **Metadata**: EXIF extraction and metadata parsing
 3. **Detection**: YOLO-based face and body detection using YOLOv8x person_face model
 4. **Age/Gender**: MiVOLO-based age and gender estimation from detected faces
+5. **Clustering**: Face embedding extraction and clustering for person identification
+6. **Scene Analysis**: Apple Vision scene taxonomy (macOS) and prompt-based tagging with MobileCLIP
 
 **Remote Processing (`enrich-photos`):**
-5. **Enrich**: LLM-based analysis and enrichment using batch processing
+7. **Enrich**: LLM-based analysis and enrichment using batch processing
 
 Each stage tracks its processing status per photo, allowing for granular recovery and reprocessing.
 
@@ -66,7 +68,7 @@ uv run process-local /path/to/photos
 # With parallel processing (recommended for local stages)
 uv run process-local /path/to/photos --parallel 500
 
-# Specific stage only (normalize, metadata, detection, or age_gender)
+# Specific stage only (normalize, metadata, detection, age_gender, clustering, scene_analysis)
 uv run process-local /path/to/photos --stage metadata
 
 # Run detection stage only (face/body detection)
@@ -74,6 +76,9 @@ uv run process-local /path/to/photos --stage detection
 
 # Run age/gender estimation only
 uv run process-local /path/to/photos --stage age_gender
+
+# Run scene analysis (taxonomy + prompt tagging)
+uv run process-local /path/to/photos --stage scene_analysis
 
 # Force reprocessing
 uv run process-local /path/to/photos --force
@@ -198,6 +203,13 @@ The application uses environment variables and optional config files:
 
 *Tested with mivolo 0.6.0.dev0 (git HEAD) on 2026-02-01. Future versions may fix these issues.*
 
+**timm Compatibility:** MiVOLO was written for timm 0.8.x but we use timm 1.0.x for MobileCLIP-S2's FastViT backbone. A compatibility shim (`src/photodb/utils/timm_compat.py`) patches:
+1. `remap_checkpoint()` → `remap_state_dict()` (API renamed in timm 0.9+)
+2. `split_model_name_tag()` (removed in timm 0.9+)
+3. `MiVOLOModel.__init__()` (VOLO class added `pos_drop_rate` parameter in timm 0.9+)
+
+Always import `timm_compat` before importing mivolo to apply the patches.
+
 ### Face Embedding Configuration
 
 - `EMBEDDING_MODEL_NAME`: InsightFace model pack name (default: `buffalo_l`)
@@ -209,6 +221,42 @@ The application uses environment variables and optional config files:
 - **CPU:** Falls back to CPU if no accelerators available
 
 **Model Location:** InsightFace models auto-download to `~/.insightface/models/` on first use.
+
+### Scene Analysis Stage Configuration
+
+- `CLIP_MODEL_NAME`: CLIP model to use (default: `MobileCLIP-S2`)
+- `CLIP_PRETRAINED`: Pretrained weights source (default: `datacompdr`)
+
+The scene analysis stage provides two features:
+
+1. **Apple Vision Scene Taxonomy (macOS only):** Uses Apple's Vision framework to classify scenes with 1303 built-in labels. Returns top-k labels with confidence scores.
+
+2. **Prompt-based Tagging:** Uses MobileCLIP to match images and face crops against configurable text prompts for semantic tagging.
+
+#### Prompt Management
+
+Prompts are stored in the database and organized into categories:
+- **Face categories:** `face_emotion`, `face_expression`, `face_gaze`
+- **Scene categories:** `scene_mood`, `scene_setting`, `scene_activity`, `scene_time`, `scene_weather`, `scene_social`
+
+To seed initial prompts:
+```bash
+uv run python scripts/seed_prompts.py
+```
+
+To recompute embeddings after model changes:
+```bash
+uv run python scripts/seed_prompts.py --recompute-embeddings
+```
+
+To add custom prompts, insert rows into the `prompt_embedding` table with the appropriate `category_id` and run the seed script with `--recompute-embeddings` to compute the embeddings.
+
+#### Database Migration
+
+For existing databases, run the migration to add scene analysis tables:
+```bash
+psql $DATABASE_URL -f migrations/006_add_scene_analysis.sql
+```
 
 ### Free-threaded Python
 

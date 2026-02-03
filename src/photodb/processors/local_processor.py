@@ -11,6 +11,7 @@ from ..stages.metadata import MetadataStage
 from ..stages.detection import DetectionStage
 from ..stages.age_gender import AgeGenderStage
 from ..stages.clustering import ClusteringStage
+from ..stages.scene_analysis import SceneAnalysisStage
 
 logger = logging.getLogger(__name__)
 
@@ -48,12 +49,16 @@ class LocalProcessor(BaseProcessor):
             "detection": DetectionStage(repository, config),
             "age_gender": AgeGenderStage(repository, config),
             "clustering": ClusteringStage(repository, config),
+            "scene_analysis": SceneAnalysisStage(repository, config),
         }
 
         # Cache ML models for sharing across threads (they're expensive to load)
         # CoreML models are thread-safe, PyTorch MPS models are not
         self._shared_detector = self.stages["detection"].detector
         self._shared_mivolo = self.stages["age_gender"].predictor
+        self._shared_scene_analyzer = self.stages["scene_analysis"].analyzer
+        self._shared_prompt_cache = self.stages["scene_analysis"].prompt_cache
+        self._shared_apple_classifier = self.stages["scene_analysis"].apple_classifier
 
     def close(self):
         """Clean up resources, including connection pool."""
@@ -69,13 +74,27 @@ class LocalProcessor(BaseProcessor):
         self.close()
 
     def _get_stages(self, stage: str) -> List[str]:
-        """Get list of stages to run (normalize, metadata, detection, age_gender, clustering)."""
+        """Get list of stages to run (normalize, metadata, detection, age_gender, clustering, scene_analysis)."""
         if stage == "all":
-            return ["normalize", "metadata", "detection", "age_gender", "clustering"]
+            return [
+                "normalize",
+                "metadata",
+                "detection",
+                "age_gender",
+                "clustering",
+                "scene_analysis",
+            ]
         elif stage == "faces":
             # Legacy alias: "faces" maps to "detection"
             return ["detection"]
-        elif stage in ["normalize", "metadata", "detection", "age_gender", "clustering"]:
+        elif stage in [
+            "normalize",
+            "metadata",
+            "detection",
+            "age_gender",
+            "clustering",
+            "scene_analysis",
+        ]:
             return [stage]
         else:
             raise ValueError(f"Invalid stage for LocalProcessor: {stage}")
@@ -216,6 +235,17 @@ class LocalProcessor(BaseProcessor):
                     pooled_stages["age_gender"] = age_gender_stage
                 if "clustering" in stages_list:
                     pooled_stages["clustering"] = ClusteringStage(pooled_repo, self.config)
+                if "scene_analysis" in stages_list:
+                    scene_stage = SceneAnalysisStage.__new__(SceneAnalysisStage)
+                    scene_stage.repository = pooled_repo
+                    scene_stage.config = self.config
+                    scene_stage.stage_name = "scene_analysis"
+                    scene_stage.analyzer = self._shared_scene_analyzer
+                    scene_stage.prompt_cache = self._shared_prompt_cache
+                    scene_stage.apple_classifier = self._shared_apple_classifier
+                    scene_stage.scene_categories = self.stages["scene_analysis"].scene_categories
+                    scene_stage.face_categories = self.stages["scene_analysis"].face_categories
+                    pooled_stages["scene_analysis"] = scene_stage
 
                 # Process with pooled stages
                 return self._process_single_file(file_path, stage, pooled_stages)

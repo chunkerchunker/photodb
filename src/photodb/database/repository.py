@@ -7,15 +7,21 @@ from psycopg.rows import dict_row
 
 from .connection import ConnectionPool
 from .models import (
-    Photo,
-    Metadata,
-    ProcessingStatus,
-    LLMAnalysis,
+    AnalysisOutput,
     BatchJob,
+    Cluster,
+    DetectionTag,
+    Face,
+    LLMAnalysis,
+    Metadata,
     Person,
     PersonDetection,
-    Face,
-    Cluster,
+    Photo,
+    PhotoTag,
+    ProcessingStatus,
+    PromptCategory,
+    PromptEmbedding,
+    SceneAnalysis,
 )
 
 logger = logging.getLogger(__name__)
@@ -621,7 +627,7 @@ class PhotoRepository:
                     "SELECT embedding FROM face_embedding WHERE face_id = %s", (face_id,)
                 )
                 row = cursor.fetchone()
-                return list(row[0]) if row else None
+                return [float(x) for x in row[0]] if row else None
 
     def find_similar_faces(
         self, query_embedding: List[float], threshold: float = 0.6, limit: int = 10
@@ -1715,7 +1721,7 @@ class PhotoRepository:
                     (detection_id,),
                 )
                 row = cursor.fetchone()
-                return list(row[0]) if row else None
+                return [float(x) for x in row[0]] if row else None
 
     def remove_detection_from_cluster(
         self,
@@ -1832,3 +1838,332 @@ class PhotoRepository:
                        VALUES (%s, %s, %s, 'pending', NOW())""",
                     candidates,
                 )
+
+    # Prompt Category methods
+
+    def get_prompt_categories(
+        self, target: Optional[str] = None, active_only: bool = True
+    ) -> List[PromptCategory]:
+        """Get prompt categories, optionally filtered by target."""
+        with self.pool.get_connection() as conn:
+            with conn.cursor() as cursor:
+                query = "SELECT * FROM prompt_category WHERE 1=1"
+                params: List[Any] = []
+
+                if active_only:
+                    query += " AND is_active = true"
+                if target:
+                    query += " AND target = %s"
+                    params.append(target)
+
+                query += " ORDER BY display_order"
+                cursor.execute(query, params)
+
+                return [self._row_to_prompt_category(row) for row in cursor.fetchall()]
+
+    def get_prompt_category_by_name(self, name: str) -> Optional[PromptCategory]:
+        """Get a prompt category by name."""
+        with self.pool.get_connection() as conn:
+            with conn.cursor() as cursor:
+                cursor.execute("SELECT * FROM prompt_category WHERE name = %s", (name,))
+                row = cursor.fetchone()
+                return self._row_to_prompt_category(row) if row else None
+
+    def _row_to_prompt_category(self, row) -> PromptCategory:
+        return PromptCategory(
+            id=row[0],
+            name=row[1],
+            target=row[2],
+            selection_mode=row[3],
+            min_confidence=row[4],
+            max_results=row[5],
+            description=row[6],
+            display_order=row[7],
+            is_active=row[8],
+            created_at=row[9],
+            updated_at=row[10],
+        )
+
+    # Prompt Embedding methods
+
+    def get_prompts_by_category(
+        self, category_id: int, active_only: bool = True, with_embeddings: bool = True
+    ) -> List[PromptEmbedding]:
+        """Get all prompts for a category."""
+        with self.pool.get_connection() as conn:
+            with conn.cursor() as cursor:
+                if with_embeddings:
+                    cols = "*"
+                else:
+                    cols = (
+                        "id, category_id, label, prompt_text, NULL as embedding, "
+                        "model_name, model_version, display_name, parent_label, "
+                        "confidence_boost, metadata, is_active, embedding_computed_at, "
+                        "created_at, updated_at"
+                    )
+                query = f"SELECT {cols} FROM prompt_embedding WHERE category_id = %s"
+                params: List[Any] = [category_id]
+
+                if active_only:
+                    query += " AND is_active = true"
+
+                query += " ORDER BY label"
+                cursor.execute(query, params)
+
+                return [self._row_to_prompt_embedding(row) for row in cursor.fetchall()]
+
+    def get_prompts_needing_embedding(self, model_name: str) -> List[PromptEmbedding]:
+        """Get prompts that need embedding computation for a model."""
+        with self.pool.get_connection() as conn:
+            with conn.cursor() as cursor:
+                cursor.execute(
+                    """
+                    SELECT * FROM prompt_embedding
+                    WHERE is_active = true
+                    AND (embedding IS NULL OR model_name != %s)
+                    ORDER BY category_id, label
+                    """,
+                    (model_name,),
+                )
+                return [self._row_to_prompt_embedding(row) for row in cursor.fetchall()]
+
+    def upsert_prompt_embedding(self, prompt: PromptEmbedding) -> PromptEmbedding:
+        """Insert or update a prompt embedding."""
+        with self.pool.transaction() as conn:
+            with conn.cursor() as cursor:
+                cursor.execute(
+                    """
+                    INSERT INTO prompt_embedding
+                    (category_id, label, prompt_text, embedding, model_name, model_version,
+                     display_name, parent_label, confidence_boost, metadata, is_active,
+                     embedding_computed_at, created_at, updated_at)
+                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                    ON CONFLICT (category_id, label) DO UPDATE SET
+                        prompt_text = EXCLUDED.prompt_text,
+                        embedding = EXCLUDED.embedding,
+                        model_name = EXCLUDED.model_name,
+                        model_version = EXCLUDED.model_version,
+                        display_name = EXCLUDED.display_name,
+                        parent_label = EXCLUDED.parent_label,
+                        confidence_boost = EXCLUDED.confidence_boost,
+                        metadata = EXCLUDED.metadata,
+                        embedding_computed_at = EXCLUDED.embedding_computed_at,
+                        updated_at = EXCLUDED.updated_at
+                    RETURNING id
+                    """,
+                    (
+                        prompt.category_id,
+                        prompt.label,
+                        prompt.prompt_text,
+                        prompt.embedding,
+                        prompt.model_name,
+                        prompt.model_version,
+                        prompt.display_name,
+                        prompt.parent_label,
+                        prompt.confidence_boost,
+                        json.dumps(prompt.metadata) if prompt.metadata else None,
+                        prompt.is_active,
+                        prompt.embedding_computed_at,
+                        prompt.created_at,
+                        prompt.updated_at,
+                    ),
+                )
+                prompt.id = cursor.fetchone()[0]
+        return prompt
+
+    def update_prompt_embedding_vector(
+        self,
+        prompt_id: int,
+        embedding: List[float],
+        model_name: str,
+        model_version: Optional[str] = None,
+    ) -> None:
+        """Update just the embedding vector for a prompt."""
+        with self.pool.transaction() as conn:
+            with conn.cursor() as cursor:
+                cursor.execute(
+                    """
+                    UPDATE prompt_embedding
+                    SET embedding = %s, model_name = %s, model_version = %s,
+                        embedding_computed_at = now(), updated_at = now()
+                    WHERE id = %s
+                    """,
+                    (embedding, model_name, model_version, prompt_id),
+                )
+
+    def _row_to_prompt_embedding(self, row) -> PromptEmbedding:
+        return PromptEmbedding(
+            id=row[0],
+            category_id=row[1],
+            label=row[2],
+            prompt_text=row[3],
+            embedding=[float(x) for x in row[4]] if row[4] is not None else None,
+            model_name=row[5],
+            model_version=row[6],
+            display_name=row[7],
+            parent_label=row[8],
+            confidence_boost=row[9],
+            metadata=row[10]
+            if isinstance(row[10], dict)
+            else json.loads(row[10])
+            if row[10]
+            else None,
+            is_active=row[11],
+            embedding_computed_at=row[12],
+            created_at=row[13],
+            updated_at=row[14],
+        )
+
+    # Photo/Detection Tag methods
+
+    def bulk_upsert_photo_tags(self, tags: List[PhotoTag]) -> None:
+        """Bulk insert/update photo tags."""
+        if not tags:
+            return
+        # Validate all tags belong to the same photo
+        photo_ids = {t.photo_id for t in tags}
+        if len(photo_ids) > 1:
+            raise ValueError(f"All tags must belong to the same photo, got photo_ids: {photo_ids}")
+        with self.pool.transaction() as conn:
+            with conn.cursor() as cursor:
+                # Delete existing tags for this photo in affected categories
+                photo_id = tags[0].photo_id
+                prompt_ids = [t.prompt_id for t in tags]
+                cursor.execute(
+                    """
+                    DELETE FROM photo_tag
+                    WHERE photo_id = %s AND prompt_id = ANY(%s)
+                    """,
+                    (photo_id, prompt_ids),
+                )
+
+                # Insert new tags
+                for tag in tags:
+                    cursor.execute(
+                        """
+                        INSERT INTO photo_tag
+                        (photo_id, prompt_id, confidence, rank_in_category, analysis_output_id, created_at)
+                        VALUES (%s, %s, %s, %s, %s, %s)
+                        ON CONFLICT (photo_id, prompt_id) DO UPDATE SET
+                            confidence = EXCLUDED.confidence,
+                            rank_in_category = EXCLUDED.rank_in_category,
+                            analysis_output_id = EXCLUDED.analysis_output_id
+                        """,
+                        (
+                            tag.photo_id,
+                            tag.prompt_id,
+                            tag.confidence,
+                            tag.rank_in_category,
+                            tag.analysis_output_id,
+                            tag.created_at,
+                        ),
+                    )
+
+    def bulk_upsert_detection_tags(self, tags: List[DetectionTag]) -> None:
+        """Bulk insert/update detection tags."""
+        if not tags:
+            return
+        with self.pool.transaction() as conn:
+            with conn.cursor() as cursor:
+                for tag in tags:
+                    cursor.execute(
+                        """
+                        INSERT INTO detection_tag
+                        (detection_id, prompt_id, confidence, rank_in_category, analysis_output_id, created_at)
+                        VALUES (%s, %s, %s, %s, %s, %s)
+                        ON CONFLICT (detection_id, prompt_id) DO UPDATE SET
+                            confidence = EXCLUDED.confidence,
+                            rank_in_category = EXCLUDED.rank_in_category,
+                            analysis_output_id = EXCLUDED.analysis_output_id
+                        """,
+                        (
+                            tag.detection_id,
+                            tag.prompt_id,
+                            tag.confidence,
+                            tag.rank_in_category,
+                            tag.analysis_output_id,
+                            tag.created_at,
+                        ),
+                    )
+
+    def get_photo_tags(self, photo_id: int) -> List[Dict[str, Any]]:
+        """Get all tags for a photo with category info."""
+        with self.pool.get_connection() as conn:
+            with conn.cursor() as cursor:
+                cursor.execute(
+                    """
+                    SELECT * FROM photo_tags_view WHERE photo_id = %s
+                    """,
+                    (photo_id,),
+                )
+                return [
+                    {
+                        "photo_id": row[0],
+                        "category": row[1],
+                        "target": row[2],
+                        "label": row[3],
+                        "display_name": row[4],
+                        "confidence": row[5],
+                        "rank": row[6],
+                    }
+                    for row in cursor.fetchall()
+                ]
+
+    # Analysis Output and Scene Analysis methods
+
+    def create_analysis_output(self, output: AnalysisOutput) -> AnalysisOutput:
+        """Insert analysis output record."""
+        with self.pool.transaction() as conn:
+            with conn.cursor() as cursor:
+                cursor.execute(
+                    """
+                    INSERT INTO analysis_output
+                    (photo_id, model_type, model_name, model_version, output,
+                     processing_time_ms, device, created_at)
+                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
+                    RETURNING id
+                    """,
+                    (
+                        output.photo_id,
+                        output.model_type,
+                        output.model_name,
+                        output.model_version,
+                        json.dumps(output.output),
+                        output.processing_time_ms,
+                        output.device,
+                        output.created_at,
+                    ),
+                )
+                output.id = cursor.fetchone()[0]
+        return output
+
+    def upsert_scene_analysis(self, analysis: SceneAnalysis) -> SceneAnalysis:
+        """Insert or update scene analysis."""
+        with self.pool.transaction() as conn:
+            with conn.cursor() as cursor:
+                cursor.execute(
+                    """
+                    INSERT INTO scene_analysis
+                    (photo_id, taxonomy_labels, taxonomy_confidences,
+                     taxonomy_output_id, mobileclip_output_id, created_at, updated_at)
+                    VALUES (%s, %s, %s, %s, %s, %s, %s)
+                    ON CONFLICT (photo_id) DO UPDATE SET
+                        taxonomy_labels = COALESCE(EXCLUDED.taxonomy_labels, scene_analysis.taxonomy_labels),
+                        taxonomy_confidences = COALESCE(EXCLUDED.taxonomy_confidences, scene_analysis.taxonomy_confidences),
+                        taxonomy_output_id = COALESCE(EXCLUDED.taxonomy_output_id, scene_analysis.taxonomy_output_id),
+                        mobileclip_output_id = COALESCE(EXCLUDED.mobileclip_output_id, scene_analysis.mobileclip_output_id),
+                        updated_at = EXCLUDED.updated_at
+                    RETURNING id
+                    """,
+                    (
+                        analysis.photo_id,
+                        analysis.taxonomy_labels,
+                        analysis.taxonomy_confidences,
+                        analysis.taxonomy_output_id,
+                        analysis.mobileclip_output_id,
+                        analysis.created_at,
+                        analysis.updated_at,
+                    ),
+                )
+                analysis.id = cursor.fetchone()[0]
+        return analysis

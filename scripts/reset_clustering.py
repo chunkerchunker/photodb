@@ -276,8 +276,12 @@ def main():
 
         return 0
 
+    except Exception as e:
+        logger.error(f"Reset failed: {e}")
+        logger.exception("Full traceback:")
+        return 1
     finally:
-        pool.close()
+        pool.close_all()
 
 
 if __name__ == "__main__":

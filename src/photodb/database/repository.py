@@ -1498,14 +1498,13 @@ class PhotoRepository:
                     """SELECT pd.*, fe.embedding
                        FROM person_detection pd
                        LEFT JOIN face_embedding fe ON pd.id = fe.person_detection_id
-                       JOIN photo p ON pd.photo_id = p.id
                        WHERE pd.photo_id = %s
                          AND pd.cluster_id IS NULL
                          AND pd.cluster_status IS NULL
                          AND pd.face_bbox_x IS NOT NULL
                          AND pd.face_confidence >= %s
-                         AND (pd.face_bbox_width * COALESCE(p.normalized_width, p.width, 1)) >= %s
-                         AND (pd.face_bbox_height * COALESCE(p.normalized_height, p.height, 1)) >= %s
+                         AND pd.face_bbox_width >= %s
+                         AND pd.face_bbox_height >= %s
                        ORDER BY pd.id""",
                     (photo_id, MIN_FACE_CONFIDENCE, MIN_FACE_SIZE_PX, MIN_FACE_SIZE_PX),
                 )
@@ -1677,12 +1676,11 @@ class PhotoRepository:
                     """SELECT pd.id, fe.embedding <=> %s AS distance
                        FROM person_detection pd
                        JOIN face_embedding fe ON pd.id = fe.person_detection_id
-                       JOIN photo p ON pd.photo_id = p.id
                        WHERE pd.cluster_id IS NULL
                          AND pd.cluster_status = 'unassigned'
                          AND pd.face_confidence >= %s
-                         AND (pd.face_bbox_width * COALESCE(p.normalized_width, p.width, 1)) >= %s
-                         AND (pd.face_bbox_height * COALESCE(p.normalized_height, p.height, 1)) >= %s
+                         AND pd.face_bbox_width >= %s
+                         AND pd.face_bbox_height >= %s
                          AND fe.embedding <=> %s < %s
                        ORDER BY fe.embedding <=> %s
                        LIMIT %s""",

@@ -16,7 +16,7 @@ import {
   XCircle,
 } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
-import { Link, redirect, useFetcher } from "react-router";
+import { Link, redirect, useFetcher, useNavigate } from "react-router";
 import { Breadcrumb } from "~/components/breadcrumb";
 import { Layout } from "~/components/layout";
 import { Badge } from "~/components/ui/badge";
@@ -26,6 +26,7 @@ import {
   Dialog,
   DialogContent,
   DialogDescription,
+  DialogFooter,
   DialogHeader,
   DialogTitle,
   DialogTrigger,
@@ -147,7 +148,8 @@ export async function action({ request, params }: Route.ActionArgs) {
 
     const result = await mergeClusters(clusterId, targetClusterId);
     if (result.success) {
-      return redirect(`/cluster/${targetClusterId}`);
+      // Return redirectTo so client can navigate with replace (removes deleted cluster from history)
+      return { success: true, message: result.message, redirectTo: `/cluster/${targetClusterId}` };
     }
     return result;
   }
@@ -259,7 +261,17 @@ export default function ClusterDetailView({ loaderData }: Route.ComponentProps) 
   const [searchQuery, setSearchQuery] = useState("");
   const [searchResults, setSearchResults] = useState<SearchCluster[]>([]);
   const [isSearching, setIsSearching] = useState(false);
+  const [pendingMergeClusterId, setPendingMergeClusterId] = useState<string | null>(null);
+  const [deleteConfirmOpen, setDeleteConfirmOpen] = useState(false);
   const fetcher = useFetcher();
+  const navigate = useNavigate();
+
+  // Handle redirect after merge (with replace to remove deleted cluster from history)
+  useEffect(() => {
+    if (fetcher.data?.redirectTo) {
+      navigate(fetcher.data.redirectTo, { replace: true });
+    }
+  }, [fetcher.data, navigate]);
 
   // Infinite scroll state
   const [faces, setFaces] = useState<Face[]>(initialFaces);
@@ -356,11 +368,18 @@ export default function ClusterDetailView({ loaderData }: Route.ComponentProps) 
     }
   }, [searchQuery, mergeModalOpen, searchClusters]);
 
-  const handleMerge = (targetClusterId: string) => {
-    if (confirm(`Merge this cluster into cluster ${targetClusterId}? This cluster will be deleted.`)) {
-      fetcher.submit({ intent: "merge", targetClusterId }, { method: "post" });
-      setMergeModalOpen(false);
-    }
+  const handleMergeClick = (targetClusterId: string) => {
+    setPendingMergeClusterId(targetClusterId);
+  };
+
+  const confirmMerge = (targetClusterId: string) => {
+    fetcher.submit({ intent: "merge", targetClusterId }, { method: "post" });
+    setMergeModalOpen(false);
+    setPendingMergeClusterId(null);
+  };
+
+  const cancelMerge = () => {
+    setPendingMergeClusterId(null);
   };
 
   const handleSaveName = () => {
@@ -407,10 +426,13 @@ export default function ClusterDetailView({ loaderData }: Route.ComponentProps) 
     fetcher.submit({ intent: cluster.hidden ? "unhide" : "hide" }, { method: "post" });
   };
 
-  const handleDelete = () => {
-    if (confirm("Delete this cluster? All faces will be moved back to the unassigned pool.")) {
-      fetcher.submit({ intent: "delete" }, { method: "post" });
-    }
+  const handleDeleteClick = () => {
+    setDeleteConfirmOpen(true);
+  };
+
+  const confirmDelete = () => {
+    fetcher.submit({ intent: "delete" }, { method: "post" });
+    setDeleteConfirmOpen(false);
   };
 
   const handleCutoff = () => {
@@ -551,48 +573,77 @@ export default function ClusterDetailView({ loaderData }: Route.ComponentProps) 
                     {isSearching ? (
                       <div className="text-center py-4 text-gray-500">Searching...</div>
                     ) : searchResults.length > 0 ? (
-                      searchResults.map((result) => (
-                        <button
-                          type="button"
-                          key={result.id}
-                          className="w-full flex items-center justify-between p-3 border rounded-lg hover:bg-gray-50 cursor-pointer text-left"
-                          onClick={() => handleMerge(result.id)}
-                        >
-                          <div className="flex items-center space-x-3">
-                            {result.photo_id && result.bbox_x !== undefined && result.normalized_width ? (
-                              <div className="relative w-12 h-12 bg-gray-100 rounded border overflow-hidden flex-shrink-0">
-                                <img
-                                  src={`/api/image/${result.photo_id}`}
-                                  alt={`Cluster ${result.id}`}
-                                  className="absolute max-w-none max-h-none"
-                                  style={getFaceCropStyle(
-                                    {
-                                      bbox_x: result.bbox_x,
-                                      bbox_y: result.bbox_y || 0,
-                                      bbox_width: result.bbox_width || 0.1,
-                                      bbox_height: result.bbox_height || 0.1,
-                                    },
-                                    result.normalized_width,
-                                    result.normalized_height || result.normalized_width,
-                                    48,
-                                  )}
-                                />
-                              </div>
-                            ) : (
-                              <div className="w-12 h-12 bg-gray-200 rounded flex items-center justify-center flex-shrink-0">
-                                <Users className="h-5 w-5 text-gray-400" />
-                              </div>
+                      searchResults.map((result) => {
+                        const isPending = pendingMergeClusterId === result.id;
+                        const targetName = result.person_name || `Cluster ${result.id}`;
+
+                        return (
+                          <div
+                            key={result.id}
+                            className={cn(
+                              "w-full flex items-center justify-between p-3 border rounded-lg transition-colors",
+                              isPending ? "bg-amber-50 border-amber-200" : "hover:bg-gray-50",
                             )}
-                            <div>
-                              <div className="font-medium">{result.person_name || `Cluster ${result.id}`}</div>
-                              <div className="text-sm text-gray-500">
-                                {result.face_count} face{result.face_count !== 1 ? "s" : ""}
+                          >
+                            <div className="flex items-center space-x-3">
+                              {result.photo_id && result.bbox_x !== undefined && result.normalized_width ? (
+                                <div className="relative w-12 h-12 bg-gray-100 rounded border overflow-hidden flex-shrink-0">
+                                  <img
+                                    src={`/api/image/${result.photo_id}`}
+                                    alt={`Cluster ${result.id}`}
+                                    className="absolute max-w-none max-h-none"
+                                    style={getFaceCropStyle(
+                                      {
+                                        bbox_x: result.bbox_x,
+                                        bbox_y: result.bbox_y || 0,
+                                        bbox_width: result.bbox_width || 0.1,
+                                        bbox_height: result.bbox_height || 0.1,
+                                      },
+                                      result.normalized_width,
+                                      result.normalized_height || result.normalized_width,
+                                      48,
+                                    )}
+                                  />
+                                </div>
+                              ) : (
+                                <div className="w-12 h-12 bg-gray-200 rounded flex items-center justify-center flex-shrink-0">
+                                  <Users className="h-5 w-5 text-gray-400" />
+                                </div>
+                              )}
+                              <div>
+                                {isPending ? (
+                                  <div className="font-medium text-amber-800">Merge into "{targetName}"?</div>
+                                ) : (
+                                  <>
+                                    <div className="font-medium">{targetName}</div>
+                                    <div className="text-sm text-gray-500">
+                                      {result.face_count} face{result.face_count !== 1 ? "s" : ""}
+                                    </div>
+                                  </>
+                                )}
                               </div>
                             </div>
+                            {isPending ? (
+                              <div className="flex items-center space-x-2">
+                                <Button variant="outline" size="sm" onClick={cancelMerge}>
+                                  Cancel
+                                </Button>
+                                <Button size="sm" onClick={() => confirmMerge(result.id)}>
+                                  Confirm
+                                </Button>
+                              </div>
+                            ) : (
+                              <button
+                                type="button"
+                                className="text-sm text-blue-600 hover:text-blue-800"
+                                onClick={() => handleMergeClick(result.id)}
+                              >
+                                Merge into
+                              </button>
+                            )}
                           </div>
-                          <span className="text-sm text-blue-600 hover:text-blue-800">Merge into</span>
-                        </button>
-                      ))
+                        );
+                      })
                     ) : searchQuery ? (
                       <div className="text-center py-4 text-gray-500">No clusters found</div>
                     ) : (
@@ -615,7 +666,7 @@ export default function ClusterDetailView({ loaderData }: Route.ComponentProps) 
                 </>
               )}
             </Button>
-            <Button variant="destructive" size="sm" onClick={handleDelete} disabled={isSubmitting}>
+            <Button variant="destructive" size="sm" onClick={handleDeleteClick} disabled={isSubmitting}>
               <Trash2 className="h-4 w-4 mr-1" />
               Delete
             </Button>
@@ -793,6 +844,26 @@ export default function ClusterDetailView({ loaderData }: Route.ComponentProps) 
             <div className="text-gray-500 text-lg">No faces found in this cluster.</div>
           </div>
         )}
+
+        {/* Delete Confirmation Dialog */}
+        <Dialog open={deleteConfirmOpen} onOpenChange={setDeleteConfirmOpen}>
+          <DialogContent showCloseButton={false} className="max-w-sm">
+            <DialogHeader>
+              <DialogTitle>Delete Cluster</DialogTitle>
+              <DialogDescription>
+                Delete this cluster? All faces will be moved back to the unassigned pool.
+              </DialogDescription>
+            </DialogHeader>
+            <DialogFooter>
+              <Button variant="outline" onClick={() => setDeleteConfirmOpen(false)}>
+                Cancel
+              </Button>
+              <Button variant="destructive" onClick={confirmDelete}>
+                Delete
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
       </div>
     </Layout>
   );

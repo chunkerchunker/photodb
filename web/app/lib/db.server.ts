@@ -61,7 +61,7 @@ export async function getYearsWithPhotos() {
       COALESCE(s.sample_ids, ARRAY[]::int[]) as sample_photo_ids
     FROM (
       SELECT
-        EXTRACT(YEAR FROM m.captured_at)::int as year,
+        EXTRACT(YEAR FROM m.captured_at AT TIME ZONE 'UTC')::int as year,
         COUNT(*)::int as photo_count
       FROM metadata m
       WHERE m.captured_at IS NOT NULL
@@ -75,7 +75,7 @@ export async function getYearsWithPhotos() {
         ) as rn
         FROM photo p
         JOIN metadata m ON p.id = m.photo_id
-        WHERE EXTRACT(YEAR FROM m.captured_at) = y.year
+        WHERE EXTRACT(YEAR FROM m.captured_at AT TIME ZONE 'UTC') = y.year
         LIMIT 4
       ) ranked
     ) s ON true
@@ -103,10 +103,10 @@ export async function getMonthsInYear(year: number) {
       COALESCE(s.sample_ids, ARRAY[]::int[]) as sample_photo_ids
     FROM (
       SELECT
-        EXTRACT(MONTH FROM m.captured_at)::int as month,
+        EXTRACT(MONTH FROM m.captured_at AT TIME ZONE 'UTC')::int as month,
         COUNT(*)::int as photo_count
       FROM metadata m
-      WHERE EXTRACT(YEAR FROM m.captured_at) = $1
+      WHERE EXTRACT(YEAR FROM m.captured_at AT TIME ZONE 'UTC') = $1
         AND m.captured_at IS NOT NULL
       GROUP BY month
     ) mo
@@ -118,8 +118,8 @@ export async function getMonthsInYear(year: number) {
         ) as rn
         FROM photo p
         JOIN metadata m ON p.id = m.photo_id
-        WHERE EXTRACT(YEAR FROM m.captured_at) = $1
-          AND EXTRACT(MONTH FROM m.captured_at) = mo.month
+        WHERE EXTRACT(YEAR FROM m.captured_at AT TIME ZONE 'UTC') = $1
+          AND EXTRACT(MONTH FROM m.captured_at AT TIME ZONE 'UTC') = mo.month
         LIMIT 4
       ) ranked
     ) s ON true
@@ -161,8 +161,8 @@ export async function getPhotosByMonth(year: number, month: number, limit = 100,
     FROM photo p
     JOIN metadata m ON p.id = m.photo_id
     LEFT JOIN llm_analysis la ON p.id = la.photo_id
-    WHERE EXTRACT(YEAR FROM m.captured_at) = $1
-      AND EXTRACT(MONTH FROM m.captured_at) = $2
+    WHERE EXTRACT(YEAR FROM m.captured_at AT TIME ZONE 'UTC') = $1
+      AND EXTRACT(MONTH FROM m.captured_at AT TIME ZONE 'UTC') = $2
     ORDER BY m.captured_at, p.filename
     LIMIT $3 OFFSET $4
   `;
@@ -189,8 +189,8 @@ export async function getPhotoCountByMonth(year: number, month: number) {
   const query = `
     SELECT COUNT(*) as count
     FROM metadata m
-    WHERE EXTRACT(YEAR FROM m.captured_at) = $1
-      AND EXTRACT(MONTH FROM m.captured_at) = $2
+    WHERE EXTRACT(YEAR FROM m.captured_at AT TIME ZONE 'UTC') = $1
+      AND EXTRACT(MONTH FROM m.captured_at AT TIME ZONE 'UTC') = $2
   `;
 
   const result = await pool.query(query, [year, month]);

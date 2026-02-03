@@ -36,13 +36,21 @@ CREATE TABLE IF NOT EXISTS processing_status(
 );
 
 -- Indexes for performance
-CREATE INDEX IF NOT EXISTS idx_photo_filename ON photo(filename);
+-- Note: photo.filename has UNIQUE constraint which creates an implicit index
 
 CREATE INDEX IF NOT EXISTS idx_metadata_captured_at ON metadata(captured_at);
+
+-- Expression index for date-based queries using EXTRACT(YEAR/MONTH FROM captured_at)
+-- Note: Must use AT TIME ZONE 'UTC' for EXTRACT to be immutable on timestamptz
+CREATE INDEX IF NOT EXISTS idx_metadata_year_month
+ON metadata (EXTRACT(YEAR FROM captured_at AT TIME ZONE 'UTC'), EXTRACT(MONTH FROM captured_at AT TIME ZONE 'UTC'));
 
 CREATE INDEX IF NOT EXISTS idx_metadata_location ON metadata(latitude, longitude);
 
 CREATE INDEX IF NOT EXISTS idx_processing_status ON processing_status(status, stage);
+
+-- Index for queries that filter by stage first (e.g., getUnprocessedPhotos)
+CREATE INDEX IF NOT EXISTS idx_processing_status_stage_status ON processing_status(stage, status);
 
 -- PostgreSQL-specific: GIN index for JSONB search
 CREATE INDEX IF NOT EXISTS idx_metadata_extra ON metadata USING GIN(extra);

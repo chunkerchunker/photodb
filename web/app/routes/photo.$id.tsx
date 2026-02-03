@@ -576,34 +576,43 @@ export default function PhotoDetail({ loaderData }: Route.ComponentProps) {
                                   </div>
                                   {/* Face tags (expression, emotion, gaze) - only show if face detection confidence is high enough */}
                                   {face.tags &&
-                                    (showLowConfidenceTags || face.confidence >= displaySettings.minFaceConfidenceForTags) &&
-                                    face.tags.filter((t: SceneTag) => showLowConfidenceTags || t.confidence > displaySettings.minTagConfidence).length > 0 && (
-                                    <div className="flex flex-wrap gap-1 mt-1">
-                                      {face.tags.filter((t: SceneTag) => showLowConfidenceTags || t.confidence > displaySettings.minTagConfidence).map((tag: SceneTag, tagIndex: number) => (
-                                        <Badge
-                                          // biome-ignore lint/suspicious/noArrayIndexKey: index is fine
-                                          key={tagIndex}
-                                          variant="outline"
-                                          className={cn(
-                                            "text-xs",
-                                            tag.category_name === "face_emotion"
-                                              ? "bg-yellow-50 border-yellow-200"
-                                              : tag.category_name === "face_expression"
-                                                ? "bg-green-50 border-green-200"
-                                                : tag.category_name === "face_gaze"
-                                                  ? "bg-purple-50 border-purple-200"
-                                                  : "",
-                                          )}
-                                          title={`${tag.category_name}: ${tag.prompt_text}`}
-                                        >
-                                          {tag.display_name || tag.label}
-                                          <span className="ml-1 text-gray-400">
-                                            {Math.round(tag.confidence * 100)}%
-                                          </span>
-                                        </Badge>
-                                      ))}
-                                    </div>
-                                  )}
+                                    (showLowConfidenceTags ||
+                                      face.confidence >= displaySettings.minFaceConfidenceForTags) &&
+                                    face.tags.filter(
+                                      (t: SceneTag) =>
+                                        showLowConfidenceTags || t.confidence > displaySettings.minTagConfidence,
+                                    ).length > 0 && (
+                                      <div className="flex flex-wrap gap-1 mt-1">
+                                        {face.tags
+                                          .filter(
+                                            (t: SceneTag) =>
+                                              showLowConfidenceTags || t.confidence > displaySettings.minTagConfidence,
+                                          )
+                                          .map((tag: SceneTag, tagIndex: number) => (
+                                            <Badge
+                                              // biome-ignore lint/suspicious/noArrayIndexKey: index is fine
+                                              key={tagIndex}
+                                              variant="outline"
+                                              className={cn(
+                                                "text-xs",
+                                                tag.category_name === "face_emotion"
+                                                  ? "bg-yellow-50 border-yellow-200"
+                                                  : tag.category_name === "face_expression"
+                                                    ? "bg-green-50 border-green-200"
+                                                    : tag.category_name === "face_gaze"
+                                                      ? "bg-purple-50 border-purple-200"
+                                                      : "",
+                                              )}
+                                              title={`${tag.category_name}: ${tag.prompt_text}`}
+                                            >
+                                              {tag.display_name || tag.label}
+                                              <span className="ml-1 text-gray-400">
+                                                {Math.round(tag.confidence * 100)}%
+                                              </span>
+                                            </Badge>
+                                          ))}
+                                      </div>
+                                    )}
                                   {face.match_candidates && face.match_candidates.length > 0 && (
                                     <div className="flex flex-col space-y-1">
                                       <span className="text-xs text-gray-500">Potential matches:</span>
@@ -642,8 +651,13 @@ export default function PhotoDetail({ loaderData }: Route.ComponentProps) {
             )}
 
             {/* Scene & Face Tags */}
-            {(photo.scene_tags?.some((t: SceneTag) => showLowConfidenceTags || t.confidence > displaySettings.minTagConfidence) ||
-              photo.scene_taxonomy?.top_labels?.some((t: SceneTaxonomyLabel) => showLowConfidenceTags || t.confidence > displaySettings.minTaxonomyConfidence)) && (
+            {(photo.scene_tags?.some(
+              (t: SceneTag) => showLowConfidenceTags || t.confidence > displaySettings.minTagConfidence,
+            ) ||
+              photo.scene_taxonomy?.top_labels?.some(
+                (t: SceneTaxonomyLabel) =>
+                  showLowConfidenceTags || t.confidence > displaySettings.minTaxonomyConfidence,
+              )) && (
               <Card>
                 <Collapsible
                   open={sectionStates.sceneTags}
@@ -663,68 +677,83 @@ export default function PhotoDetail({ loaderData }: Route.ComponentProps) {
                   <CollapsibleContent>
                     <CardContent className="space-y-4">
                       {/* Apple Vision Taxonomy */}
-                      {photo.scene_taxonomy?.top_labels && photo.scene_taxonomy.top_labels.filter((t: SceneTaxonomyLabel) => showLowConfidenceTags || t.confidence > displaySettings.minTaxonomyConfidence).length > 0 && (
-                        <div>
-                          <h6 className="font-medium text-sm mb-2 flex items-center">
-                            <Tag className="h-4 w-4 mr-1" />
-                            Scene Classification
-                          </h6>
-                          <div className="flex flex-wrap gap-1">
-                            {photo.scene_taxonomy.top_labels.filter((t: SceneTaxonomyLabel) => showLowConfidenceTags || t.confidence > displaySettings.minTaxonomyConfidence).map((item: SceneTaxonomyLabel, index: number) => (
-                              <Badge
-                                // biome-ignore lint/suspicious/noArrayIndexKey: label might not be unique
-                                key={index}
-                                variant="secondary"
-                                className="text-xs"
-                              >
-                                {item.label}
-                                <span className="ml-1 text-gray-500">({Math.round(item.confidence * 100)}%)</span>
-                              </Badge>
-                            ))}
-                          </div>
-                        </div>
-                      )}
-
-                      {/* Scene Tags by Category */}
-                      {photo.scene_tags && photo.scene_tags.filter((t: SceneTag) => showLowConfidenceTags || t.confidence > displaySettings.minTagConfidence).length > 0 && (
-                        <div className="space-y-3">
-                          {/* Group tags by category */}
-                          {Object.entries(
-                            photo.scene_tags
-                              .filter((t: SceneTag) => showLowConfidenceTags || t.confidence > displaySettings.minTagConfidence)
-                              .reduce(
-                                (acc: Record<string, SceneTag[]>, tag: SceneTag) => {
-                                  const category = tag.category_name;
-                                  if (!acc[category]) acc[category] = [];
-                                  acc[category].push(tag);
-                                  return acc;
-                                },
-                                {} as Record<string, SceneTag[]>,
-                              ),
-                          ).map(([category, tags]) => (
-                            <div key={category}>
-                              <h6 className="font-medium text-sm mb-1 capitalize">{category.replace(/_/g, " ")}</h6>
-                              <div className="flex flex-wrap gap-1">
-                                {(tags as SceneTag[]).map((tag: SceneTag, index: number) => (
+                      {photo.scene_taxonomy?.top_labels &&
+                        photo.scene_taxonomy.top_labels.filter(
+                          (t: SceneTaxonomyLabel) =>
+                            showLowConfidenceTags || t.confidence > displaySettings.minTaxonomyConfidence,
+                        ).length > 0 && (
+                          <div>
+                            <h6 className="font-medium text-sm mb-2 flex items-center">
+                              <Tag className="h-4 w-4 mr-1" />
+                              Scene Classification
+                            </h6>
+                            <div className="flex flex-wrap gap-1">
+                              {photo.scene_taxonomy.top_labels
+                                .filter(
+                                  (t: SceneTaxonomyLabel) =>
+                                    showLowConfidenceTags || t.confidence > displaySettings.minTaxonomyConfidence,
+                                )
+                                .map((item: SceneTaxonomyLabel, index: number) => (
                                   <Badge
-                                    // biome-ignore lint/suspicious/noArrayIndexKey: index is fine here
+                                    // biome-ignore lint/suspicious/noArrayIndexKey: label might not be unique
                                     key={index}
-                                    variant="outline"
-                                    className={cn(
-                                      "text-xs",
-                                      tag.rank_in_category === 1 ? "bg-blue-50 border-blue-200" : "",
-                                    )}
-                                    title={tag.prompt_text}
+                                    variant="secondary"
+                                    className="text-xs"
                                   >
-                                    {tag.display_name || tag.label}
-                                    <span className="ml-1 text-gray-500">({Math.round(tag.confidence * 100)}%)</span>
+                                    {item.label}
+                                    <span className="ml-1 text-gray-500">({Math.round(item.confidence * 100)}%)</span>
                                   </Badge>
                                 ))}
-                              </div>
                             </div>
-                          ))}
-                        </div>
-                      )}
+                          </div>
+                        )}
+
+                      {/* Scene Tags by Category */}
+                      {photo.scene_tags &&
+                        photo.scene_tags.filter(
+                          (t: SceneTag) => showLowConfidenceTags || t.confidence > displaySettings.minTagConfidence,
+                        ).length > 0 && (
+                          <div className="space-y-3">
+                            {/* Group tags by category */}
+                            {Object.entries(
+                              photo.scene_tags
+                                .filter(
+                                  (t: SceneTag) =>
+                                    showLowConfidenceTags || t.confidence > displaySettings.minTagConfidence,
+                                )
+                                .reduce(
+                                  (acc: Record<string, SceneTag[]>, tag: SceneTag) => {
+                                    const category = tag.category_name;
+                                    if (!acc[category]) acc[category] = [];
+                                    acc[category].push(tag);
+                                    return acc;
+                                  },
+                                  {} as Record<string, SceneTag[]>,
+                                ),
+                            ).map(([category, tags]) => (
+                              <div key={category}>
+                                <h6 className="font-medium text-sm mb-1 capitalize">{category.replace(/_/g, " ")}</h6>
+                                <div className="flex flex-wrap gap-1">
+                                  {(tags as SceneTag[]).map((tag: SceneTag, index: number) => (
+                                    <Badge
+                                      // biome-ignore lint/suspicious/noArrayIndexKey: index is fine here
+                                      key={index}
+                                      variant="outline"
+                                      className={cn(
+                                        "text-xs",
+                                        tag.rank_in_category === 1 ? "bg-blue-50 border-blue-200" : "",
+                                      )}
+                                      title={tag.prompt_text}
+                                    >
+                                      {tag.display_name || tag.label}
+                                      <span className="ml-1 text-gray-500">({Math.round(tag.confidence * 100)}%)</span>
+                                    </Badge>
+                                  ))}
+                                </div>
+                              </div>
+                            ))}
+                          </div>
+                        )}
                     </CardContent>
                   </CollapsibleContent>
                 </Collapsible>

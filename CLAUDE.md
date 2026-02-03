@@ -203,6 +203,13 @@ The application uses environment variables and optional config files:
 
 *Tested with mivolo 0.6.0.dev0 (git HEAD) on 2026-02-01. Future versions may fix these issues.*
 
+**timm Compatibility:** MiVOLO was written for timm 0.8.x but we use timm 1.0.x for MobileCLIP-S2's FastViT backbone. A compatibility shim (`src/photodb/utils/timm_compat.py`) patches:
+1. `remap_checkpoint()` → `remap_state_dict()` (API renamed in timm 0.9+)
+2. `split_model_name_tag()` (removed in timm 0.9+)
+3. `MiVOLOModel.__init__()` (VOLO class added `pos_drop_rate` parameter in timm 0.9+)
+
+Always import `timm_compat` before importing mivolo to apply the patches.
+
 ### Face Embedding Configuration
 
 - `EMBEDDING_MODEL_NAME`: InsightFace model pack name (default: `buffalo_l`)

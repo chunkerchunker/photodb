@@ -52,16 +52,16 @@ class MaintenanceUtilities:
                         UPDATE cluster
                         SET centroid = (
                             SELECT AVG(fe.embedding)::vector(512)
-                            FROM face f
-                            JOIN face_embedding fe ON f.id = fe.face_id
-                            WHERE f.cluster_id = cluster.id
+                            FROM person_detection pd
+                            JOIN face_embedding fe ON pd.id = fe.person_detection_id
+                            WHERE pd.cluster_id = cluster.id
                         ),
                         updated_at = NOW()
                         WHERE id = %s
                           AND EXISTS (
-                            SELECT 1 FROM face f
-                            JOIN face_embedding fe ON f.id = fe.face_id
-                            WHERE f.cluster_id = %s
+                            SELECT 1 FROM person_detection pd
+                            JOIN face_embedding fe ON pd.id = fe.person_detection_id
+                            WHERE pd.cluster_id = %s
                           )
                     """, (cluster_id, cluster_id))
                     
@@ -118,38 +118,38 @@ class MaintenanceUtilities:
             with conn.cursor() as cursor:
                 # Get all faces in this cluster with embeddings
                 cursor.execute("""
-                    SELECT f.id, fe.embedding
-                    FROM face f
-                    JOIN face_embedding fe ON f.id = fe.face_id
-                    WHERE f.cluster_id = %s
+                    SELECT pd.id, fe.embedding
+                    FROM person_detection pd
+                    JOIN face_embedding fe ON pd.id = fe.person_detection_id
+                    WHERE pd.cluster_id = %s
                 """, (cluster_id,))
-                
+
                 rows = cursor.fetchall()
                 if not rows:
                     return False
-                
-                face_ids = [row[0] for row in rows]
+
+                detection_ids = [row[0] for row in rows]
                 embeddings = np.array([row[1] for row in rows])
-                
+
                 # Convert centroid to numpy array if needed
                 if not isinstance(centroid, np.ndarray):
                     centroid = np.array(centroid)
-                
+
                 # Find face closest to centroid (medoid)
                 distances = np.linalg.norm(embeddings - centroid, axis=1)
                 medoid_idx = np.argmin(distances)
-                medoid_face_id = face_ids[medoid_idx]
-                
+                medoid_detection_id = detection_ids[medoid_idx]
+
                 # Update cluster with medoid and reset tracking counter
-                # Note: Only update representative_face_id if it's NULL (not user-set)
+                # Note: Only update representative_detection_id if it's NULL (not user-set)
                 cursor.execute("""
                     UPDATE cluster
-                    SET medoid_face_id = %s,
-                        representative_face_id = COALESCE(representative_face_id, %s),
+                    SET medoid_detection_id = %s,
+                        representative_detection_id = COALESCE(representative_detection_id, %s),
                         face_count_at_last_medoid = face_count,
                         updated_at = NOW()
                     WHERE id = %s
-                """, (medoid_face_id, medoid_face_id, cluster_id))
+                """, (medoid_detection_id, medoid_detection_id, cluster_id))
 
                 return cursor.rowcount > 0
 
@@ -185,8 +185,8 @@ class MaintenanceUtilities:
                         SELECT c1.id as cluster1_id,
                                c2.id as cluster2_id,
                                c1.centroid <=> c2.centroid as distance,
-                               (SELECT COUNT(*) FROM face WHERE cluster_id = c1.id) as count1,
-                               (SELECT COUNT(*) FROM face WHERE cluster_id = c2.id) as count2
+                               (SELECT COUNT(*) FROM person_detection WHERE cluster_id = c1.id) as count1,
+                               (SELECT COUNT(*) FROM person_detection WHERE cluster_id = c2.id) as count2
                         FROM cluster c1
                         CROSS JOIN cluster c2
                         WHERE c1.id < c2.id  -- Avoid duplicates
@@ -249,11 +249,11 @@ class MaintenanceUtilities:
             with conn.cursor() as cursor:
                 cursor.execute("""
                     SELECT 1 FROM cannot_link cl
-                    JOIN face f1 ON (cl.face_id_1 = f1.id OR cl.face_id_2 = f1.id)
-                    JOIN face f2 ON (cl.face_id_1 = f2.id OR cl.face_id_2 = f2.id)
-                    WHERE f1.id != f2.id
-                      AND f1.cluster_id = %s
-                      AND f2.cluster_id = %s
+                    JOIN person_detection pd1 ON (cl.detection_id_1 = pd1.id OR cl.detection_id_2 = pd1.id)
+                    JOIN person_detection pd2 ON (cl.detection_id_1 = pd2.id OR cl.detection_id_2 = pd2.id)
+                    WHERE pd1.id != pd2.id
+                      AND pd1.cluster_id = %s
+                      AND pd2.cluster_id = %s
                     LIMIT 1
                 """, (cluster_id_1, cluster_id_2))
                 return cursor.fetchone() is not None
@@ -261,11 +261,11 @@ class MaintenanceUtilities:
     def _merge_clusters(self, keep_cluster_id: int, merge_cluster_id: int) -> bool:
         """
         Merge one cluster into another.
-        
+
         Args:
             keep_cluster_id: ID of cluster to keep
             merge_cluster_id: ID of cluster to merge and delete
-            
+
         Returns:
             True if merge was successful
         """
@@ -273,96 +273,96 @@ class MaintenanceUtilities:
             with conn.cursor() as cursor:
                 # Reassign all faces from merge cluster to keep cluster
                 cursor.execute("""
-                    UPDATE face
+                    UPDATE person_detection
                     SET cluster_id = %s,
                         cluster_confidence = cluster_confidence * 0.9  -- Slightly reduce confidence
                     WHERE cluster_id = %s
                 """, (keep_cluster_id, merge_cluster_id))
-                
+
                 faces_moved = cursor.rowcount
-                
+
                 # Delete the merged cluster
                 cursor.execute("DELETE FROM cluster WHERE id = %s", (merge_cluster_id,))
-                
+
                 # Recompute centroid for the keeper cluster
                 cursor.execute("""
                     UPDATE cluster
                     SET centroid = (
                         SELECT AVG(fe.embedding)::vector(512)
-                        FROM face f
-                        JOIN face_embedding fe ON f.id = fe.face_id
-                        WHERE f.cluster_id = %s
+                        FROM person_detection pd
+                        JOIN face_embedding fe ON pd.id = fe.person_detection_id
+                        WHERE pd.cluster_id = %s
                     ),
                     face_count = (
-                        SELECT COUNT(*) FROM face WHERE cluster_id = %s
+                        SELECT COUNT(*) FROM person_detection WHERE cluster_id = %s
                     ),
                     updated_at = NOW()
                     WHERE id = %s
                 """, (keep_cluster_id, keep_cluster_id, keep_cluster_id))
-                
+
                 logger.debug(f"Moved {faces_moved} faces from cluster {merge_cluster_id} to {keep_cluster_id}")
                 return faces_moved > 0
 
     def cleanup_empty_clusters(self) -> int:
         """
         Remove clusters that have no assigned faces.
-        
+
         This can happen when faces are reassigned or deleted.
         Should be run daily.
-        
+
         Returns:
             Number of empty clusters removed
         """
         logger.info("Cleaning up empty clusters")
-        
+
         with self.pool.transaction() as conn:
             with conn.cursor() as cursor:
                 # Delete empty clusters
                 cursor.execute("""
                     DELETE FROM cluster
                     WHERE id NOT IN (
-                        SELECT DISTINCT cluster_id 
-                        FROM face 
+                        SELECT DISTINCT cluster_id
+                        FROM person_detection
                         WHERE cluster_id IS NOT NULL
                     )
                 """)
-                
+
                 deleted_count = cursor.rowcount
-        
+
         logger.info(f"Removed {deleted_count} empty clusters")
         return deleted_count
 
     def update_cluster_statistics(self) -> int:
         """
         Update face_count and other statistics for all clusters.
-        
+
         This ensures cluster metadata is accurate.
         Should be run daily.
-        
+
         Returns:
             Number of clusters updated
         """
         logger.info("Updating cluster statistics")
-        
+
         with self.pool.transaction() as conn:
             with conn.cursor() as cursor:
                 cursor.execute("""
                     UPDATE cluster
                     SET face_count = (
-                        SELECT COUNT(*) 
-                        FROM face 
-                        WHERE face.cluster_id = cluster.id
+                        SELECT COUNT(*)
+                        FROM person_detection
+                        WHERE person_detection.cluster_id = cluster.id
                     ),
                     updated_at = NOW()
                     WHERE id IN (
-                        SELECT DISTINCT cluster_id 
-                        FROM face 
+                        SELECT DISTINCT cluster_id
+                        FROM person_detection
                         WHERE cluster_id IS NOT NULL
                     )
                 """)
-                
+
                 updated_count = cursor.rowcount
-        
+
         logger.info(f"Updated statistics for {updated_count} clusters")
         return updated_count
 
@@ -386,7 +386,7 @@ class MaintenanceUtilities:
                 stats['clusters_without_centroids'] = cursor.fetchone()[0]
 
                 # Clusters without medoids
-                cursor.execute("SELECT COUNT(*) FROM cluster WHERE medoid_face_id IS NULL")
+                cursor.execute("SELECT COUNT(*) FROM cluster WHERE medoid_detection_id IS NULL")
                 stats['clusters_without_medoids'] = cursor.fetchone()[0]
 
                 # Empty clusters
@@ -394,7 +394,7 @@ class MaintenanceUtilities:
                     SELECT COUNT(*) FROM cluster
                     WHERE id NOT IN (
                         SELECT DISTINCT cluster_id
-                        FROM face
+                        FROM person_detection
                         WHERE cluster_id IS NOT NULL
                     )
                 """)
@@ -412,11 +412,13 @@ class MaintenanceUtilities:
                 stats['max_cluster_size'] = max_size or 0
 
                 # Unclustered faces
-                cursor.execute("SELECT COUNT(*) FROM face WHERE cluster_id IS NULL")
+                cursor.execute(
+                    "SELECT COUNT(*) FROM person_detection WHERE cluster_id IS NULL AND face_bbox_x IS NOT NULL"
+                )
                 stats['unclustered_faces'] = cursor.fetchone()[0]
 
                 # Total faces
-                cursor.execute("SELECT COUNT(*) FROM face")
+                cursor.execute("SELECT COUNT(*) FROM person_detection WHERE face_bbox_x IS NOT NULL")
                 stats['total_faces'] = cursor.fetchone()[0]
 
                 # Constraint stats
@@ -430,7 +432,7 @@ class MaintenanceUtilities:
                 stats['verified_clusters'] = cursor.fetchone()[0]
 
                 cursor.execute(
-                    "SELECT COUNT(*) FROM face WHERE cluster_status = 'unassigned'"
+                    "SELECT COUNT(*) FROM person_detection WHERE cluster_status = 'unassigned'"
                 )
                 stats['unassigned_pool_size'] = cursor.fetchone()[0]
 
@@ -454,16 +456,16 @@ class MaintenanceUtilities:
                 # Keep adding transitive links until no new ones are found
                 while True:
                     cursor.execute("""
-                        INSERT INTO must_link (face_id_1, face_id_2, created_by)
+                        INSERT INTO must_link (detection_id_1, detection_id_2, created_by)
                         SELECT DISTINCT
-                            LEAST(m1.face_id_1, m2.face_id_2),
-                            GREATEST(m1.face_id_1, m2.face_id_2),
+                            LEAST(m1.detection_id_1, m2.detection_id_2),
+                            GREATEST(m1.detection_id_1, m2.detection_id_2),
                             'system'
                         FROM must_link m1
-                        JOIN must_link m2 ON m1.face_id_2 = m2.face_id_1
-                        WHERE m1.face_id_1 != m2.face_id_2
-                          AND LEAST(m1.face_id_1, m2.face_id_2) < GREATEST(m1.face_id_1, m2.face_id_2)
-                        ON CONFLICT (face_id_1, face_id_2) DO NOTHING
+                        JOIN must_link m2 ON m1.detection_id_2 = m2.detection_id_1
+                        WHERE m1.detection_id_1 != m2.detection_id_2
+                          AND LEAST(m1.detection_id_1, m2.detection_id_2) < GREATEST(m1.detection_id_1, m2.detection_id_2)
+                        ON CONFLICT (detection_id_1, detection_id_2) DO NOTHING
                     """)
                     added = cursor.rowcount
                     if added == 0:
@@ -490,22 +492,22 @@ class MaintenanceUtilities:
             with conn.cursor() as cursor:
                 cursor.execute("""
                     SELECT cl.id as constraint_id,
-                           f1.cluster_id,
-                           cl.face_id_1,
-                           cl.face_id_2
+                           pd1.cluster_id,
+                           cl.detection_id_1,
+                           cl.detection_id_2
                     FROM cannot_link cl
-                    JOIN face f1 ON cl.face_id_1 = f1.id
-                    JOIN face f2 ON cl.face_id_2 = f2.id
-                    WHERE f1.cluster_id = f2.cluster_id
-                      AND f1.cluster_id IS NOT NULL
+                    JOIN person_detection pd1 ON cl.detection_id_1 = pd1.id
+                    JOIN person_detection pd2 ON cl.detection_id_2 = pd2.id
+                    WHERE pd1.cluster_id = pd2.cluster_id
+                      AND pd1.cluster_id IS NOT NULL
                 """)
 
                 violations = [
                     {
                         "constraint_id": row[0],
                         "cluster_id": row[1],
-                        "face_1": row[2],
-                        "face_2": row[3],
+                        "detection_1": row[2],
+                        "detection_2": row[3],
                     }
                     for row in cursor.fetchall()
                 ]
@@ -535,16 +537,16 @@ class MaintenanceUtilities:
                 # Find cluster pairs that should be merged due to must-link constraints
                 cursor.execute("""
                     SELECT DISTINCT
-                        f1.cluster_id as cluster1,
-                        f2.cluster_id as cluster2,
-                        (SELECT COUNT(*) FROM face WHERE cluster_id = f1.cluster_id) as count1,
-                        (SELECT COUNT(*) FROM face WHERE cluster_id = f2.cluster_id) as count2
+                        pd1.cluster_id as cluster1,
+                        pd2.cluster_id as cluster2,
+                        (SELECT COUNT(*) FROM person_detection WHERE cluster_id = pd1.cluster_id) as count1,
+                        (SELECT COUNT(*) FROM person_detection WHERE cluster_id = pd2.cluster_id) as count2
                     FROM must_link ml
-                    JOIN face f1 ON ml.face_id_1 = f1.id
-                    JOIN face f2 ON ml.face_id_2 = f2.id
-                    WHERE f1.cluster_id IS NOT NULL
-                      AND f2.cluster_id IS NOT NULL
-                      AND f1.cluster_id != f2.cluster_id
+                    JOIN person_detection pd1 ON ml.detection_id_1 = pd1.id
+                    JOIN person_detection pd2 ON ml.detection_id_2 = pd2.id
+                    WHERE pd1.cluster_id IS NOT NULL
+                      AND pd2.cluster_id IS NOT NULL
+                      AND pd1.cluster_id != pd2.cluster_id
                 """)
 
                 pairs_to_merge = cursor.fetchall()
@@ -598,16 +600,16 @@ class MaintenanceUtilities:
         with self.pool.get_connection() as conn:
             with conn.cursor() as cursor:
                 cursor.execute("""
-                    SELECT f.id, fe.embedding
-                    FROM face f
-                    JOIN face_embedding fe ON f.id = fe.face_id
-                    WHERE f.cluster_status = 'unassigned'
-                      AND f.unassigned_since < NOW() - INTERVAL '%s days'
+                    SELECT pd.id, fe.embedding
+                    FROM person_detection pd
+                    JOIN face_embedding fe ON pd.id = fe.person_detection_id
+                    WHERE pd.cluster_status = 'unassigned'
+                      AND pd.unassigned_since < NOW() - INTERVAL '%s days'
                 """, (max_age_days,))
 
                 old_faces = cursor.fetchall()
 
-        for face_id, embedding in old_faces:
+        for detection_id, embedding in old_faces:
             if embedding is not None:
                 # Normalize embedding
                 emb_array = np.array(embedding)
@@ -616,24 +618,24 @@ class MaintenanceUtilities:
                     emb_array = emb_array / norm
 
                 # Create singleton cluster
-                cluster_id = self.repo.create_cluster(
+                cluster_id = self.repo.create_cluster_for_detection(
                     centroid=emb_array,
-                    representative_face_id=face_id,
-                    medoid_face_id=face_id,
+                    representative_detection_id=detection_id,
+                    medoid_detection_id=detection_id,
                     face_count=0,
                 )
 
                 # Only succeeds if face is still unassigned
-                if self.repo.update_face_cluster(
-                    face_id=face_id,
+                if self.repo.update_detection_cluster(
+                    detection_id=detection_id,
                     cluster_id=cluster_id,
                     cluster_confidence=0.5,  # Low confidence for singleton
                     cluster_status="auto",
                 ):
                     self.repo.update_cluster_face_count(cluster_id, 1)
-                    self.repo.clear_face_unassigned(face_id)
+                    self.repo.clear_detection_unassigned(detection_id)
                     created += 1
-                    logger.debug(f"Created singleton cluster {cluster_id} for face {face_id}")
+                    logger.debug(f"Created singleton cluster {cluster_id} for detection {detection_id}")
                 else:
                     # Face was assigned elsewhere, delete empty cluster
                     self.repo.delete_cluster(cluster_id)
@@ -641,57 +643,6 @@ class MaintenanceUtilities:
         logger.info(f"Created {created} singleton clusters from old unassigned faces")
         return created
 
-    def reset_unassigned_for_reprocessing(self) -> dict:
-        """
-        Reset unassigned faces so they can be reprocessed by clustering.
-
-        Changes cluster_status from 'unassigned' to NULL, making them eligible
-        for the normal clustering flow. Also resets the clustering processing
-        status for affected photos so they will be picked up by the clustering
-        stage. Cannot-link constraints are preserved and will still be respected
-        during reprocessing.
-
-        Returns:
-            Dictionary with 'faces_reset' and 'photos_reset' counts
-        """
-        logger.info("Resetting unassigned faces for reprocessing")
-
-        with self.pool.get_connection() as conn:
-            with conn.cursor() as cursor:
-                # Get photo IDs that have unassigned faces before resetting
-                cursor.execute("""
-                    SELECT DISTINCT photo_id
-                    FROM face
-                    WHERE cluster_id IS NULL
-                      AND cluster_status = 'unassigned'
-                """)
-                photo_ids = [row[0] for row in cursor.fetchall()]
-
-                # Reset face status
-                cursor.execute("""
-                    UPDATE face
-                    SET cluster_status = NULL,
-                        unassigned_since = NULL
-                    WHERE cluster_id IS NULL
-                      AND cluster_status = 'unassigned'
-                    RETURNING id
-                """)
-                faces_count = cursor.rowcount
-
-                # Reset clustering processing status for affected photos
-                photos_count = 0
-                if photo_ids:
-                    cursor.execute("""
-                        DELETE FROM processing_status
-                        WHERE stage = 'clustering'
-                          AND photo_id = ANY(%s)
-                    """, (photo_ids,))
-                    photos_count = cursor.rowcount
-
-                conn.commit()
-
-        logger.info(f"Reset {faces_count} unassigned faces and {photos_count} photo processing statuses")
-        return {"faces_reset": faces_count, "photos_reset": photos_count}
 
     def run_daily_maintenance(self) -> Dict[str, int]:
         """

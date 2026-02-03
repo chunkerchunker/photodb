@@ -11,16 +11,21 @@ Usage:
 
 import argparse
 import logging
+import os
 import sys
 
-from photodb.database.connection import ConnectionPool
-from photodb.config import get_config
+# Add src to path
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "src"))
+
+from dotenv import load_dotenv
+
+load_dotenv()
 
 logging.basicConfig(level=logging.INFO, format="%(levelname)s: %(message)s")
 logger = logging.getLogger(__name__)
 
 
-def get_current_stats(pool: ConnectionPool) -> dict:
+def get_current_stats(pool) -> dict:
     """Get current clustering statistics."""
     with pool.get_connection() as conn:
         with conn.cursor() as cur:
@@ -62,7 +67,7 @@ def get_current_stats(pool: ConnectionPool) -> dict:
 
 
 def reset_clustering(
-    pool: ConnectionPool,
+    pool,
     keep_constraints: bool = False,
     keep_verified: bool = False,
     dry_run: bool = False,
@@ -200,8 +205,16 @@ def main():
 
     args = parser.parse_args()
 
-    config = get_config()
-    pool = ConnectionPool(config.get("DATABASE_URL"))
+    # Validate DATABASE_URL is set
+    database_url = os.environ.get("DATABASE_URL")
+    if not database_url:
+        logger.error("DATABASE_URL environment variable is not set")
+        logger.error("Set it with: export DATABASE_URL='postgresql://localhost/photodb'")
+        sys.exit(1)
+
+    from photodb.database.connection import ConnectionPool
+
+    pool = ConnectionPool()
 
     try:
         # Show current state

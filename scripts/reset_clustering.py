@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Reset clustering data while preserving face detections.
+Reset clustering data while preserving person detections.
 
 Usage:
     uv run python scripts/reset_clustering.py
@@ -31,10 +31,10 @@ def get_current_stats(pool) -> dict:
         with conn.cursor() as cur:
             stats = {}
 
-            cur.execute("SELECT COUNT(*) FROM face")
+            cur.execute("SELECT COUNT(*) FROM person_detection WHERE face_bbox_x IS NOT NULL")
             stats["total_faces"] = cur.fetchone()[0]
 
-            cur.execute("SELECT COUNT(*) FROM face WHERE cluster_id IS NOT NULL")
+            cur.execute("SELECT COUNT(*) FROM person_detection WHERE cluster_id IS NOT NULL")
             stats["clustered_faces"] = cur.fetchone()[0]
 
             cur.execute("SELECT COUNT(*) FROM cluster")
@@ -59,7 +59,7 @@ def get_current_stats(pool) -> dict:
             stats["embeddings"] = cur.fetchone()[0]
 
             cur.execute(
-                "SELECT COUNT(*) FROM face WHERE cluster_status = 'unassigned'"
+                "SELECT COUNT(*) FROM person_detection WHERE cluster_status = 'unassigned'"
             )
             stats["unassigned_faces"] = cur.fetchone()[0]
 
@@ -85,7 +85,7 @@ def reset_clustering(
         Dictionary with counts of deleted/reset items
     """
     results = {
-        "faces_reset": 0,
+        "detections_reset": 0,
         "clusters_deleted": 0,
         "constraints_deleted": 0,
         "candidates_deleted": 0,
@@ -96,26 +96,26 @@ def reset_clustering(
 
     with pool.get_connection() as conn:
         with conn.cursor() as cur:
-            # Build WHERE clause for face updates
-            face_where = "WHERE 1=1"
+            # Build WHERE clause for detection updates
+            detection_where = "WHERE 1=1"
             if keep_verified:
-                face_where += " AND (cluster_id IS NULL OR cluster_id NOT IN (SELECT id FROM cluster WHERE verified = true))"
+                detection_where += " AND (cluster_id IS NULL OR cluster_id NOT IN (SELECT id FROM cluster WHERE verified = true))"
 
-            # Count faces to reset
-            cur.execute(f"SELECT COUNT(*) FROM face {face_where} AND cluster_id IS NOT NULL")
-            results["faces_reset"] = cur.fetchone()[0]
+            # Count detections to reset
+            cur.execute(f"SELECT COUNT(*) FROM person_detection {detection_where} AND cluster_id IS NOT NULL")
+            results["detections_reset"] = cur.fetchone()[0]
 
             if not dry_run:
-                # Reset face clustering fields
+                # Reset detection clustering fields
                 cur.execute(f"""
-                    UPDATE face
+                    UPDATE person_detection
                     SET cluster_id = NULL,
                         cluster_status = NULL,
                         cluster_confidence = 0,
                         unassigned_since = NULL
-                    {face_where}
+                    {detection_where}
                 """)
-                logger.info(f"Reset {cur.rowcount} face clustering assignments")
+                logger.info(f"Reset {cur.rowcount} detection clustering assignments")
 
             # Delete match candidates
             cur.execute("SELECT COUNT(*) FROM face_match_candidate")
@@ -158,13 +158,13 @@ def reset_clustering(
             # Reset processing status for clustering
             if not dry_run:
                 if keep_verified:
-                    # Only reset status for photos without verified cluster faces
+                    # Only reset status for photos without verified cluster detections
                     cur.execute("""
                         DELETE FROM processing_status
                         WHERE stage = 'clustering'
                           AND photo_id NOT IN (
-                              SELECT DISTINCT photo_id FROM face f
-                              JOIN cluster c ON f.cluster_id = c.id
+                              SELECT DISTINCT photo_id FROM person_detection pd
+                              JOIN cluster c ON pd.cluster_id = c.id
                               WHERE c.verified = true
                           )
                     """)
@@ -180,7 +180,7 @@ def reset_clustering(
 
 def main():
     parser = argparse.ArgumentParser(
-        description="Reset clustering data while preserving face detections"
+        description="Reset clustering data while preserving person detections"
     )
     parser.add_argument(
         "--keep-constraints",
@@ -190,7 +190,7 @@ def main():
     parser.add_argument(
         "--keep-verified",
         action="store_true",
-        help="Preserve verified clusters and their face assignments",
+        help="Preserve verified clusters and their detection assignments",
     )
     parser.add_argument(
         "--dry-run",
@@ -220,10 +220,10 @@ def main():
         # Show current state
         stats = get_current_stats(pool)
         print("\n=== Current State ===")
-        print(f"  Total faces:        {stats['total_faces']}")
+        print(f"  Total detections:   {stats['total_faces']}")
         print(f"  Face embeddings:    {stats['embeddings']}")
-        print(f"  Clustered faces:    {stats['clustered_faces']}")
-        print(f"  Unassigned faces:   {stats['unassigned_faces']}")
+        print(f"  Clustered:          {stats['clustered_faces']}")
+        print(f"  Unassigned:         {stats['unassigned_faces']}")
         print(f"  Clusters:           {stats['clusters']}")
         print(f"  Verified clusters:  {stats['verified_clusters']}")
         print(f"  Must-links:         {stats['must_links']}")
@@ -262,7 +262,7 @@ def main():
         )
 
         print("\n=== Results ===")
-        print(f"  Faces reset:         {results['faces_reset']}")
+        print(f"  Detections reset:    {results['detections_reset']}")
         print(f"  Clusters deleted:    {results['clusters_deleted']}")
         print(f"  Constraints deleted: {results['constraints_deleted']}")
         print(f"  Candidates deleted:  {results['candidates_deleted']}")

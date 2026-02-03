@@ -1,9 +1,17 @@
-import { EyeOff, Loader2, Users } from "lucide-react";
+import { EyeOff, GitMerge, Loader2, Users } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Link, useFetcher } from "react-router";
 import { Layout } from "~/components/layout";
 import { Button } from "~/components/ui/button";
 import { Card, CardContent } from "~/components/ui/card";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "~/components/ui/dialog";
 import { getClusters, getClustersCount, getHiddenClustersCount } from "~/lib/db.server";
 import type { Route } from "./+types/clusters";
 
@@ -93,7 +101,13 @@ export default function ClustersView({ loaderData }: Route.ComponentProps) {
   const [page, setPage] = useState(initialPage);
   const [hasMore, setHasMore] = useState(initialHasMore);
 
+  // Drag and drop state
+  const [draggingClusterId, setDraggingClusterId] = useState<number | null>(null);
+  const [dropTargetClusterId, setDropTargetClusterId] = useState<number | null>(null);
+  const [pendingMerge, setPendingMerge] = useState<{ sourceId: number; targetId: number } | null>(null);
+
   const fetcher = useFetcher<typeof loader>();
+  const mergeFetcher = useFetcher();
   const loadMoreRef = useRef<HTMLDivElement>(null);
 
   // Reset state when initial data changes (e.g., navigation)
@@ -146,6 +160,71 @@ export default function ClustersView({ loaderData }: Route.ComponentProps) {
   }, [loadMore]);
 
   const isLoading = fetcher.state === "loading";
+  const isMerging = mergeFetcher.state !== "idle";
+
+  // Remove merged cluster from local state after successful merge
+  useEffect(() => {
+    if (mergeFetcher.data?.success && pendingMerge) {
+      setClusters((prev) => prev.filter((c) => c.id !== pendingMerge.sourceId));
+      setPendingMerge(null);
+    }
+  }, [mergeFetcher.data, pendingMerge]);
+
+  // Drag handlers
+  const handleDragStart = (e: React.DragEvent, clusterId: number) => {
+    setDraggingClusterId(clusterId);
+    e.dataTransfer.effectAllowed = "move";
+    e.dataTransfer.setData("text/plain", clusterId.toString());
+  };
+
+  const handleDragEnd = () => {
+    setDraggingClusterId(null);
+    setDropTargetClusterId(null);
+  };
+
+  const handleDragOver = (e: React.DragEvent, clusterId: number) => {
+    e.preventDefault();
+    if (draggingClusterId && draggingClusterId !== clusterId) {
+      e.dataTransfer.dropEffect = "move";
+      setDropTargetClusterId(clusterId);
+    }
+  };
+
+  const handleDragLeave = () => {
+    setDropTargetClusterId(null);
+  };
+
+  const handleDrop = (e: React.DragEvent, targetClusterId: number) => {
+    e.preventDefault();
+    const sourceClusterId = parseInt(e.dataTransfer.getData("text/plain"), 10);
+    if (sourceClusterId && sourceClusterId !== targetClusterId) {
+      setPendingMerge({ sourceId: sourceClusterId, targetId: targetClusterId });
+    }
+    setDraggingClusterId(null);
+    setDropTargetClusterId(null);
+  };
+
+  const confirmMerge = () => {
+    if (pendingMerge) {
+      mergeFetcher.submit(
+        {
+          sourceClusterId: pendingMerge.sourceId.toString(),
+          targetClusterId: pendingMerge.targetId.toString(),
+        },
+        { method: "post", action: "/api/clusters/merge" },
+      );
+    }
+  };
+
+  const cancelMerge = () => {
+    setPendingMerge(null);
+  };
+
+  // Helper to get cluster display name
+  const getClusterName = (clusterId: number) => {
+    const cluster = clusters.find((c) => c.id === clusterId);
+    return cluster?.person_name || `Cluster #${clusterId}`;
+  };
 
   return (
     <Layout>
@@ -173,56 +252,78 @@ export default function ClustersView({ loaderData }: Route.ComponentProps) {
         {clusters.length > 0 ? (
           <>
             <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-6 gap-4">
-              {clusters.map((cluster) => (
-                <Link to={`/cluster/${cluster.id}`} key={cluster.id}>
-                  <Card className="hover:shadow-lg transition-shadow h-full">
-                    <CardContent className="p-4">
-                      <div className="text-center space-y-3">
-                        {cluster.photo_id &&
-                        cluster.bbox_x !== null &&
-                        cluster.normalized_width &&
-                        cluster.normalized_height ? (
-                          <div className="relative w-32 h-32 mx-auto bg-gray-100 rounded-lg border overflow-hidden">
-                            <img
-                              src={`/api/image/${cluster.photo_id}`}
-                              alt={`Cluster ${cluster.id}`}
-                              className="absolute max-w-none max-h-none"
-                              style={getFaceCropStyle(
-                                {
-                                  bbox_x: cluster.bbox_x,
-                                  bbox_y: cluster.bbox_y,
-                                  bbox_width: cluster.bbox_width,
-                                  bbox_height: cluster.bbox_height,
-                                },
-                                cluster.normalized_width,
-                                cluster.normalized_height,
-                              )}
-                              loading="lazy"
-                            />
-                          </div>
-                        ) : (
-                          <div className="w-full h-32 bg-gray-200 rounded-lg flex items-center justify-center">
-                            <Users className="h-8 w-8 text-gray-400" />
-                          </div>
-                        )}
+              {clusters.map((cluster) => {
+                const isDragging = draggingClusterId === cluster.id;
+                const isDropTarget = dropTargetClusterId === cluster.id;
 
-                        <div className="space-y-1">
-                          <div className="font-semibold text-gray-900">Cluster #{cluster.id}</div>
-                          <div className="text-sm text-gray-600">
-                            {cluster.face_count} face
-                            {cluster.face_count !== 1 ? "s" : ""}
-                          </div>
-                          {cluster.person_name && (
-                            <div className="text-sm font-medium text-blue-600 truncate" title={cluster.person_name}>
-                              {cluster.person_name}
+                return (
+                  <div
+                    key={cluster.id}
+                    role="button"
+                    tabIndex={0}
+                    draggable
+                    onDragStart={(e) => handleDragStart(e, cluster.id)}
+                    onDragEnd={handleDragEnd}
+                    onDragOver={(e) => handleDragOver(e, cluster.id)}
+                    onDragLeave={handleDragLeave}
+                    onDrop={(e) => handleDrop(e, cluster.id)}
+                    className={`transition-all ${isDragging ? "opacity-50" : ""}`}
+                  >
+                    <Link to={`/cluster/${cluster.id}`} draggable={false}>
+                      <Card
+                        className={`hover:shadow-lg transition-all h-full ${
+                          isDropTarget ? "ring-2 ring-blue-500 ring-offset-2 bg-blue-50" : ""
+                        }`}
+                      >
+                        <CardContent className="p-4">
+                          <div className="text-center space-y-3">
+                            {cluster.photo_id &&
+                            cluster.bbox_x !== null &&
+                            cluster.normalized_width &&
+                            cluster.normalized_height ? (
+                              <div className="relative w-32 h-32 mx-auto bg-gray-100 rounded-lg border overflow-hidden">
+                                <img
+                                  src={`/api/image/${cluster.photo_id}`}
+                                  alt={`Cluster ${cluster.id}`}
+                                  className="absolute max-w-none max-h-none"
+                                  style={getFaceCropStyle(
+                                    {
+                                      bbox_x: cluster.bbox_x,
+                                      bbox_y: cluster.bbox_y,
+                                      bbox_width: cluster.bbox_width,
+                                      bbox_height: cluster.bbox_height,
+                                    },
+                                    cluster.normalized_width,
+                                    cluster.normalized_height,
+                                  )}
+                                  loading="lazy"
+                                />
+                              </div>
+                            ) : (
+                              <div className="w-full h-32 bg-gray-200 rounded-lg flex items-center justify-center">
+                                <Users className="h-8 w-8 text-gray-400" />
+                              </div>
+                            )}
+
+                            <div className="space-y-1">
+                              <div className="font-semibold text-gray-900">Cluster #{cluster.id}</div>
+                              <div className="text-sm text-gray-600">
+                                {cluster.face_count} face
+                                {cluster.face_count !== 1 ? "s" : ""}
+                              </div>
+                              {cluster.person_name && (
+                                <div className="text-sm font-medium text-blue-600 truncate" title={cluster.person_name}>
+                                  {cluster.person_name}
+                                </div>
+                              )}
                             </div>
-                          )}
-                        </div>
-                      </div>
-                    </CardContent>
-                  </Card>
-                </Link>
-              ))}
+                          </div>
+                        </CardContent>
+                      </Card>
+                    </Link>
+                  </div>
+                );
+              })}
             </div>
 
             {/* Infinite scroll trigger */}
@@ -245,6 +346,44 @@ export default function ClustersView({ loaderData }: Route.ComponentProps) {
             </div>
           </div>
         )}
+
+        {/* Merge Confirmation Dialog */}
+        <Dialog open={pendingMerge !== null} onOpenChange={(open) => !open && cancelMerge()}>
+          <DialogContent showCloseButton={false} className="max-w-sm">
+            <DialogHeader>
+              <DialogTitle className="flex items-center gap-2">
+                <GitMerge className="h-5 w-5" />
+                Merge Clusters
+              </DialogTitle>
+              <DialogDescription>
+                {pendingMerge && (
+                  <>
+                    Merge <strong>{getClusterName(pendingMerge.sourceId)}</strong> into{" "}
+                    <strong>{getClusterName(pendingMerge.targetId)}</strong>?
+                    <br />
+                    <br />
+                    All faces will be moved to the target cluster.
+                  </>
+                )}
+              </DialogDescription>
+            </DialogHeader>
+            <DialogFooter>
+              <Button variant="outline" onClick={cancelMerge} disabled={isMerging}>
+                Cancel
+              </Button>
+              <Button onClick={confirmMerge} disabled={isMerging}>
+                {isMerging ? (
+                  <>
+                    <Loader2 className="h-4 w-4 mr-1 animate-spin" />
+                    Merging...
+                  </>
+                ) : (
+                  "Merge"
+                )}
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
       </div>
     </Layout>
   );

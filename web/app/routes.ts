@@ -14,4 +14,5 @@ export default [
   route("face/:id/similar", "routes/face.$id.similar.tsx"),
   route("api/image/:id", "routes/api.image.$id.tsx"),
   route("api/clusters/search", "routes/api.clusters.search.tsx"),
+  route("api/clusters/merge", "routes/api.clusters.merge.tsx"),
 ] satisfies RouteConfig;

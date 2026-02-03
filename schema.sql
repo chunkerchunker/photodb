@@ -52,6 +52,11 @@ CREATE INDEX IF NOT EXISTS idx_processing_status ON processing_status(status, st
 -- Index for queries that filter by stage first (e.g., getUnprocessedPhotos)
 CREATE INDEX IF NOT EXISTS idx_processing_status_stage_status ON processing_status(stage, status);
 
+-- Partial index for efficient "find unprocessed" queries using NOT EXISTS pattern
+CREATE INDEX IF NOT EXISTS idx_processing_status_completed
+ON processing_status(photo_id)
+WHERE status = 'completed';
+
 -- PostgreSQL-specific: GIN index for JSONB search
 CREATE INDEX IF NOT EXISTS idx_metadata_extra ON metadata USING GIN(extra);
 
@@ -201,6 +206,11 @@ CREATE INDEX IF NOT EXISTS idx_person_detection_cluster_id ON person_detection(c
 
 CREATE INDEX IF NOT EXISTS idx_person_detection_unassigned ON person_detection(unassigned_since) WHERE cluster_id IS NULL;
 
+-- Composite index for unassigned detection pool queries (clustering seed selection)
+CREATE INDEX IF NOT EXISTS idx_person_detection_unassigned_pool
+ON person_detection(face_confidence DESC, face_bbox_width, face_bbox_height)
+WHERE cluster_id IS NULL AND cluster_status = 'unassigned';
+
 CREATE INDEX IF NOT EXISTS idx_person_detection_gender ON person_detection(gender);
 
 CREATE INDEX IF NOT EXISTS idx_person_detection_age ON person_detection(age_estimate);
@@ -248,6 +258,15 @@ CREATE TABLE IF NOT EXISTS face_match_candidate(
 
 -- Indexes for clustering performance
 CREATE INDEX IF NOT EXISTS idx_cluster_centroid ON "cluster" USING ivfflat(centroid vector_cosine_ops) WITH (lists = 100);
+
+-- Partial indexes for cluster listing queries (visible vs hidden)
+CREATE INDEX IF NOT EXISTS idx_cluster_visible
+ON cluster(face_count DESC, id)
+WHERE face_count > 0 AND (hidden = false OR hidden IS NULL);
+
+CREATE INDEX IF NOT EXISTS idx_cluster_hidden_listing
+ON cluster(face_count DESC, id)
+WHERE face_count > 0 AND hidden = true;
 
 CREATE INDEX IF NOT EXISTS idx_face_match_candidate_detection ON face_match_candidate(detection_id);
 

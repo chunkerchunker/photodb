@@ -180,14 +180,22 @@ class PhotoRepository:
                 return None
 
     def get_unprocessed_photos(self, stage: str, limit: int = 100) -> List[Photo]:
-        """Get photos that haven't been processed for a specific stage."""
+        """Get photos that haven't been processed for a specific stage.
+
+        Uses NOT EXISTS pattern which is more efficient than LEFT JOIN anti-pattern
+        as the database grows. The idx_processing_status_completed partial index
+        makes this query fast by only indexing completed records.
+        """
         with self.pool.get_connection() as conn:
             with conn.cursor(row_factory=dict_row) as cursor:
                 cursor.execute(
                     """SELECT p.* FROM photo p
-                       LEFT JOIN processing_status ps 
-                       ON p.id = ps.photo_id AND ps.stage = %s
-                       WHERE ps.status IS NULL OR ps.status != 'completed'
+                       WHERE NOT EXISTS (
+                           SELECT 1 FROM processing_status ps
+                           WHERE ps.photo_id = p.id
+                             AND ps.stage = %s
+                             AND ps.status = 'completed'
+                       )
                        LIMIT %s""",
                     (stage, limit),
                 )

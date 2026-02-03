@@ -267,8 +267,53 @@ export async function getPhotoDetails(photoId: number) {
     face.match_candidates = candidatesResult.rows;
   }
 
+  // Get detection tags (face tags) for each face
+  for (const face of facesResult.rows) {
+    const faceTagsQuery = `
+      SELECT dt.confidence, dt.rank_in_category,
+             pe.label, pe.display_name, pe.prompt_text,
+             pc.name as category_name, pc.target
+      FROM detection_tag dt
+      JOIN prompt_embedding pe ON dt.prompt_id = pe.id
+      JOIN prompt_category pc ON pe.category_id = pc.id
+      WHERE dt.detection_id = $1
+      ORDER BY pc.display_order, dt.confidence DESC
+    `;
+    const faceTagsResult = await pool.query(faceTagsQuery, [face.id]);
+    face.tags = faceTagsResult.rows;
+  }
+
   photo.faces = facesResult.rows;
   photo.face_count = facesResult.rows.length;
+
+  // Get photo-level scene tags
+  const photoTagsQuery = `
+    SELECT pt.confidence, pt.rank_in_category,
+           pe.label, pe.display_name, pe.prompt_text,
+           pc.name as category_name, pc.target
+    FROM photo_tag pt
+    JOIN prompt_embedding pe ON pt.prompt_id = pe.id
+    JOIN prompt_category pc ON pe.category_id = pc.id
+    WHERE pt.photo_id = $1
+    ORDER BY pc.display_order, pt.confidence DESC
+  `;
+  const photoTagsResult = await pool.query(photoTagsQuery, [photoId]);
+  photo.scene_tags = photoTagsResult.rows;
+
+  // Get scene analysis data (Apple Vision taxonomy)
+  const sceneAnalysisQuery = `
+    SELECT sa.top_labels, sa.all_labels, sa.processing_time_ms,
+           ao.model_name, ao.processed_at
+    FROM scene_analysis sa
+    JOIN analysis_output ao ON sa.analysis_output_id = ao.id
+    WHERE sa.photo_id = $1 AND ao.model_name = 'apple_vision_classify'
+    ORDER BY ao.processed_at DESC
+    LIMIT 1
+  `;
+  const sceneAnalysisResult = await pool.query(sceneAnalysisQuery, [photoId]);
+  if (sceneAnalysisResult.rows.length > 0) {
+    photo.scene_taxonomy = sceneAnalysisResult.rows[0];
+  }
 
   // Add computed fields
   photo.filename_only = path.basename(photo.filename);

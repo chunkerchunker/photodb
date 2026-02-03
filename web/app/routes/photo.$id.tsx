@@ -1,5 +1,19 @@
 import { useMeasure } from "@react-hookz/web";
-import { Ban, Bot, Calendar, Camera, ChevronDown, Code, ExternalLink, Info, MapPin, User, Users } from "lucide-react";
+import {
+  Ban,
+  Bot,
+  Calendar,
+  Camera,
+  ChevronDown,
+  Code,
+  ExternalLink,
+  Info,
+  MapPin,
+  Sparkles,
+  Tag,
+  User,
+  Users,
+} from "lucide-react";
 
 // Helper to format gender display
 function formatGender(gender?: string): string | null {
@@ -44,6 +58,21 @@ interface FaceMatchCandidate {
   face_count: number;
 }
 
+interface SceneTag {
+  confidence: number;
+  rank_in_category?: number;
+  label: string;
+  display_name?: string;
+  prompt_text: string;
+  category_name: string;
+  target: string;
+}
+
+interface SceneTaxonomyLabel {
+  label: string;
+  confidence: number;
+}
+
 interface Face {
   id: string;
   bbox_x: number;
@@ -59,6 +88,8 @@ interface Face {
   age_estimate?: number;
   gender?: string; // 'M', 'F', 'U'
   gender_confidence?: number;
+  // Face tags (expression, emotion, gaze)
+  tags?: SceneTag[];
 }
 
 interface FaceOverlayProps {
@@ -179,6 +210,7 @@ export default function PhotoDetail({ loaderData }: Route.ComponentProps) {
     basicInfo: true,
     location: true,
     faces: true,
+    sceneTags: true,
     aiAnalysis: true,
   });
 
@@ -516,6 +548,34 @@ export default function PhotoDetail({ loaderData }: Route.ComponentProps) {
                                       </div>
                                     )}
                                   </div>
+                                  {/* Face tags (expression, emotion, gaze) */}
+                                  {face.tags && face.tags.length > 0 && (
+                                    <div className="flex flex-wrap gap-1 mt-1">
+                                      {face.tags.map((tag: SceneTag, tagIndex: number) => (
+                                        <Badge
+                                          // biome-ignore lint/suspicious/noArrayIndexKey: index is fine
+                                          key={tagIndex}
+                                          variant="outline"
+                                          className={cn(
+                                            "text-xs",
+                                            tag.category_name === "face_emotion"
+                                              ? "bg-yellow-50 border-yellow-200"
+                                              : tag.category_name === "face_expression"
+                                                ? "bg-green-50 border-green-200"
+                                                : tag.category_name === "face_gaze"
+                                                  ? "bg-purple-50 border-purple-200"
+                                                  : "",
+                                          )}
+                                          title={`${tag.category_name}: ${tag.prompt_text}`}
+                                        >
+                                          {tag.display_name || tag.label}
+                                          <span className="ml-1 text-gray-400">
+                                            {Math.round(tag.confidence * 100)}%
+                                          </span>
+                                        </Badge>
+                                      ))}
+                                    </div>
+                                  )}
                                   {face.match_candidates && face.match_candidates.length > 0 && (
                                     <div className="flex flex-col space-y-1">
                                       <span className="text-xs text-gray-500">Potential matches:</span>
@@ -545,6 +605,93 @@ export default function PhotoDetail({ loaderData }: Route.ComponentProps) {
                               </div>
                             );
                           })}
+                        </div>
+                      )}
+                    </CardContent>
+                  </CollapsibleContent>
+                </Collapsible>
+              </Card>
+            )}
+
+            {/* Scene & Face Tags */}
+            {(photo.scene_tags?.length > 0 || photo.scene_taxonomy) && (
+              <Card>
+                <Collapsible
+                  open={sectionStates.sceneTags}
+                  onOpenChange={(open) => updateSectionState("sceneTags", open)}
+                >
+                  <CollapsibleTrigger asChild>
+                    <CardHeader className="cursor-pointer hover:bg-gray-50">
+                      <CardTitle className="flex items-center justify-between">
+                        <div className="flex items-center space-x-2">
+                          <Sparkles className="h-5 w-5" />
+                          <span>Scene Analysis</span>
+                        </div>
+                        <ChevronDown className="h-4 w-4 transition-transform data-[state=open]:rotate-180" />
+                      </CardTitle>
+                    </CardHeader>
+                  </CollapsibleTrigger>
+                  <CollapsibleContent>
+                    <CardContent className="space-y-4">
+                      {/* Apple Vision Taxonomy */}
+                      {photo.scene_taxonomy?.top_labels && photo.scene_taxonomy.top_labels.length > 0 && (
+                        <div>
+                          <h6 className="font-medium text-sm mb-2 flex items-center">
+                            <Tag className="h-4 w-4 mr-1" />
+                            Scene Classification
+                          </h6>
+                          <div className="flex flex-wrap gap-1">
+                            {photo.scene_taxonomy.top_labels.map((item: SceneTaxonomyLabel, index: number) => (
+                              <Badge
+                                // biome-ignore lint/suspicious/noArrayIndexKey: label might not be unique
+                                key={index}
+                                variant="secondary"
+                                className="text-xs"
+                              >
+                                {item.label}
+                                <span className="ml-1 text-gray-500">({Math.round(item.confidence * 100)}%)</span>
+                              </Badge>
+                            ))}
+                          </div>
+                        </div>
+                      )}
+
+                      {/* Scene Tags by Category */}
+                      {photo.scene_tags && photo.scene_tags.length > 0 && (
+                        <div className="space-y-3">
+                          {/* Group tags by category */}
+                          {Object.entries(
+                            photo.scene_tags.reduce(
+                              (acc: Record<string, SceneTag[]>, tag: SceneTag) => {
+                                const category = tag.category_name;
+                                if (!acc[category]) acc[category] = [];
+                                acc[category].push(tag);
+                                return acc;
+                              },
+                              {} as Record<string, SceneTag[]>,
+                            ),
+                          ).map(([category, tags]) => (
+                            <div key={category}>
+                              <h6 className="font-medium text-sm mb-1 capitalize">{category.replace(/_/g, " ")}</h6>
+                              <div className="flex flex-wrap gap-1">
+                                {(tags as SceneTag[]).map((tag: SceneTag, index: number) => (
+                                  <Badge
+                                    // biome-ignore lint/suspicious/noArrayIndexKey: index is fine here
+                                    key={index}
+                                    variant="outline"
+                                    className={cn(
+                                      "text-xs",
+                                      tag.rank_in_category === 1 ? "bg-blue-50 border-blue-200" : "",
+                                    )}
+                                    title={tag.prompt_text}
+                                  >
+                                    {tag.display_name || tag.label}
+                                    <span className="ml-1 text-gray-500">({Math.round(tag.confidence * 100)}%)</span>
+                                  </Badge>
+                                ))}
+                              </div>
+                            </div>
+                          ))}
                         </div>
                       )}
                     </CardContent>

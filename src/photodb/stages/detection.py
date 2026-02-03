@@ -29,10 +29,16 @@ class DetectionStage(BaseStage):
 
     def process_photo(self, photo: Photo, file_path: Path) -> bool:
         """Process detection for a single photo."""
+        if photo.id is None:
+            logger.error(f"Photo {file_path} has no ID")
+            return False
+
+        photo_id = photo.id  # Capture for type narrowing
+
         try:
             # Check if normalized file exists
             if not photo.normalized_path:
-                logger.warning(f"No normalized path for photo {photo.id}, skipping detection")
+                logger.warning(f"No normalized path for photo {photo_id}, skipping detection")
                 return False
 
             normalized_path = Path(self.config["IMG_PATH"]) / photo.normalized_path
@@ -43,10 +49,10 @@ class DetectionStage(BaseStage):
             logger.debug(f"Processing detection for {file_path} -> {normalized_path}")
 
             # Clear existing detections if reprocessing
-            existing_detections = self.repository.get_detections_for_photo(photo.id)
+            existing_detections = self.repository.get_detections_for_photo(photo_id)
             if existing_detections:
                 logger.debug(f"Clearing {len(existing_detections)} existing detections")
-                self.repository.delete_detections_for_photo(photo.id)
+                self.repository.delete_detections_for_photo(photo_id)
 
             # Run detection using PersonDetector
             result = self.detector.detect(str(normalized_path))
@@ -69,7 +75,7 @@ class DetectionStage(BaseStage):
                 body_data = detection_data.get("body")
 
                 # Create PersonDetection record
-                detection = self._create_detection_record(photo.id, face_data, body_data)
+                detection = self._create_detection_record(photo_id, face_data, body_data)
 
                 # Save detection to database
                 self.repository.create_person_detection(detection)

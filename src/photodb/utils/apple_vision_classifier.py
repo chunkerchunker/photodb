@@ -14,7 +14,7 @@ if sys.platform != "darwin":
 
 import Quartz
 import Vision
-from Foundation import NSURL
+from Foundation import NSURL  # type: ignore[attr-defined]
 
 logger = logging.getLogger(__name__)
 
@@ -53,7 +53,7 @@ class AppleVisionClassifier:
         try:
             # Load image using CoreImage
             image_url = NSURL.fileURLWithPath_(image_path)
-            ci_image = Quartz.CIImage.imageWithContentsOfURL_(image_url)
+            ci_image = Quartz.CIImage.imageWithContentsOfURL_(image_url)  # type: ignore[attr-defined]
 
             if ci_image is None:
                 return {
@@ -64,8 +64,8 @@ class AppleVisionClassifier:
                 }
 
             # Create Vision request handler and classification request
-            handler = Vision.VNImageRequestHandler.alloc().initWithCIImage_options_(ci_image, None)
-            request = Vision.VNClassifyImageRequest.alloc().init()
+            handler = Vision.VNImageRequestHandler.alloc().initWithCIImage_options_(ci_image, None)  # type: ignore[attr-defined]
+            request = Vision.VNClassifyImageRequest.alloc().init()  # type: ignore[attr-defined]
 
             # Perform the classification
             success, error = handler.performRequests_error_([request], None)

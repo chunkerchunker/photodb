@@ -24,6 +24,7 @@ from ..utils.prompt_cache import PromptCache
 logger = logging.getLogger(__name__)
 
 _apple_vision_available = sys.platform == "darwin"
+AppleVisionClassifier = None  # Type hint for conditional import
 if _apple_vision_available:
     try:
         from ..utils.apple_vision_classifier import AppleVisionClassifier
@@ -42,7 +43,7 @@ class SceneAnalysisStage(BaseStage):
         self.analyzer = MobileCLIPAnalyzer()
         self.prompt_cache = PromptCache(repository, device=self.analyzer.device)
 
-        if _apple_vision_available:
+        if _apple_vision_available and AppleVisionClassifier is not None:
             self.apple_classifier = AppleVisionClassifier()
         else:
             self.apple_classifier = None
@@ -60,9 +61,15 @@ class SceneAnalysisStage(BaseStage):
 
     def process_photo(self, photo: Photo, file_path: Path) -> bool:
         """Process scene taxonomy and tagging for a photo."""
+        if photo.id is None:
+            logger.error(f"Photo {file_path} has no ID")
+            return False
+
+        photo_id = photo.id  # Capture for type narrowing
+
         try:
             if not photo.normalized_path:
-                logger.warning(f"No normalized path for photo {photo.id}")
+                logger.warning(f"No normalized path for photo {photo_id}")
                 return False
 
             normalized_path = Path(self.config["IMG_PATH"]) / photo.normalized_path
@@ -79,7 +86,7 @@ class SceneAnalysisStage(BaseStage):
                 taxonomy_result = self.apple_classifier.classify(str(normalized_path), top_k=15)
 
                 taxonomy_output = AnalysisOutput.create(
-                    photo_id=photo.id,
+                    photo_id=photo_id,
                     model_type="classifier",
                     model_name="apple_vision_classify",
                     output=taxonomy_result,
@@ -107,7 +114,7 @@ class SceneAnalysisStage(BaseStage):
                     if category.selection_mode == "single":
                         scores = self.prompt_cache.classify(image_embedding, category.name)
                         # Get top result
-                        top_label = max(scores, key=scores.get)
+                        top_label = max(scores, key=lambda k: scores[k])
                         top_score = scores[top_label]
 
                         if top_score >= category.min_confidence:
@@ -117,7 +124,7 @@ class SceneAnalysisStage(BaseStage):
 
                             all_photo_tags.append(
                                 PhotoTag.create(
-                                    photo_id=photo.id,
+                                    photo_id=photo_id,
                                     prompt_id=prompt_ids[idx],
                                     confidence=top_score,
                                     rank_in_category=1,
@@ -130,7 +137,7 @@ class SceneAnalysisStage(BaseStage):
                         for rank, (label, conf, prompt_id) in enumerate(results, 1):
                             all_photo_tags.append(
                                 PhotoTag.create(
-                                    photo_id=photo.id,
+                                    photo_id=photo_id,
                                     prompt_id=prompt_id,
                                     confidence=conf,
                                     rank_in_category=rank,
@@ -142,7 +149,7 @@ class SceneAnalysisStage(BaseStage):
 
             # 4. Store scene analysis output
             mobileclip_output = AnalysisOutput.create(
-                photo_id=photo.id,
+                photo_id=photo_id,
                 model_type="tagger",
                 model_name="mobileclip",
                 output={"scene": scene_results},
@@ -156,7 +163,7 @@ class SceneAnalysisStage(BaseStage):
 
             # 6. Save scene analysis record
             scene_analysis = SceneAnalysis.create(
-                photo_id=photo.id,
+                photo_id=photo_id,
                 taxonomy_labels=taxonomy_labels,
                 taxonomy_confidences=taxonomy_confidences,
                 taxonomy_output_id=taxonomy_output_id,
@@ -165,11 +172,11 @@ class SceneAnalysisStage(BaseStage):
             self.repository.upsert_scene_analysis(scene_analysis)
 
             # 7. Process face tags if detections exist
-            detections = self.repository.get_detections_for_photo(photo.id)
+            detections = self.repository.get_detections_for_photo(photo_id)
             face_detections = [d for d in detections if d.has_face()]
 
             if face_detections and self.face_categories:
-                self._process_face_tags(photo.id, normalized_path, face_detections)
+                self._process_face_tags(photo_id, normalized_path, face_detections)
 
             logger.info(
                 f"Scene analysis complete for {file_path}: "
@@ -214,7 +221,7 @@ class SceneAnalysisStage(BaseStage):
                 try:
                     if category.selection_mode == "single":
                         scores = self.prompt_cache.classify(face_emb, category.name)
-                        top_label = max(scores, key=scores.get)
+                        top_label = max(scores, key=lambda k: scores[k])
                         top_score = scores[top_label]
 
                         if top_score >= category.min_confidence:

@@ -84,9 +84,6 @@ class LocalProcessor(BaseProcessor):
                 "clustering",
                 "scene_analysis",
             ]
-        elif stage == "faces":
-            # Legacy alias: "faces" maps to "detection"
-            return ["detection"]
         elif stage in [
             "normalize",
             "metadata",

@@ -135,6 +135,7 @@ class MiVOLOPredictor:
 
             # Run MiVOLO prediction (detection + age/gender in one pass)
             # Lock is REQUIRED - MiVOLO has lazy-initialized internal state
+            assert self.predictor is not None  # Guaranteed by _available check above
             with self._lock:
                 result, _ = self.predictor.recognize(img)
 
@@ -323,10 +324,16 @@ class AgeGenderStage(BaseStage):
         Returns:
             True if processing succeeded, False otherwise
         """
+        if photo.id is None:
+            logger.error(f"Photo {file_path} has no ID")
+            return False
+
+        photo_id = photo.id  # Capture for type narrowing
+
         try:
             # Check for normalized path
             if not photo.normalized_path:
-                logger.warning(f"No normalized path for photo {photo.id}, skipping age/gender")
+                logger.warning(f"No normalized path for photo {photo_id}, skipping age/gender")
                 return False
 
             # Build full path to normalized image
@@ -336,15 +343,15 @@ class AgeGenderStage(BaseStage):
                 return False
 
             # Get existing detections for this photo
-            detections = self.repository.get_detections_for_photo(photo.id)
+            detections = self.repository.get_detections_for_photo(photo_id)
             if not detections:
-                logger.debug(f"No detections for photo {photo.id}, skipping age/gender")
+                logger.debug(f"No detections for photo {photo_id}, skipping age/gender")
                 return True
 
             # Run MiVOLO prediction
             predictions = self.predictor.predict(str(normalized_path))
             if not predictions:
-                logger.debug(f"No MiVOLO predictions for photo {photo.id}")
+                logger.debug(f"No MiVOLO predictions for photo {photo_id}")
                 return True
 
             logger.debug(
@@ -396,7 +403,7 @@ class AgeGenderStage(BaseStage):
                             best_iou = iou
                             best_match = detection
 
-                if best_match is not None:
+                if best_match is not None and best_match.id is not None:
                     # Update the matched detection
                     self.repository.update_detection_age_gender(
                         detection_id=best_match.id,
@@ -412,7 +419,7 @@ class AgeGenderStage(BaseStage):
                     )
 
             logger.info(
-                f"Updated age/gender for {updated}/{len(detections)} detections in photo {photo.id}"
+                f"Updated age/gender for {updated}/{len(detections)} detections in photo {photo_id}"
             )
             return True
 

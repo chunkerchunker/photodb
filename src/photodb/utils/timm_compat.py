@@ -46,10 +46,10 @@ def _split_model_name_tag_shim(model_name: str, no_tag: str = "") -> Tuple[str, 
 
 # Patch the modules to add the old function names
 if not hasattr(_helpers, "remap_checkpoint"):
-    _helpers.remap_checkpoint = _remap_checkpoint_shim
+    _helpers.remap_checkpoint = _remap_checkpoint_shim  # type: ignore[attr-defined]
 
 if not hasattr(_pretrained, "split_model_name_tag"):
-    _pretrained.split_model_name_tag = _split_model_name_tag_shim
+    _pretrained.split_model_name_tag = _split_model_name_tag_shim  # type: ignore[attr-defined]
 
 
 # ============================================================================
@@ -67,7 +67,7 @@ def _patch_mivolo_model():
     """Patch MiVOLOModel to use keyword arguments when calling parent VOLO class."""
     try:
         import torch.nn as nn
-        from timm.layers import trunc_normal_
+        from timm.layers import trunc_normal_  # type: ignore[attr-defined]
         from timm.models.volo import VOLO
 
         # Import the MiVOLO components we need
@@ -131,6 +131,7 @@ def _patch_mivolo_model():
 
             # MiVOLO's custom patch embedding (replaces the one from parent VOLO)
             im_size = img_size[0] if isinstance(img_size, tuple) else img_size
+            assert embed_dims is not None  # Required parameter at runtime
             self.patch_embed = PatchEmbed(
                 img_size=im_size,
                 stem_conv=True,
@@ -145,8 +146,8 @@ def _patch_mivolo_model():
             self.apply(self._init_weights)
 
         # Apply the patch
-        MiVOLOModel.__init__ = patched_init
-        MiVOLOModel._timm_compat_patched = True
+        MiVOLOModel.__init__ = patched_init  # type: ignore[method-assign]
+        MiVOLOModel._timm_compat_patched = True  # type: ignore[attr-defined]
 
     except ImportError:
         # MiVOLO not installed, nothing to patch

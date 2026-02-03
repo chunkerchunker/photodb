@@ -128,6 +128,7 @@ class PersonDetector:
         # Load YOLO model
         if self.using_coreml:
             # CoreML model - task must be specified
+            assert coreml_path is not None  # Guaranteed by using_coreml check above
             self.model = _load_yolo_model(coreml_path, task="detect")
             # CoreML handles device selection internally (ANE > GPU > CPU)
             self._yolo_device = None

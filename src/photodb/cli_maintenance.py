@@ -13,11 +13,11 @@ import os
 import json
 from dotenv import load_dotenv
 
-from .database.connection import ConnectionPool
-from .utils.maintenance import MaintenanceUtilities
-
-# Load environment variables
+# Load environment variables BEFORE importing modules that read them at module level
 load_dotenv()
+
+from .database.connection import ConnectionPool  # noqa: E402
+from .utils.maintenance import MaintenanceUtilities  # noqa: E402
 
 # Configure logging
 logging.basicConfig(

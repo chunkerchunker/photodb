@@ -1,3 +1,4 @@
+import os
 import pytest
 from pathlib import Path
 from unittest.mock import Mock, patch
@@ -210,9 +211,9 @@ class TestChangeDetector:
 
     def test_detect_moved_files_with_checksums(self, detector, temp_dir):
         """Test that checksum calculation works for move detection."""
-        # Create files
-        file1 = create_test_file(temp_dir / "original.txt", "unique content")
-        file2 = create_test_file(temp_dir / "another.txt", "different content")
+        # Create files (return values unused - files created for side effects)
+        create_test_file(temp_dir / "original.txt", "unique content")
+        create_test_file(temp_dir / "another.txt", "different content")
 
         # Calculate checksums for all files
         checksums = {}
@@ -244,6 +245,3 @@ class TestChangeDetector:
         # Should be found when checking last 24 hours
         modified = detector.detect_modified_files(temp_dir)
         assert test_file in modified
-
-
-import os  # Add this import at the top of the file for the os.utime calls

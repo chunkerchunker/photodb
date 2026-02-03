@@ -7,7 +7,7 @@ from datetime import datetime
 
 from photodb.database.repository import PhotoRepository
 
-from ..database.models import Photo, ProcessingStatus
+from ..database.models import Photo, ProcessingStatus, Status
 
 logger = logging.getLogger(__name__)
 
@@ -35,7 +35,7 @@ class BaseStage(ABC):
             return True
 
         photo = self.repository.get_photo_by_filename(str(file_path))
-        if not photo:
+        if not photo or photo.id is None:
             return True
 
         # don't reprocess anything unless forced (including failures)
@@ -50,7 +50,7 @@ class BaseStage(ABC):
             assert photo.id
 
             # Quick DB write: mark as processing
-            self._update_status(photo.id, "processing")
+            self._update_status(photo.id, Status.PROCESSING)
 
             # Do the heavy lifting OUTSIDE of any transaction
             # This is where image processing happens - no DB locks held!
@@ -58,16 +58,16 @@ class BaseStage(ABC):
 
             # Quick DB write: update final status
             if success:
-                self._update_status(photo.id, "completed")
+                self._update_status(photo.id, Status.COMPLETED)
                 logger.info(f"Successfully processed {file_path} through {self.stage_name}")
             else:
-                self._update_status(photo.id, "failed", "Processing failed")
+                self._update_status(photo.id, Status.FAILED, "Processing failed")
                 logger.error(f"Processing failed for {file_path} through {self.stage_name}")
 
         except Exception as e:
             logger.error(f"Failed to process {file_path} through {self.stage_name}: {e}")
             if photo and photo.id:
-                self._update_status(photo.id, "failed", str(e))
+                self._update_status(photo.id, Status.FAILED, str(e))
             raise
 
     def _get_or_create_photo(self, file_path: Path) -> Photo:
@@ -86,7 +86,7 @@ class BaseStage(ABC):
         """Generate a unique photo ID."""
         return hashlib.sha256(str(file_path.resolve()).encode()).hexdigest()[:16]
 
-    def _update_status(self, photo_id: int, status: str, error_message: Optional[str] = None):
+    def _update_status(self, photo_id: int, status: Status, error_message: Optional[str] = None):
         """Update processing status for this stage."""
         processing_status = ProcessingStatus(
             photo_id=photo_id,

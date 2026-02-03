@@ -32,7 +32,7 @@ class EnrichStage(BaseStage):
         self.client = None
         self.batch_processor = None
         self.api_available = False
-        self.model_name = None
+        self.model_name: str = ""  # Will be set based on provider
 
         try:
             if self.provider_name == "bedrock":
@@ -121,7 +121,7 @@ class EnrichStage(BaseStage):
             return True
 
         photo = self.repository.get_photo_by_filename(str(file_path))
-        if not photo:
+        if not photo or photo.id is None:
             return False
 
         # Check if photo has normalized image and no existing analysis
@@ -132,15 +132,24 @@ class EnrichStage(BaseStage):
 
         Note: file_path parameter not used - we use the normalized image path instead.
         """
+        if photo.id is None:
+            logger.error(f"Photo {file_path} has no ID")
+            return False
+        if not photo.normalized_path:
+            logger.error(f"Photo {photo.id} has no normalized path")
+            return False
+
+        photo_id = photo.id  # Capture for type narrowing
+
         try:
             start_time = time.time()
 
             # Check if API is available
             if not self.api_available:
-                logger.debug(f"Skipping LLM analysis for {photo.id} - no API key")
+                logger.debug(f"Skipping LLM analysis for {photo_id} - no API key")
                 # Create placeholder analysis record to mark as processed
                 placeholder_analysis = LLMAnalysis.create(
-                    photo_id=photo.id,
+                    photo_id=photo_id,
                     model_name="placeholder",
                     analysis={"description": "API not available", "confidence": 0.0},
                     processing_duration_ms=0,
@@ -156,7 +165,7 @@ class EnrichStage(BaseStage):
                 return False
 
             # Get existing metadata for context
-            metadata = self.repository.get_metadata(photo.id)
+            metadata = self.repository.get_metadata(photo_id)
             exif_context = self._build_exif_context(metadata) if metadata else ""
 
             # Analyze photo with LLM
@@ -165,13 +174,13 @@ class EnrichStage(BaseStage):
 
                 if not analysis_result:
                     logger.error(
-                        f"LLM analysis returned None for photo: {photo.id} - check previous error logs"
+                        f"LLM analysis returned None for photo: {photo_id} - check previous error logs"
                     )
                     return False
 
             except Exception as e:
                 logger.error(
-                    f"Exception during LLM analysis for photo {photo.id}: {e}", exc_info=True
+                    f"Exception during LLM analysis for photo {photo_id}: {e}", exc_info=True
                 )
                 return False
 
@@ -181,7 +190,7 @@ class EnrichStage(BaseStage):
             # Create and save analysis record
             processing_time = int((time.time() - start_time) * 1000)
             llm_analysis = LLMAnalysis.create(
-                photo_id=photo.id,
+                photo_id=photo_id,
                 model_name=self.model_name,
                 analysis=analysis_result,
                 model_version=self.model_name.split("-")[-1] if "-" in self.model_name else None,
@@ -190,14 +199,14 @@ class EnrichStage(BaseStage):
             )
 
             self.repository.create_llm_analysis(llm_analysis)
-            logger.info(f"Successfully analyzed photo {photo.id} in {processing_time}ms")
+            logger.info(f"Successfully analyzed photo {photo_id} in {processing_time}ms")
             return True
 
         except Exception as e:
-            logger.error(f"Error analyzing photo {photo.id}: {e}", exc_info=True)
+            logger.error(f"Error analyzing photo {photo_id}: {e}", exc_info=True)
             # Save error record
             error_analysis = LLMAnalysis.create(
-                photo_id=photo.id, model_name=self.model_name, analysis={}, error_message=str(e)
+                photo_id=photo_id, model_name=self.model_name, analysis={}, error_message=str(e)
             )
             self.repository.create_llm_analysis(error_analysis)
             return False
@@ -229,6 +238,10 @@ class EnrichStage(BaseStage):
         photo_ids = []
 
         for photo in photos:
+            if not photo.normalized_path or photo.id is None:
+                logger.warning("Skipping photo - missing normalized path or ID")
+                continue
+
             normalized_path = Path(photo.normalized_path)
 
             if not normalized_path.exists():
@@ -254,6 +267,10 @@ class EnrichStage(BaseStage):
             return None
 
         try:
+            if self.batch_processor is None:
+                logger.error("Batch processor not available")
+                return None
+
             # Create batch file using Instructor's batch processor
             batch_requests_dir = os.getenv("BATCH_REQUESTS_PATH", "./batch_requests")
             Path(batch_requests_dir).mkdir(parents=True, exist_ok=True)
@@ -302,6 +319,10 @@ class EnrichStage(BaseStage):
             photo_ids = []
             with open(input_file_path, "w") as f:
                 for i, photo in enumerate(photos):
+                    if not photo.normalized_path or photo.id is None:
+                        logger.warning("Skipping photo - missing normalized path or ID")
+                        continue
+
                     normalized_path = Path(photo.normalized_path)
 
                     if not normalized_path.exists():
@@ -781,18 +802,18 @@ class EnrichStage(BaseStage):
                 try:
                     custom_id = result.custom_id
 
-                    photo_id = None
+                    photo_id: int | None = None
                     if custom_id:
                         if custom_id.startswith("request-"):
                             custom_id = custom_id[len("request-") :]
                             photo_id = photo_ids[int(custom_id)]
                         elif custom_id.startswith("photoid-"):
                             custom_id = custom_id[len("photoid-") :]
-                            photo_id = custom_id
+                            photo_id = int(custom_id)
 
                     # TODO: it looks like Instructor doesn't allow setting custom_id yet, so the photoid- prefix isn't currently used.
 
-                    if not photo_id:
+                    if photo_id is None:
                         logger.error(
                             f"Failed to extract photo id for batch {batch_id} result {i}: {custom_id}"
                         )
@@ -925,6 +946,10 @@ class EnrichStage(BaseStage):
                 response = self._call_bedrock_native(content)
             else:
                 # Use Instructor for Anthropic
+                if self.client is None:
+                    logger.error("Instructor client not initialized")
+                    return None
+
                 create_params = {
                     "model": self.model_name,
                     "max_tokens": 4000,
@@ -941,7 +966,8 @@ class EnrichStage(BaseStage):
             if self.provider_name == "bedrock":
                 return response  # Already a dict from native API
             else:
-                return response.model_dump() if response else None  # Pydantic model from instructor
+                # Pydantic model from instructor
+                return response.model_dump() if hasattr(response, "model_dump") else response  # type: ignore[union-attr]
 
         except Exception as e:
             logger.error(f"Structured LLM analysis failed: {e}", exc_info=True)

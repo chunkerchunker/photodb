@@ -24,6 +24,7 @@ class ClusteringStage(BaseStage):
     """
 
     stage_name = "clustering"
+    force: bool = False  # Set by processor before process_photo is called
 
     def __init__(self, repository, config: dict):
         super().__init__(repository, config)
@@ -49,7 +50,7 @@ class ClusteringStage(BaseStage):
             return True
 
         photo = self.repository.get_photo_by_filename(str(file_path))
-        if not photo:
+        if not photo or photo.id is None:
             return False
 
         # Check if photo has been processed through detection stage
@@ -69,12 +70,18 @@ class ClusteringStage(BaseStage):
 
     def process_photo(self, photo: Photo, file_path: Path) -> bool:
         """Process clustering for all detections in a photo."""
+        if photo.id is None:
+            logger.error(f"Photo {file_path} has no ID")
+            return False
+
+        photo_id = photo.id  # Capture for type narrowing
+
         try:
             # Get detections to cluster based on force flag
-            if hasattr(self, "force") and self.force:
+            if self.force:
                 # If force flag is set, get all detections with embeddings for reprocessing
                 detections_to_cluster = (
-                    self.repository.get_all_detections_with_embeddings_for_photo(photo.id)
+                    self.repository.get_all_detections_with_embeddings_for_photo(photo_id)
                 )
                 logger.debug(
                     f"Force mode: reprocessing {len(detections_to_cluster)} detections for {file_path}"
@@ -82,7 +89,7 @@ class ClusteringStage(BaseStage):
             else:
                 # Normal mode: only get unclustered detections
                 detections_to_cluster = self.repository.get_unclustered_detections_for_photo(
-                    photo.id
+                    photo_id
                 )
 
             if not detections_to_cluster:
@@ -183,7 +190,7 @@ class ClusteringStage(BaseStage):
         if neighbors:
             distances = [n["distance"] for n in neighbors]
             core_distance = np.mean(distances)
-            confidence = max(0.0, 1.0 - core_distance)
+            confidence = float(max(0.0, 1.0 - core_distance))
         else:
             core_distance = float("inf")
             confidence = 0.0
@@ -379,7 +386,7 @@ class ClusteringStage(BaseStage):
             # Remove from old cluster if any (handles force reprocessing)
             self.repository.remove_detection_from_cluster(did, delete_empty_cluster=True)
             # Calculate confidence from distance (closer = higher confidence)
-            confidence = max(0.0, min(1.0, 1.0 - dist))
+            confidence = float(max(0.0, min(1.0, 1.0 - dist)))
             # Only assign if detection is still unassigned (prevents race conditions)
             assigned = self.repository.update_detection_cluster(
                 detection_id=did,

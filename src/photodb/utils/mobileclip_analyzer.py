@@ -103,12 +103,14 @@ class MobileCLIPAnalyzer:
     def device(self) -> str:
         """Get the device being used."""
         self._ensure_loaded()
+        assert self._device is not None  # Guaranteed by _ensure_loaded
         return self._device
 
     @property
     def model_name(self) -> str:
         """Get the model name being used."""
         self._ensure_loaded()
+        assert _model_name is not None  # Guaranteed by _ensure_loaded
         return _model_name
 
     def encode_image(self, image_path: Union[str, Path]) -> torch.Tensor:
@@ -122,9 +124,10 @@ class MobileCLIPAnalyzer:
             Normalized embedding tensor of shape (1, 512).
         """
         self._ensure_loaded()
+        assert self._preprocess is not None and self._model is not None
 
         image = Image.open(image_path).convert("RGB")
-        image_tensor = self._preprocess(image).unsqueeze(0).to(self._device)
+        image_tensor = self._preprocess(image).unsqueeze(0).to(self._device)  # type: ignore[union-attr]
 
         with torch.no_grad():
             embedding = self._model.encode_image(image_tensor)
@@ -146,11 +149,12 @@ class MobileCLIPAnalyzer:
             Normalized embedding tensor of shape (1, 512).
         """
         self._ensure_loaded()
+        assert self._preprocess is not None and self._model is not None
 
         if face_image.mode != "RGB":
             face_image = face_image.convert("RGB")
 
-        image_tensor = self._preprocess(face_image).unsqueeze(0).to(self._device)
+        image_tensor = self._preprocess(face_image).unsqueeze(0).to(self._device)  # type: ignore[union-attr]
 
         with torch.no_grad():
             embedding = self._model.encode_image(image_tensor)
@@ -202,6 +206,8 @@ class MobileCLIPAnalyzer:
             return torch.empty(0, self.EMBEDDING_DIM)
 
         self._ensure_loaded()
+        assert self._preprocess is not None and self._model is not None
+
         image = Image.open(image_path).convert("RGB")
 
         face_tensors = []
@@ -211,7 +217,7 @@ class MobileCLIPAnalyzer:
             x2 = min(image.width, int(bbox["x2"]))
             y2 = min(image.height, int(bbox["y2"]))
             face_crop = image.crop((x1, y1, x2, y2))
-            face_tensors.append(self._preprocess(face_crop))
+            face_tensors.append(self._preprocess(face_crop))  # type: ignore[misc]
 
         batch = torch.stack(face_tensors).to(self._device)
 
@@ -232,6 +238,7 @@ class MobileCLIPAnalyzer:
             Normalized embedding tensor of shape (1, 512).
         """
         self._ensure_loaded()
+        assert self._tokenizer is not None and self._model is not None
 
         tokens = self._tokenizer([text]).to(self._device)
 
@@ -255,6 +262,7 @@ class MobileCLIPAnalyzer:
             return torch.empty(0, self.EMBEDDING_DIM)
 
         self._ensure_loaded()
+        assert self._tokenizer is not None and self._model is not None
 
         tokens = self._tokenizer(texts).to(self._device)
 

@@ -22,6 +22,12 @@ class MetadataStage(BaseStage):
         Returns:
             bool: True if processing was successful, False otherwise
         """
+        if photo.id is None:
+            logger.error(f"Photo {file_path} has no ID")
+            return False
+
+        photo_id = photo.id  # Capture for type narrowing
+
         logger.info(f"Extracting metadata from: {file_path}")
 
         try:
@@ -43,7 +49,7 @@ class MetadataStage(BaseStage):
 
             # Create metadata record
             metadata = Metadata(
-                photo_id=photo.id,
+                photo_id=photo_id,
                 captured_at=captured_at or self._infer_date_from_filename(photo.filename),
                 latitude=gps_coords[0] if gps_coords else None,
                 longitude=gps_coords[1] if gps_coords else None,
@@ -52,15 +58,15 @@ class MetadataStage(BaseStage):
             )
 
             # Check if metadata exists (for updates)
-            existing_metadata = self.repository.get_metadata(photo.id)
+            existing_metadata = self.repository.get_metadata(photo_id)
             if existing_metadata:
-                logger.debug(f"Metadata already exists for {photo.id}, updating")
+                logger.debug(f"Metadata already exists for {photo_id}, updating")
                 self._update_metadata(metadata)
             else:
                 self.repository.create_metadata(metadata)
 
             logger.info(f"Successfully extracted metadata for {file_path}")
-            logger.debug(f"Metadata extracted for {photo.id}")
+            logger.debug(f"Metadata extracted for {photo_id}")
             return True
 
         except Exception as e:

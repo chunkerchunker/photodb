@@ -6,15 +6,16 @@ from typing import Optional
 import os
 from dotenv import load_dotenv
 
-from .database.connection import ConnectionPool
-from .database.repository import PhotoRepository
-from .processors import BatchProcessor
-from .async_batch_monitor import AsyncBatchMonitor
-from .stages.enrich import EnrichStage
-from .utils.logging import setup_logging
-from .utils.batch import wait_for_batch_completion
-
+# Load .env BEFORE importing modules that read environment variables at module level
 load_dotenv(os.getenv("ENV_FILE", "./.env"))
+
+from .database.connection import ConnectionPool  # noqa: E402
+from .database.repository import PhotoRepository  # noqa: E402
+from .processors import BatchProcessor  # noqa: E402
+from .async_batch_monitor import AsyncBatchMonitor  # noqa: E402
+from .stages.enrich import EnrichStage  # noqa: E402
+from .utils.logging import setup_logging  # noqa: E402
+from .utils.batch import wait_for_batch_completion  # noqa: E402
 
 
 @click.command()

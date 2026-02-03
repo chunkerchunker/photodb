@@ -27,6 +27,8 @@ dependencies = [
     "pyobjc-framework-Vision>=10.0; sys_platform == 'darwin'",
     "pyobjc-framework-Quartz>=10.0; sys_platform == 'darwin'",
     "open-clip-torch>=2.24.0",
+    "ruff>=0.14.14",
+    "pyright>=1.1.408",
 ]
 
 [project.optional-dependencies]

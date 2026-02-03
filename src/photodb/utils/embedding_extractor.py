@@ -145,7 +145,7 @@ class EmbeddingExtractor:
 
         # Load the ArcFace model directly using model_zoo
         self.model = get_model(model_path, providers=self.providers)
-        self.model.prepare(ctx_id=0)
+        self.model.prepare(ctx_id=0)  # type: ignore[union-attr]
 
     def extract(
         self,
@@ -198,14 +198,14 @@ class EmbeddingExtractor:
             face_img = cv2.resize(bgr_array, self.INPUT_SIZE)
 
             # Extract embedding using get_feat (expects list of images)
-            embeddings = self.model.get_feat([face_img])
+            embeddings = self.model.get_feat([face_img])  # type: ignore[union-attr]
 
-            if embeddings is None or len(embeddings) == 0:
+            if embeddings is None or len(embeddings) == 0:  # type: ignore[arg-type]
                 logger.debug("Failed to extract embedding from crop")
                 return None
 
             # Return embedding as list of floats
-            embedding = embeddings[0]
+            embedding = embeddings[0]  # type: ignore[index]
             return [float(x) for x in embedding]
 
         except Exception as e:
@@ -232,14 +232,14 @@ class EmbeddingExtractor:
                 aligned_face = cv2.resize(aligned_face, self.INPUT_SIZE)
 
             # Extract embedding using get_feat (expects list of images)
-            embeddings = self.model.get_feat([aligned_face])
+            embeddings = self.model.get_feat([aligned_face])  # type: ignore[union-attr]
 
-            if embeddings is None or len(embeddings) == 0:
+            if embeddings is None or len(embeddings) == 0:  # type: ignore[arg-type]
                 logger.debug("Failed to extract embedding from aligned face")
                 return None
 
             # Return embedding as list of floats
-            embedding = embeddings[0]
+            embedding = embeddings[0]  # type: ignore[index]
             return [float(x) for x in embedding]
 
         except Exception as e:

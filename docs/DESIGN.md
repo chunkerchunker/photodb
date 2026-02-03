@@ -60,6 +60,7 @@ uv run process-local /path/to/photos --stage metadata
 uv run process-local /path/to/photos --stage detection
 uv run process-local /path/to/photos --stage age_gender
 uv run process-local /path/to/photos --stage clustering
+uv run process-local /path/to/photos --stage scene_analysis
 
 # Force reprocessing
 uv run process-local /path/to/photos --force
@@ -128,6 +129,7 @@ uv run photodb-maintenance daily --json
 Converts images to standardized PNG format with proper orientation.
 
 **Process**:
+
 1. Read image (supports HEIC, JPEG, PNG, WebP, TIFF, BMP, GIF)
 2. Apply EXIF orientation correction
 3. Resize if `RESIZE_SCALE` configured
@@ -135,6 +137,7 @@ Converts images to standardized PNG format with proper orientation.
 5. Store dimensions in database
 
 **Key features**:
+
 - HEIC/HEIF support via `pillow-heif`
 - Decompression bomb protection (max 179M pixels)
 - Color mode conversion (RGBA/P → RGB with white background)
@@ -149,6 +152,7 @@ Converts images to standardized PNG format with proper orientation.
 Extracts EXIF/TIFF/IFD metadata from original images.
 
 **Process**:
+
 1. Extract EXIF using piexif (primary) or PIL (fallback)
 2. Parse datetime from DateTimeOriginal/DateTimeDigitized/DateTime
 3. Convert GPS coordinates to decimal degrees
@@ -156,6 +160,7 @@ Extracts EXIF/TIFF/IFD metadata from original images.
 5. Store in `metadata` table with JSONB `extra` column
 
 **Key features**:
+
 - IFDRational → float conversion
 - Filename-based date inference as fallback
 - Null byte stripping (PostgreSQL compatibility)
@@ -170,6 +175,7 @@ Extracts EXIF/TIFF/IFD metadata from original images.
 Detects faces and bodies using YOLOv8x, extracts face embeddings for clustering.
 
 **Process**:
+
 1. Load normalized image
 2. Run YOLOv8x person_face model (detects both faces and bodies)
 3. Match faces to bodies based on spatial containment
@@ -179,6 +185,7 @@ Detects faces and bodies using YOLOv8x, extracts face embeddings for clustering.
 7. Save face embeddings in pgvector format
 
 **Key features**:
+
 - YOLOv8x person_face model for unified face+body detection
 - Face-to-body matching via spatial containment algorithm
 - PyTorch with auto device detection (MPS/CUDA/CPU)
@@ -195,6 +202,7 @@ Detects faces and bodies using YOLOv8x, extracts face embeddings for clustering.
 Estimates age and gender using MiVOLO model on existing detections.
 
 **Process**:
+
 1. Load existing person_detection records for photo
 2. For each detection with face or body bbox:
    - Run MiVOLO prediction with available bboxes
@@ -203,6 +211,7 @@ Estimates age and gender using MiVOLO model on existing detections.
 4. Store full MiVOLO output in mivolo_output JSONB field
 
 **Key features**:
+
 - MiVOLO d1 model (pth.tar format, face+body)
 - Uses both face and body bboxes for improved accuracy
 - Graceful degradation if MiVOLO not installed
@@ -248,11 +257,13 @@ When a cluster grows by `MEDOID_RECOMPUTE_THRESHOLD` (default 25%) since last me
 - Empty clusters automatically deleted when all faces reassigned
 
 **Constraint System**:
+
 - **Must-link**: Forces faces into same cluster (human override)
 - **Cannot-link**: Prevents faces from sharing cluster (human override)
 - **Verified clusters**: Protected from auto-merge, use stricter assignment threshold
 
 **Configuration**:
+
 - `CLUSTERING_THRESHOLD`: Cosine distance threshold for assigning to existing clusters (default: 0.45)
 - `POOL_CLUSTERING_THRESHOLD`: Stricter threshold for forming clusters from unassigned pool (default: 70% of CLUSTERING_THRESHOLD)
 - `CLUSTERING_K_NEIGHBORS`: K nearest neighbors to check (default: 5)
@@ -261,6 +272,7 @@ When a cluster grows by `MEDOID_RECOMPUTE_THRESHOLD` (default 25%) since last me
 - `MEDOID_RECOMPUTE_THRESHOLD`: Growth ratio to trigger inline medoid recomputation (default: 0.25)
 
 **Centroid update formula** (incremental, during assignment):
+
 ```
 new_centroid = (old_centroid * face_count + embedding) / (face_count + 1)
 ```
@@ -276,6 +288,7 @@ All embeddings and centroids are L2-normalized to unit vectors for cosine simila
 LLM-based semantic analysis of photos.
 
 **Process**:
+
 1. Load system prompt from `prompts/system_prompt.md`
 2. Build message with base64-encoded image + EXIF context
 3. Submit to LLM (single or batch mode)
@@ -283,6 +296,7 @@ LLM-based semantic analysis of photos.
 5. Store analysis in `llm_analysis` table
 
 **Supported providers**:
+
 - **Anthropic**: instructor.from_anthropic + Batch API
 - **AWS Bedrock**: Native batch inference API via S3
 
@@ -442,6 +456,7 @@ export LLM_MODEL=claude-3-5-sonnet-20241022  # optional
 ```
 
 **Features**:
+
 - Single photo: Synchronous instructor call
 - Batch: instructor.batch.BatchProcessor with Anthropic Batch API
 - 50% cost discount with batch processing
@@ -458,6 +473,7 @@ export BEDROCK_BATCH_ROLE_ARN=arn:aws:iam::ACCOUNT:role/BedrockBatchRole
 ```
 
 **Features**:
+
 - Single photo: boto3 bedrock-runtime InvokeModel
 - Batch: S3-based input/output with batch inference jobs
 - Requires IAM role with S3 access for Bedrock service
@@ -660,6 +676,7 @@ Download required models for detection and age/gender estimation:
 ```
 
 This downloads:
+
 - `yolov8x_person_face.pt` (137 MB) - YOLO face+body detector
 - `mivolo_d1.pth.tar` (~330 MB) - MiVOLO age/gender model (face+body)
 

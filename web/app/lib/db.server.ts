@@ -452,6 +452,48 @@ export async function getHiddenClustersCount() {
   return parseInt(result.rows[0].count, 10);
 }
 
+export async function getNamedClusters(limit = 50, offset = 0, sort: "photos" | "name" = "name") {
+  await initDatabase();
+
+  const orderBy =
+    sort === "photos"
+      ? "c.face_count DESC, per.first_name, per.last_name, c.id"
+      : "per.first_name, per.last_name, c.id";
+
+  const query = `
+    SELECT c.id, c.face_count, c.representative_detection_id,
+           pd.face_bbox_x as bbox_x, pd.face_bbox_y as bbox_y,
+           pd.face_bbox_width as bbox_width, pd.face_bbox_height as bbox_height,
+           p.id as photo_id, p.normalized_path, p.filename,
+           p.normalized_width, p.normalized_height,
+           TRIM(CONCAT(per.first_name, ' ', COALESCE(per.last_name, ''))) as person_name
+    FROM cluster c
+    INNER JOIN person per ON c.person_id = per.id
+    LEFT JOIN person_detection pd ON c.representative_detection_id = pd.id
+    LEFT JOIN photo p ON pd.photo_id = p.id
+    WHERE c.face_count > 0 AND (c.hidden = false OR c.hidden IS NULL)
+    ORDER BY ${orderBy}
+    LIMIT $1 OFFSET $2
+  `;
+
+  const result = await pool.query(query, [limit, offset]);
+  return result.rows;
+}
+
+export async function getNamedClustersCount() {
+  await initDatabase();
+
+  const query = `
+    SELECT COUNT(*) as count
+    FROM cluster c
+    INNER JOIN person per ON c.person_id = per.id
+    WHERE c.face_count > 0 AND (c.hidden = false OR c.hidden IS NULL)
+  `;
+
+  const result = await pool.query(query);
+  return parseInt(result.rows[0].count, 10);
+}
+
 export async function setClusterHidden(clusterId: string, hidden: boolean) {
   await initDatabase();
 
@@ -1003,7 +1045,8 @@ export async function getFaceDetails(detectionId: number) {
            TRIM(CONCAT(per.first_name, ' ', COALESCE(per.last_name, ''))) as person_name
     FROM person_detection pd
     JOIN photo p ON pd.photo_id = p.id
-    LEFT JOIN person per ON pd.person_id = per.id
+    LEFT JOIN cluster c ON pd.cluster_id = c.id
+    LEFT JOIN person per ON c.person_id = per.id
     WHERE pd.id = $1
   `;
 

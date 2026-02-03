@@ -100,6 +100,8 @@ interface FaceOverlayProps {
   displayWidth: number;
   displayHeight: number;
   hoveredFaceId: string | null;
+  onFaceHover: (faceId: string | null) => void;
+  onFaceClick: (face: Face, event: React.MouseEvent) => void;
 }
 
 function FaceOverlay({
@@ -109,6 +111,8 @@ function FaceOverlay({
   displayWidth,
   displayHeight,
   hoveredFaceId,
+  onFaceHover,
+  onFaceClick,
 }: FaceOverlayProps) {
   // Calculate scaling factors based on displayed vs original dimensions
   const scaleX = displayWidth / originalWidth;
@@ -137,7 +141,7 @@ function FaceOverlay({
           <div
             key={face.id}
             className={cn(
-              "absolute border-2 transition-all duration-200",
+              "absolute border-2 transition-all duration-200 pointer-events-auto cursor-pointer",
               isHovered ? "border-blue-500 shadow-lg shadow-blue-500/50 z-20" : "border-red-500",
             )}
             style={{
@@ -146,6 +150,9 @@ function FaceOverlay({
               width: `${width}px`,
               height: `${height}px`,
             }}
+            onMouseEnter={() => onFaceHover(face.id)}
+            onMouseLeave={() => onFaceHover(null)}
+            onClick={(e) => onFaceClick(face, e)}
           >
             <div
               className={cn(
@@ -311,6 +318,15 @@ export default function PhotoDetail({ loaderData }: Route.ComponentProps) {
                     displayWidth={imageMeasures.width}
                     displayHeight={imageMeasures.height}
                     hoveredFaceId={hoveredFaceId}
+                    onFaceHover={setHoveredFaceId}
+                    onFaceClick={(face, event) => {
+                      const url = face.cluster_id ? `/cluster/${face.cluster_id}` : `/face/${face.id}/similar`;
+                      if (event.metaKey || event.ctrlKey) {
+                        window.open(url, "_blank");
+                      } else {
+                        navigate(url);
+                      }
+                    }}
                   />
                 )}
             </div>
@@ -454,11 +470,12 @@ export default function PhotoDetail({ loaderData }: Route.ComponentProps) {
                         <div className="space-y-2">
                           <h6 className="font-medium">Face Details:</h6>
                           {photo.faces.map((face: Face, index: number) => {
-                            const handleFaceClick = () => {
-                              if (face.cluster_id) {
-                                navigate(`/cluster/${face.cluster_id}`);
+                            const handleFaceClick = (event: React.MouseEvent | React.KeyboardEvent) => {
+                              const url = face.cluster_id ? `/cluster/${face.cluster_id}` : `/face/${face.id}/similar`;
+                              if (event.metaKey || event.ctrlKey) {
+                                window.open(url, "_blank");
                               } else {
-                                navigate(`/face/${face.id}/similar`);
+                                navigate(url);
                               }
                             };
 
@@ -477,7 +494,7 @@ export default function PhotoDetail({ loaderData }: Route.ComponentProps) {
                                 onClick={handleFaceClick}
                                 onKeyDown={(e) => {
                                   if (e.key === "Enter" || e.key === " ") {
-                                    handleFaceClick();
+                                    handleFaceClick(e);
                                   }
                                 }}
                                 onMouseEnter={() => setHoveredFaceId(face.id)}

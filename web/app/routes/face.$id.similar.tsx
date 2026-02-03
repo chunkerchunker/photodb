@@ -1,4 +1,4 @@
-import { Calendar, Check, FolderPlus, Plus, Search, User, Users, XCircle } from "lucide-react";
+import { Calendar, Check, FolderPlus, Plus, Search, User, UserPlus, Users, XCircle } from "lucide-react";
 import { useCallback, useEffect, useState } from "react";
 import { Link, redirect, useFetcher, useNavigate } from "react-router";
 import { Breadcrumb } from "~/components/breadcrumb";
@@ -352,7 +352,7 @@ export default function SimilarFacesPage({ loaderData }: Route.ComponentProps) {
                 </Link>
               </div>
               <div>
-                <h2 className="font-medium">Source Face</h2>
+                <h2 className="font-medium">{face.person_name || "Source Face"}</h2>
                 <p className="text-sm text-gray-500">
                   From{" "}
                   <Link to={`/photo/${face.photo_id}`} className="text-blue-600 hover:underline">
@@ -403,13 +403,24 @@ export default function SimilarFacesPage({ loaderData }: Route.ComponentProps) {
                   )}
                 </>
               )}
-              <Dialog open={addToClusterModalOpen} onOpenChange={setAddToClusterModalOpen}>
-                <DialogTrigger asChild>
-                  <Button variant="outline" size="sm" disabled={isSubmitting}>
-                    <FolderPlus className="h-4 w-4 mr-1" />
-                    Add to Cluster ({selectedFaces.length + 1})
-                  </Button>
-                </DialogTrigger>
+              {face.cluster_id && (
+                <Button
+                  size="sm"
+                  disabled={selectedFaces.length === 0 || isSubmitting}
+                  onClick={() => handleAddToCluster(face.cluster_id)}
+                >
+                  <UserPlus className="h-4 w-4 mr-1" />
+                  Add to {face.person_name || `Cluster ${face.cluster_id}`} ({selectedFaces.length})
+                </Button>
+              )}
+              {!face.cluster_id && (
+                <Dialog open={addToClusterModalOpen} onOpenChange={setAddToClusterModalOpen}>
+                  <DialogTrigger asChild>
+                    <Button variant="outline" size="sm" disabled={isSubmitting}>
+                      <FolderPlus className="h-4 w-4 mr-1" />
+                      Add to Cluster ({selectedFaces.length + 1})
+                    </Button>
+                  </DialogTrigger>
                 <DialogContent className="max-w-lg">
                   <DialogHeader>
                     <DialogTitle>Add to existing cluster</DialogTitle>
@@ -484,10 +495,13 @@ export default function SimilarFacesPage({ loaderData }: Route.ComponentProps) {
                   </div>
                 </DialogContent>
               </Dialog>
-              <Button onClick={handleCreateCluster} disabled={selectedFaces.length === 0 || isSubmitting} size="sm">
-                <Plus className="h-4 w-4 mr-1" />
-                {isSubmitting ? "Creating..." : `Create Cluster (${selectedFaces.length + 1})`}
-              </Button>
+              )}
+              {!face.cluster_id && (
+                <Button onClick={handleCreateCluster} disabled={selectedFaces.length === 0 || isSubmitting} size="sm">
+                  <Plus className="h-4 w-4 mr-1" />
+                  {isSubmitting ? "Creating..." : `Create Cluster (${selectedFaces.length + 1})`}
+                </Button>
+              )}
             </div>
           </div>
           {fetcher.data?.message && (

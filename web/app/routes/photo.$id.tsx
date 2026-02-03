@@ -14,6 +14,7 @@ import {
   User,
   Users,
 } from "lucide-react";
+import { displaySettings } from "~/lib/settings";
 
 // Helper to format gender display
 function formatGender(gender?: string): string | null {
@@ -548,10 +549,12 @@ export default function PhotoDetail({ loaderData }: Route.ComponentProps) {
                                       </div>
                                     )}
                                   </div>
-                                  {/* Face tags (expression, emotion, gaze) */}
-                                  {face.tags && face.tags.filter((t: SceneTag) => t.confidence > 0.7).length > 0 && (
+                                  {/* Face tags (expression, emotion, gaze) - only show if face detection confidence is high enough */}
+                                  {face.tags &&
+                                    face.confidence >= displaySettings.minFaceConfidenceForTags &&
+                                    face.tags.filter((t: SceneTag) => t.confidence > displaySettings.minTagConfidence).length > 0 && (
                                     <div className="flex flex-wrap gap-1 mt-1">
-                                      {face.tags.filter((t: SceneTag) => t.confidence > 0.7).map((tag: SceneTag, tagIndex: number) => (
+                                      {face.tags.filter((t: SceneTag) => t.confidence > displaySettings.minTagConfidence).map((tag: SceneTag, tagIndex: number) => (
                                         <Badge
                                           // biome-ignore lint/suspicious/noArrayIndexKey: index is fine
                                           key={tagIndex}
@@ -614,8 +617,8 @@ export default function PhotoDetail({ loaderData }: Route.ComponentProps) {
             )}
 
             {/* Scene & Face Tags */}
-            {(photo.scene_tags?.some((t: SceneTag) => t.confidence > 0.7) ||
-              photo.scene_taxonomy?.top_labels?.some((t: SceneTaxonomyLabel) => t.confidence > 0.7)) && (
+            {(photo.scene_tags?.some((t: SceneTag) => t.confidence > displaySettings.minTagConfidence) ||
+              photo.scene_taxonomy?.top_labels?.some((t: SceneTaxonomyLabel) => t.confidence > displaySettings.minTaxonomyConfidence)) && (
               <Card>
                 <Collapsible
                   open={sectionStates.sceneTags}
@@ -635,14 +638,14 @@ export default function PhotoDetail({ loaderData }: Route.ComponentProps) {
                   <CollapsibleContent>
                     <CardContent className="space-y-4">
                       {/* Apple Vision Taxonomy */}
-                      {photo.scene_taxonomy?.top_labels && photo.scene_taxonomy.top_labels.filter((t: SceneTaxonomyLabel) => t.confidence > 0.7).length > 0 && (
+                      {photo.scene_taxonomy?.top_labels && photo.scene_taxonomy.top_labels.filter((t: SceneTaxonomyLabel) => t.confidence > displaySettings.minTaxonomyConfidence).length > 0 && (
                         <div>
                           <h6 className="font-medium text-sm mb-2 flex items-center">
                             <Tag className="h-4 w-4 mr-1" />
                             Scene Classification
                           </h6>
                           <div className="flex flex-wrap gap-1">
-                            {photo.scene_taxonomy.top_labels.filter((t: SceneTaxonomyLabel) => t.confidence > 0.7).map((item: SceneTaxonomyLabel, index: number) => (
+                            {photo.scene_taxonomy.top_labels.filter((t: SceneTaxonomyLabel) => t.confidence > displaySettings.minTaxonomyConfidence).map((item: SceneTaxonomyLabel, index: number) => (
                               <Badge
                                 // biome-ignore lint/suspicious/noArrayIndexKey: label might not be unique
                                 key={index}
@@ -658,12 +661,12 @@ export default function PhotoDetail({ loaderData }: Route.ComponentProps) {
                       )}
 
                       {/* Scene Tags by Category */}
-                      {photo.scene_tags && photo.scene_tags.filter((t: SceneTag) => t.confidence > 0.7).length > 0 && (
+                      {photo.scene_tags && photo.scene_tags.filter((t: SceneTag) => t.confidence > displaySettings.minTagConfidence).length > 0 && (
                         <div className="space-y-3">
                           {/* Group tags by category */}
                           {Object.entries(
                             photo.scene_tags
-                              .filter((t: SceneTag) => t.confidence > 0.7)
+                              .filter((t: SceneTag) => t.confidence > displaySettings.minTagConfidence)
                               .reduce(
                                 (acc: Record<string, SceneTag[]>, tag: SceneTag) => {
                                   const category = tag.category_name;

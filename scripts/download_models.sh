@@ -95,19 +95,18 @@ model.export(format='coreml', nms=False, imgsz=640)
     fi
 fi
 
-echo ""
-echo "=== InsightFace Models ==="
-echo "InsightFace buffalo_l models will auto-download on first use."
-echo "Models are cached in ~/.insightface/models/buffalo_l/"
-echo ""
-echo "To pre-download, run:"
-echo "  python -c \"from insightface.app import FaceAnalysis; FaceAnalysis(name='buffalo_l').prepare(ctx_id=0)\""
-echo ""
-
-# Optional: Add explicit pre-download
-if [ "${PREDOWNLOAD_INSIGHTFACE:-false}" = "true" ]; then
-    echo "Pre-downloading InsightFace buffalo_l model..."
-    python -c "from insightface.app import FaceAnalysis; FaceAnalysis(name='buffalo_l').prepare(ctx_id=0)"
+# InsightFace buffalo_l model
+INSIGHTFACE_MODEL_DIR="$HOME/.insightface/models/buffalo_l"
+if [ ! -d "$INSIGHTFACE_MODEL_DIR" ] || [ -z "$(ls -A "$INSIGHTFACE_MODEL_DIR" 2>/dev/null)" ]; then
+    echo ""
+    echo "Downloading InsightFace buffalo_l model..."
+    if command -v uv &> /dev/null; then
+        uv run python -c "from insightface.app import FaceAnalysis; FaceAnalysis(name='buffalo_l').prepare(ctx_id=0)"
+    else
+        python -c "from insightface.app import FaceAnalysis; FaceAnalysis(name='buffalo_l').prepare(ctx_id=0)"
+    fi
+else
+    echo "InsightFace buffalo_l model already exists, skipping..."
 fi
 
 echo ""

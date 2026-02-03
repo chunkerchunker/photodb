@@ -27,6 +27,7 @@ app/
 ├── lib/
 │   ├── db.server.ts      # Database queries and connection pool
 │   ├── images.server.ts  # Image serving and metadata utilities
+│   ├── settings.ts       # Display settings (confidence thresholds, etc.)
 │   └── utils.ts          # Utility functions (cn, etc.)
 ├── routes/
 │   ├── home.tsx          # Home page - years grid view
@@ -167,6 +168,24 @@ The application automatically:
 - Creates PostgreSQL connection pool with optimized settings
 - Initializes database schema if tables don't exist
 - Uses the same database as the Python processing pipeline
+
+### Display Settings
+
+UI display settings are configured in `app/lib/settings.ts`:
+
+```typescript
+export const displaySettings = {
+  minTagConfidence: 0.7,           // Tags must have >70% confidence to display
+  minFaceConfidenceForTags: 0.5,   // Face detection must be ≥50% to show face tags
+  minTaxonomyConfidence: 0.7,      // Apple Vision labels must have >70% confidence
+};
+```
+
+These settings control:
+
+- **Tag Filtering**: Scene and face tags below `minTagConfidence` are hidden
+- **Face Tag Visibility**: Face tags are hidden when face detection confidence is below `minFaceConfidenceForTags`
+- **Taxonomy Filtering**: Apple Vision scene classification labels below `minTaxonomyConfidence` are hidden
 
 ### TypeScript Configuration
 

@@ -1094,35 +1094,50 @@ export async function getSimilarFaces(detectionId: number, limit = 12, similarit
   // Convert similarity threshold to distance threshold (cosine distance = 1 - similarity)
   const distanceThreshold = 1 - similarityThreshold;
 
+  // Overfetch to ensure enough results after threshold filtering.
+  // Vector indexes (IVFFlat/HNSW) can only optimize ORDER BY + LIMIT, not WHERE distance < X.
+  // By moving the distance filter to the outer query, we fetch candidates using the index first.
+  const overfetchLimit = limit * 5;
+
   const query = `
     WITH target_embedding AS (
       SELECT embedding FROM face_embedding WHERE person_detection_id = $1
     ),
     target_detection AS (
       SELECT photo_id FROM person_detection WHERE id = $1
+    ),
+    candidates AS (
+      SELECT pd.id, pd.face_bbox_x as bbox_x, pd.face_bbox_y as bbox_y,
+             pd.face_bbox_width as bbox_width, pd.face_bbox_height as bbox_height,
+             pd.face_confidence as confidence, pd.cluster_id, pd.cluster_status, pd.cluster_confidence,
+             pd.age_estimate, pd.gender, pd.gender_confidence,
+             p.id as photo_id, p.normalized_path, p.normalized_width, p.normalized_height,
+             c.face_count as cluster_face_count,
+             TRIM(CONCAT(per.first_name, ' ', COALESCE(per.last_name, ''))) as person_name,
+             fe.embedding <=> te.embedding as distance
+      FROM face_embedding fe
+      CROSS JOIN target_embedding te
+      JOIN person_detection pd ON fe.person_detection_id = pd.id
+      JOIN photo p ON pd.photo_id = p.id
+      LEFT JOIN cluster c ON pd.cluster_id = c.id
+      LEFT JOIN person per ON c.person_id = per.id
+      WHERE fe.person_detection_id != $1
+        AND pd.photo_id != (SELECT photo_id FROM target_detection)
+      ORDER BY fe.embedding <=> te.embedding ASC
+      LIMIT $3
     )
-    SELECT pd.id, pd.face_bbox_x as bbox_x, pd.face_bbox_y as bbox_y,
-           pd.face_bbox_width as bbox_width, pd.face_bbox_height as bbox_height,
-           pd.face_confidence as confidence, pd.cluster_id, pd.cluster_status, pd.cluster_confidence,
-           pd.age_estimate, pd.gender, pd.gender_confidence,
-           p.id as photo_id, p.normalized_path, p.normalized_width, p.normalized_height,
-           c.face_count as cluster_face_count,
-           TRIM(CONCAT(per.first_name, ' ', COALESCE(per.last_name, ''))) as person_name,
-           1 - (fe.embedding <=> te.embedding) as similarity
-    FROM face_embedding fe
-    CROSS JOIN target_embedding te
-    JOIN person_detection pd ON fe.person_detection_id = pd.id
-    JOIN photo p ON pd.photo_id = p.id
-    LEFT JOIN cluster c ON pd.cluster_id = c.id
-    LEFT JOIN person per ON c.person_id = per.id
-    WHERE fe.person_detection_id != $1
-      AND pd.photo_id != (SELECT photo_id FROM target_detection)
-      AND (fe.embedding <=> te.embedding) < $2
-    ORDER BY (fe.embedding <=> te.embedding) ASC
-    LIMIT $3
+    SELECT id, bbox_x, bbox_y, bbox_width, bbox_height, confidence,
+           cluster_id, cluster_status, cluster_confidence,
+           age_estimate, gender, gender_confidence,
+           photo_id, normalized_path, normalized_width, normalized_height,
+           cluster_face_count, person_name,
+           1 - distance as similarity
+    FROM candidates
+    WHERE distance < $2
+    LIMIT $4
   `;
 
-  const result = await pool.query(query, [detectionId, distanceThreshold, limit]);
+  const result = await pool.query(query, [detectionId, distanceThreshold, overfetchLimit, limit]);
   return result.rows;
 }
 

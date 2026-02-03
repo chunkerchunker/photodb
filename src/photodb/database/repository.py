@@ -1669,20 +1669,32 @@ class PhotoRepository:
 
         Excludes detections with faces smaller than MIN_FACE_SIZE_PX pixels.
         Excludes detections with confidence below MIN_FACE_CONFIDENCE.
+
+        Note: The query uses a subquery structure to allow the IVFFlat index to be
+        used efficiently. Vector indexes (IVFFlat/HNSW) can only optimize
+        ORDER BY + LIMIT, not WHERE distance < X. By moving the distance filter
+        to the outer query, we fetch candidates using the index first, then filter.
+        The inner LIMIT is 5x the requested limit to ensure enough candidates
+        after threshold filtering.
         """
+        # Overfetch factor to ensure enough results after threshold filtering
+        overfetch_limit = limit * 5
         with self.pool.get_connection() as conn:
             with conn.cursor(row_factory=dict_row) as cursor:
                 cursor.execute(
-                    """SELECT pd.id, fe.embedding <=> %s AS distance
-                       FROM person_detection pd
-                       JOIN face_embedding fe ON pd.id = fe.person_detection_id
-                       WHERE pd.cluster_id IS NULL
-                         AND pd.cluster_status = 'unassigned'
-                         AND pd.face_confidence >= %s
-                         AND pd.face_bbox_width >= %s
-                         AND pd.face_bbox_height >= %s
-                         AND fe.embedding <=> %s < %s
-                       ORDER BY fe.embedding <=> %s
+                    """SELECT id, distance FROM (
+                           SELECT pd.id, fe.embedding <=> %s AS distance
+                           FROM person_detection pd
+                           JOIN face_embedding fe ON pd.id = fe.person_detection_id
+                           WHERE pd.cluster_id IS NULL
+                             AND pd.cluster_status = 'unassigned'
+                             AND pd.face_confidence >= %s
+                             AND pd.face_bbox_width >= %s
+                             AND pd.face_bbox_height >= %s
+                           ORDER BY fe.embedding <=> %s
+                           LIMIT %s
+                       ) sub
+                       WHERE distance < %s
                        LIMIT %s""",
                     (
                         embedding,
@@ -1690,8 +1702,8 @@ class PhotoRepository:
                         MIN_FACE_SIZE_PX,
                         MIN_FACE_SIZE_PX,
                         embedding,
+                        overfetch_limit,
                         threshold,
-                        embedding,
                         limit,
                     ),
                 )

@@ -327,6 +327,9 @@ export default function SimilarFacesPage({ loaderData }: Route.ComponentProps) {
                   </Link>
                 </p>
                 <p className="text-xs text-gray-400 mt-1">Threshold: {Math.round(threshold * 100)}%</p>
+                <p className="text-xs text-gray-400">
+                  Face size: {Math.round(face.bbox_width)}×{Math.round(face.bbox_height)}px
+                </p>
               </div>
             </div>
           </CardContent>
@@ -515,6 +518,9 @@ export default function SimilarFacesPage({ loaderData }: Route.ComponentProps) {
                       <div className="space-y-1">
                         <div className="text-lg font-medium text-gray-900">
                           {Math.round(similarFace.similarity * 100)}%
+                        </div>
+                        <div className="text-xs text-gray-400">
+                          {Math.round(similarFace.bbox_width)}×{Math.round(similarFace.bbox_height)}px
                         </div>
                         {isClustered ? (
                           <Link to={`/cluster/${similarFace.cluster_id}`} onClick={(e) => e.stopPropagation()}>

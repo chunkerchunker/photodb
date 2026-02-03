@@ -656,47 +656,6 @@ class PhotoRepository:
 
     # Clustering methods
 
-    def get_unclustered_faces_for_photo(self, photo_id: int) -> List[Dict[str, Any]]:
-        """Get all unclustered faces for a photo with embeddings.
-
-        Excludes faces smaller than MIN_FACE_SIZE_PX pixels in either dimension.
-        Excludes faces with detection confidence below MIN_FACE_CONFIDENCE.
-        """
-        with self.pool.get_connection() as conn:
-            with conn.cursor(row_factory=dict_row) as cursor:
-                cursor.execute(
-                    """SELECT f.*, fe.embedding
-                       FROM face f
-                       LEFT JOIN face_embedding fe ON f.id = fe.face_id
-                       JOIN photo p ON f.photo_id = p.id
-                       WHERE f.photo_id = %s
-                         AND f.cluster_id IS NULL
-                         AND f.cluster_status IS NULL
-                         AND f.confidence >= %s
-                         AND (f.bbox_width * COALESCE(p.normalized_width, p.width, 1)) >= %s
-                         AND (f.bbox_height * COALESCE(p.normalized_height, p.height, 1)) >= %s
-                       ORDER BY f.id""",
-                    (photo_id, MIN_FACE_CONFIDENCE, MIN_FACE_SIZE_PX, MIN_FACE_SIZE_PX),
-                )
-                rows = cursor.fetchall()
-                return [dict(row) for row in rows]
-
-    def get_all_faces_with_embeddings_for_photo(self, photo_id: int) -> List[Dict[str, Any]]:
-        """Get all faces with embeddings for a photo (for force reprocessing)."""
-        with self.pool.get_connection() as conn:
-            with conn.cursor(row_factory=dict_row) as cursor:
-                cursor.execute(
-                    """SELECT f.*, fe.embedding
-                       FROM face f
-                       LEFT JOIN face_embedding fe ON f.id = fe.face_id
-                       WHERE f.photo_id = %s 
-                         AND fe.embedding IS NOT NULL
-                       ORDER BY f.id""",
-                    (photo_id,),
-                )
-                rows = cursor.fetchall()
-                return [dict(row) for row in rows]
-
     def find_nearest_clusters(self, embedding, limit: int = 10) -> List[tuple]:
         """Find nearest clusters using cosine distance."""
         with self.pool.get_connection() as conn:
@@ -1190,42 +1149,6 @@ class PhotoRepository:
                     (cluster_id_1, cluster_id_2),
                 )
                 return cursor.fetchone() is not None
-
-    def find_similar_unassigned_faces(
-        self, embedding, threshold: float, limit: int
-    ) -> List[Dict[str, Any]]:
-        """Find unassigned faces similar to embedding.
-
-        Excludes faces smaller than MIN_FACE_SIZE_PX pixels in either dimension.
-        Excludes faces with detection confidence below MIN_FACE_CONFIDENCE.
-        """
-        with self.pool.get_connection() as conn:
-            with conn.cursor(row_factory=dict_row) as cursor:
-                cursor.execute(
-                    """SELECT f.id, fe.embedding <=> %s AS distance
-                       FROM face f
-                       JOIN face_embedding fe ON f.id = fe.face_id
-                       JOIN photo p ON f.photo_id = p.id
-                       WHERE f.cluster_id IS NULL
-                         AND f.cluster_status = 'unassigned'
-                         AND f.confidence >= %s
-                         AND (f.bbox_width * COALESCE(p.normalized_width, p.width, 1)) >= %s
-                         AND (f.bbox_height * COALESCE(p.normalized_height, p.height, 1)) >= %s
-                         AND fe.embedding <=> %s < %s
-                       ORDER BY fe.embedding <=> %s
-                       LIMIT %s""",
-                    (
-                        embedding,
-                        MIN_FACE_CONFIDENCE,
-                        MIN_FACE_SIZE_PX,
-                        MIN_FACE_SIZE_PX,
-                        embedding,
-                        threshold,
-                        embedding,
-                        limit,
-                    ),
-                )
-                return [dict(row) for row in cursor.fetchall()]
 
     def update_face_unassigned(self, face_id: int) -> None:
         """Mark a face as unassigned (added to outlier pool)."""

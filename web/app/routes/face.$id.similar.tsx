@@ -1,5 +1,5 @@
-import { Calendar, Check, FolderPlus, Plus, Search, User, UserPlus, Users, XCircle } from "lucide-react";
-import { useCallback, useEffect, useState } from "react";
+import { Check, FolderPlus, Plus, ScanFace, Search, UserPlus, Users, XCircle, ZoomIn } from "lucide-react";
+import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Link, redirect, useFetcher, useNavigate } from "react-router";
 import { Breadcrumb } from "~/components/breadcrumb";
 import { Layout } from "~/components/layout";
@@ -18,27 +18,7 @@ import {
 import { Input } from "~/components/ui/input";
 import { Slider } from "~/components/ui/slider";
 import { addFacesToCluster, createClusterFromFaces, getFaceDetails, getSimilarFaces } from "~/lib/db.server";
-import { cn } from "~/lib/utils";
 import type { Route } from "./+types/face.$id.similar";
-
-// Helper to format gender display
-function formatGender(gender?: string): string | null {
-  if (!gender) return null;
-  switch (gender) {
-    case "M":
-      return "M";
-    case "F":
-      return "F";
-    default:
-      return null;
-  }
-}
-
-// Helper to format age estimate
-function formatAge(age?: number): string | null {
-  if (age === undefined || age === null) return null;
-  return `~${Math.round(age)}`;
-}
 
 export function meta({ params }: Route.MetaArgs) {
   return [
@@ -108,6 +88,129 @@ function getFaceCropStyle(
     height: `${height}px`,
   };
 }
+
+// Memoized face card to prevent re-renders when other faces' selection changes
+const SimilarFaceCard = memo(function SimilarFaceCard({
+  face,
+  isSelected,
+  isClustered,
+  isPreviewVisible,
+  onToggleSelection,
+  onZoomEnter,
+  onZoomLeave,
+}: {
+  face: SimilarFace;
+  isSelected: boolean;
+  isClustered: boolean;
+  isPreviewVisible: boolean;
+  onToggleSelection: (faceId: number) => void;
+  onZoomEnter: (faceId: number) => void;
+  onZoomLeave: () => void;
+}) {
+  const faceIdNum = parseInt(face.id, 10);
+
+  return (
+    <Card
+      className={`transition-all cursor-default select-none ${
+        isClustered
+          ? "opacity-60"
+          : isSelected
+            ? "ring-2 ring-blue-500 bg-blue-50"
+            : "hover:ring-1 hover:ring-gray-300"
+      }`}
+      onClick={() => !isClustered && onToggleSelection(faceIdNum)}
+    >
+      <CardContent className="p-0 relative">
+        {isSelected && (
+          <div className="absolute -top-2 -right-2 z-10 w-5 h-5 bg-blue-500 text-white rounded-full flex items-center justify-center">
+            <Check className="h-3 w-3" />
+          </div>
+        )}
+        <div className="text-center space-y-1">
+          <div className="relative w-28 h-28 mx-auto">
+            <div className="group relative w-full h-full bg-gray-100 rounded-lg border overflow-hidden">
+              <Link
+                to={`/photo/${face.photo_id}`}
+                onClick={(e) => e.stopPropagation()}
+                className="cursor-pointer"
+              >
+                <img
+                  src={`/api/image/${face.photo_id}`}
+                  alt={`Similar face ${face.id}`}
+                  className="absolute max-w-none max-h-none"
+                  style={getFaceCropStyle(
+                    {
+                      bbox_x: face.bbox_x,
+                      bbox_y: face.bbox_y,
+                      bbox_width: face.bbox_width,
+                      bbox_height: face.bbox_height,
+                    },
+                    face.normalized_width,
+                    face.normalized_height,
+                    112,
+                  )}
+                  loading="lazy"
+                />
+              </Link>
+              {/* Zoom icon */}
+              <div
+                className="absolute top-1 right-1 z-10 w-5 h-5 bg-black/50 text-white rounded flex items-center justify-center cursor-zoom-in opacity-0 group-hover:opacity-100 transition-opacity duration-200"
+                onMouseEnter={() => onZoomEnter(faceIdNum)}
+                onMouseLeave={onZoomLeave}
+                onClick={(e) => e.stopPropagation()}
+              >
+                <ZoomIn className="h-3 w-3" />
+              </div>
+            </div>
+            {/* Preview overlay - shows full image with face aligned over card */}
+            {isPreviewVisible && (() => {
+              const thumbSize = 112;
+              const faceScale = thumbSize / face.bbox_width;
+              const scaledW = face.normalized_width * faceScale;
+              const scaledH = face.normalized_height * faceScale;
+              const imgLeft = -face.bbox_x * faceScale;
+              const imgTop = -face.bbox_y * faceScale;
+              const originX = -imgLeft + thumbSize / 2;
+              const originY = -imgTop + thumbSize / 2;
+
+              return (
+                <img
+                  src={`/api/image/${face.photo_id}`}
+                  alt={`Face ${face.id} preview`}
+                  className="absolute z-50 max-w-none max-h-none pointer-events-none rounded-xl shadow-2xl animate-in fade-in zoom-in-95 duration-150"
+                  style={{
+                    width: `${scaledW}px`,
+                    height: `${scaledH}px`,
+                    left: `${imgLeft}px`,
+                    top: `${imgTop}px`,
+                    transformOrigin: `${originX}px ${originY}px`,
+                  }}
+                />
+              );
+            })()}
+          </div>
+
+          <div className="flex items-center justify-center gap-2 text-xs text-gray-500">
+            <span className="inline-flex items-center font-medium">
+              <ScanFace className="h-3 w-3 mr-0.5" />
+              {Math.round(face.similarity * 100)}%
+            </span>
+            {isClustered && (
+              <Link
+                to={`/cluster/${face.cluster_id}`}
+                onClick={(e) => e.stopPropagation()}
+                className="text-blue-600 hover:text-blue-800 truncate max-w-[60px]"
+                title={face.person_name || `Cluster ${face.cluster_id}`}
+              >
+                {face.person_name || `#${face.cluster_id}`}
+              </Link>
+            )}
+          </div>
+        </div>
+      </CardContent>
+    </Card>
+  );
+});
 
 export async function action({ request, params }: Route.ActionArgs) {
   const formData = await request.formData();
@@ -203,8 +306,27 @@ export default function SimilarFacesPage({ loaderData }: Route.ComponentProps) {
   const [isSearching, setIsSearching] = useState(false);
   const [sliderValue, setSliderValue] = useState(threshold);
   const [hideClustered, setHideClustered] = useState(false);
+  const [previewFaceId, setPreviewFaceId] = useState<number | null>(null);
+  const previewTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   const fetcher = useFetcher();
   const navigate = useNavigate();
+
+  // Memoized Set for O(1) selection lookup
+  const selectedFacesSet = useMemo(() => new Set(selectedFaces), [selectedFaces]);
+
+  const handleZoomMouseEnter = useCallback((faceId: number) => {
+    previewTimeoutRef.current = setTimeout(() => {
+      setPreviewFaceId(faceId);
+    }, 400);
+  }, []);
+
+  const handleZoomMouseLeave = useCallback(() => {
+    if (previewTimeoutRef.current) {
+      clearTimeout(previewTimeoutRef.current);
+      previewTimeoutRef.current = null;
+    }
+    setPreviewFaceId(null);
+  }, []);
 
   // Load hideClustered preference from localStorage
   useEffect(() => {
@@ -265,9 +387,9 @@ export default function SimilarFacesPage({ loaderData }: Route.ComponentProps) {
     }
   }, [searchQuery, addToClusterModalOpen, searchClusters]);
 
-  const toggleFaceSelection = (faceId: number) => {
+  const toggleFaceSelection = useCallback((faceId: number) => {
     setSelectedFaces((prev) => (prev.includes(faceId) ? prev.filter((id) => id !== faceId) : [...prev, faceId]));
-  };
+  }, []);
 
   const selectAll = () => {
     setSelectedFaces(unclusteredFaces.map((f: SimilarFace) => parseInt(f.id, 10)));
@@ -538,105 +660,19 @@ export default function SimilarFacesPage({ loaderData }: Route.ComponentProps) {
 
         {/* Similar faces grid */}
         {displayedFaces.length > 0 ? (
-          <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-6 gap-4">
-            {displayedFaces.map((similarFace: SimilarFace) => {
-              const faceIdNum = parseInt(similarFace.id, 10);
-              const isSelected = selectedFaces.includes(faceIdNum);
-              const isClustered = !!similarFace.cluster_id;
-
-              return (
-                <Card
-                  key={similarFace.id}
-                  className={`transition-all ${
-                    isClustered
-                      ? "opacity-60"
-                      : isSelected
-                        ? "ring-2 ring-blue-500 bg-blue-50 cursor-pointer"
-                        : "hover:ring-1 hover:ring-gray-300 cursor-pointer"
-                  }`}
-                  onClick={() => !isClustered && toggleFaceSelection(faceIdNum)}
-                >
-                  <CardContent className="p-4 relative">
-                    {isSelected && (
-                      <div className="absolute top-2 right-2 z-10 w-6 h-6 bg-blue-500 text-white rounded-full flex items-center justify-center">
-                        <Check className="h-4 w-4" />
-                      </div>
-                    )}
-                    <div className="text-center space-y-3">
-                      <div className="relative w-32 h-32 mx-auto bg-gray-100 rounded-lg border overflow-hidden">
-                        <Link
-                          to={isClustered ? `/cluster/${similarFace.cluster_id}` : `/photo/${similarFace.photo_id}`}
-                          onClick={(e) => e.stopPropagation()}
-                        >
-                          <img
-                            src={`/api/image/${similarFace.photo_id}`}
-                            alt={`Similar face ${similarFace.id}`}
-                            className="absolute max-w-none max-h-none"
-                            style={getFaceCropStyle(
-                              {
-                                bbox_x: similarFace.bbox_x,
-                                bbox_y: similarFace.bbox_y,
-                                bbox_width: similarFace.bbox_width,
-                                bbox_height: similarFace.bbox_height,
-                              },
-                              similarFace.normalized_width,
-                              similarFace.normalized_height,
-                            )}
-                            loading="lazy"
-                          />
-                        </Link>
-                      </div>
-
-                      <div className="space-y-1">
-                        <div className="text-lg font-medium text-gray-900">
-                          {Math.round(similarFace.similarity * 100)}%
-                        </div>
-                        <div className="text-xs text-gray-400">
-                          {Math.round(similarFace.bbox_width)}×{Math.round(similarFace.bbox_height)}px
-                        </div>
-                        {isClustered ? (
-                          <Link to={`/cluster/${similarFace.cluster_id}`} onClick={(e) => e.stopPropagation()}>
-                            <Badge variant="secondary" className="hover:bg-secondary/80">
-                              {similarFace.person_name || `Cluster ${similarFace.cluster_id}`}
-                            </Badge>
-                          </Link>
-                        ) : (
-                          <Badge variant="outline">Unclustered</Badge>
-                        )}
-                        {/* Age/Gender badges */}
-                        {(similarFace.age_estimate || similarFace.gender) && (
-                          <div className="flex items-center justify-center space-x-1 mt-1">
-                            {formatAge(similarFace.age_estimate) && (
-                              <Badge variant="outline" className="text-xs bg-blue-50 border-blue-200 px-1.5 py-0">
-                                <Calendar className="h-2.5 w-2.5 mr-0.5" />
-                                {formatAge(similarFace.age_estimate)}
-                              </Badge>
-                            )}
-                            {formatGender(similarFace.gender) && (
-                              <Badge
-                                variant="outline"
-                                className={cn(
-                                  "text-xs px-1.5 py-0",
-                                  similarFace.gender === "M"
-                                    ? "bg-sky-50 border-sky-200"
-                                    : similarFace.gender === "F"
-                                      ? "bg-pink-50 border-pink-200"
-                                      : "bg-gray-50 border-gray-200",
-                                )}
-                              >
-                                <User className="h-2.5 w-2.5 mr-0.5" />
-                                {formatGender(similarFace.gender)}
-                              </Badge>
-                            )}
-                          </div>
-                        )}
-                        <div className="text-xs text-gray-500">Photo #{similarFace.photo_id}</div>
-                      </div>
-                    </div>
-                  </CardContent>
-                </Card>
-              );
-            })}
+          <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6 xl:grid-cols-8 gap-4">
+            {displayedFaces.map((similarFace: SimilarFace) => (
+              <SimilarFaceCard
+                key={similarFace.id}
+                face={similarFace}
+                isSelected={selectedFacesSet.has(parseInt(similarFace.id, 10))}
+                isClustered={!!similarFace.cluster_id}
+                isPreviewVisible={previewFaceId === parseInt(similarFace.id, 10)}
+                onToggleSelection={toggleFaceSelection}
+                onZoomEnter={handleZoomMouseEnter}
+                onZoomLeave={handleZoomMouseLeave}
+              />
+            ))}
           </div>
         ) : (
           <div className="text-center py-12">

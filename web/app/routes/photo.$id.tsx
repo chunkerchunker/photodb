@@ -215,6 +215,7 @@ export default function PhotoDetail({ loaderData }: Route.ComponentProps) {
   const [showFaces, setShowFaces] = useState(false);
   const [showLowConfidenceTags, setShowLowConfidenceTags] = useState(false);
   const [hoveredFaceId, setHoveredFaceId] = useState<string | null>(null);
+  const [isToggleHovered, setIsToggleHovered] = useState(false);
   const [imageMeasures, imageMeasureRef] = useMeasure<HTMLImageElement>();
   const [sectionStates, setSectionStates] = useState({
     basicInfo: true,
@@ -305,7 +306,7 @@ export default function PhotoDetail({ loaderData }: Route.ComponentProps) {
                 />
 
                 {/* Face Overlay */}
-                {showFaces &&
+                {(showFaces || isToggleHovered || hoveredFaceId) &&
                   photo.faces &&
                   photo.faces.length > 0 &&
                   photo.image_width &&
@@ -314,7 +315,11 @@ export default function PhotoDetail({ loaderData }: Route.ComponentProps) {
                   imageMeasures.width &&
                   imageMeasures.height && (
                     <FaceOverlay
-                      faces={photo.faces}
+                      faces={
+                        showFaces || isToggleHovered
+                          ? photo.faces
+                          : photo.faces.filter((f) => f.id === hoveredFaceId)
+                      }
                       originalWidth={photo.image_width}
                       originalHeight={photo.image_height}
                       displayWidth={imageMeasures.width}
@@ -343,6 +348,8 @@ export default function PhotoDetail({ loaderData }: Route.ComponentProps) {
                     showFaces ? "text-blue-600 bg-blue-50 hover:bg-blue-100" : "text-gray-400 hover:text-gray-600",
                   )}
                   onClick={() => updateFaceState(!showFaces)}
+                  onMouseEnter={() => setIsToggleHovered(true)}
+                  onMouseLeave={() => setIsToggleHovered(false)}
                   title={showFaces ? "Hide face bounding boxes" : "Show face bounding boxes"}
                 >
                   <ScanFace className="h-5 w-5" />

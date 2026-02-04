@@ -1,4 +1,4 @@
-import { Check, FolderPlus, Plus, ScanFace, Search, UserPlus, Users, XCircle, ZoomIn } from "lucide-react";
+import { Check, FolderPlus, Plus, ScanFace, Search, Unlink, UserPlus, Users, XCircle, ZoomIn } from "lucide-react";
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Link, redirect, useFetcher, useNavigate } from "react-router";
 import { Breadcrumb } from "~/components/breadcrumb";
@@ -7,6 +7,7 @@ import { Badge } from "~/components/ui/badge";
 import { Button } from "~/components/ui/button";
 import { Card, CardContent } from "~/components/ui/card";
 import { Checkbox } from "~/components/ui/checkbox";
+import { ContextMenu, ContextMenuContent, ContextMenuItem, ContextMenuTrigger } from "~/components/ui/context-menu";
 import {
   Dialog,
   DialogContent,
@@ -17,7 +18,13 @@ import {
 } from "~/components/ui/dialog";
 import { Input } from "~/components/ui/input";
 import { Slider } from "~/components/ui/slider";
-import { addFacesToCluster, createClusterFromFaces, getFaceDetails, getSimilarFaces } from "~/lib/db.server";
+import {
+  addFacesToCluster,
+  createClusterFromFaces,
+  getFaceDetails,
+  getSimilarFaces,
+  removeFaceFromClusterWithConstraint,
+} from "~/lib/db.server";
 import type { Route } from "./+types/face.$id.similar";
 
 export function meta({ params }: Route.MetaArgs) {
@@ -98,6 +105,7 @@ const SimilarFaceCard = memo(function SimilarFaceCard({
   onToggleSelection,
   onZoomEnter,
   onZoomLeave,
+  onUnlinkFace,
 }: {
   face: SimilarFace;
   isSelected: boolean;
@@ -106,102 +114,124 @@ const SimilarFaceCard = memo(function SimilarFaceCard({
   onToggleSelection: (faceId: number) => void;
   onZoomEnter: (faceId: number) => void;
   onZoomLeave: () => void;
+  onUnlinkFace: (faceId: string) => void;
 }) {
   const faceIdNum = parseInt(face.id, 10);
+  const navigate = useNavigate();
 
   return (
-    <Card
-      className={`transition-all cursor-default select-none ${
-        isClustered ? "opacity-60" : isSelected ? "ring-2 ring-blue-500 bg-blue-50" : "hover:ring-1 hover:ring-gray-300"
-      }`}
-      onClick={() => !isClustered && onToggleSelection(faceIdNum)}
-    >
-      <CardContent className="p-0 relative">
-        {isSelected && (
-          <div className="absolute -top-2 -right-2 z-10 w-5 h-5 bg-blue-500 text-white rounded-full flex items-center justify-center">
-            <Check className="h-3 w-3" />
-          </div>
-        )}
-        <div className="text-center space-y-1">
-          <div className="relative w-28 h-28 mx-auto">
-            <div className="group relative w-full h-full bg-gray-100 rounded-lg border overflow-hidden">
-              <Link to={`/photo/${face.photo_id}`} onClick={(e) => e.stopPropagation()} className="cursor-pointer">
-                <img
-                  src={`/api/image/${face.photo_id}`}
-                  alt={`Similar face ${face.id}`}
-                  className="absolute max-w-none max-h-none"
-                  style={getFaceCropStyle(
-                    {
-                      bbox_x: face.bbox_x,
-                      bbox_y: face.bbox_y,
-                      bbox_width: face.bbox_width,
-                      bbox_height: face.bbox_height,
-                    },
-                    face.normalized_width,
-                    face.normalized_height,
-                    112,
-                  )}
-                  loading="lazy"
-                />
-              </Link>
-              {/* Zoom icon */}
-              <div
-                className="absolute top-1 right-1 z-10 w-5 h-5 bg-black/50 text-white rounded flex items-center justify-center cursor-zoom-in opacity-0 group-hover:opacity-100 transition-opacity duration-200"
-                onMouseEnter={() => onZoomEnter(faceIdNum)}
-                onMouseLeave={onZoomLeave}
-                onClick={(e) => e.stopPropagation()}
-              >
-                <ZoomIn className="h-3 w-3" />
+    <ContextMenu>
+      <ContextMenuTrigger asChild>
+        <Card
+          className={`transition-all cursor-default select-none ${
+            isClustered
+              ? "opacity-60"
+              : isSelected
+                ? "ring-2 ring-blue-500 bg-blue-50"
+                : "hover:ring-1 hover:ring-gray-300"
+          }`}
+          onClick={() => !isClustered && onToggleSelection(faceIdNum)}
+        >
+          <CardContent className="p-0 relative">
+            {isSelected && (
+              <div className="absolute -top-2 -right-2 z-10 w-5 h-5 bg-blue-500 text-white rounded-full flex items-center justify-center">
+                <Check className="h-3 w-3" />
+              </div>
+            )}
+            <div className="text-center space-y-1">
+              <div className="relative w-28 h-28 mx-auto">
+                <div className="group relative w-full h-full bg-gray-100 rounded-lg border overflow-hidden">
+                  <Link to={`/photo/${face.photo_id}`} onClick={(e) => e.stopPropagation()} className="cursor-pointer">
+                    <img
+                      src={`/api/image/${face.photo_id}`}
+                      alt={`Similar face ${face.id}`}
+                      className="absolute max-w-none max-h-none"
+                      style={getFaceCropStyle(
+                        {
+                          bbox_x: face.bbox_x,
+                          bbox_y: face.bbox_y,
+                          bbox_width: face.bbox_width,
+                          bbox_height: face.bbox_height,
+                        },
+                        face.normalized_width,
+                        face.normalized_height,
+                        112,
+                      )}
+                      loading="lazy"
+                    />
+                  </Link>
+                  {/* Zoom icon */}
+                  <div
+                    className="absolute top-1 right-1 z-10 w-5 h-5 bg-black/50 text-white rounded flex items-center justify-center cursor-zoom-in opacity-0 group-hover:opacity-100 transition-opacity duration-200"
+                    onMouseEnter={() => onZoomEnter(faceIdNum)}
+                    onMouseLeave={onZoomLeave}
+                    onClick={(e) => e.stopPropagation()}
+                  >
+                    <ZoomIn className="h-3 w-3" />
+                  </div>
+                </div>
+                {/* Preview overlay - shows full image with face aligned over card */}
+                {isPreviewVisible &&
+                  (() => {
+                    const thumbSize = 112;
+                    const faceScale = thumbSize / face.bbox_width;
+                    const scaledW = face.normalized_width * faceScale;
+                    const scaledH = face.normalized_height * faceScale;
+                    const imgLeft = -face.bbox_x * faceScale;
+                    const imgTop = -face.bbox_y * faceScale;
+                    const originX = -imgLeft + thumbSize / 2;
+                    const originY = -imgTop + thumbSize / 2;
+
+                    return (
+                      <img
+                        src={`/api/image/${face.photo_id}`}
+                        alt={`Face ${face.id} preview`}
+                        className="absolute z-50 max-w-none max-h-none pointer-events-none rounded-xl shadow-2xl animate-in fade-in zoom-in-95 duration-150"
+                        style={{
+                          width: `${scaledW}px`,
+                          height: `${scaledH}px`,
+                          left: `${imgLeft}px`,
+                          top: `${imgTop}px`,
+                          transformOrigin: `${originX}px ${originY}px`,
+                        }}
+                      />
+                    );
+                  })()}
+              </div>
+
+              <div className="flex items-center justify-center gap-2 text-xs text-gray-500">
+                <span className="inline-flex items-center font-medium">
+                  <ScanFace className="h-3 w-3 mr-0.5" />
+                  {Math.round(face.similarity * 100)}%
+                </span>
+                {isClustered && (
+                  <Link
+                    to={`/cluster/${face.cluster_id}`}
+                    onClick={(e) => e.stopPropagation()}
+                    className="text-blue-600 hover:text-blue-800 truncate max-w-[60px]"
+                    title={face.person_name || `Cluster ${face.cluster_id}`}
+                  >
+                    {face.person_name || `#${face.cluster_id}`}
+                  </Link>
+                )}
               </div>
             </div>
-            {/* Preview overlay - shows full image with face aligned over card */}
-            {isPreviewVisible &&
-              (() => {
-                const thumbSize = 112;
-                const faceScale = thumbSize / face.bbox_width;
-                const scaledW = face.normalized_width * faceScale;
-                const scaledH = face.normalized_height * faceScale;
-                const imgLeft = -face.bbox_x * faceScale;
-                const imgTop = -face.bbox_y * faceScale;
-                const originX = -imgLeft + thumbSize / 2;
-                const originY = -imgTop + thumbSize / 2;
-
-                return (
-                  <img
-                    src={`/api/image/${face.photo_id}`}
-                    alt={`Face ${face.id} preview`}
-                    className="absolute z-50 max-w-none max-h-none pointer-events-none rounded-xl shadow-2xl animate-in fade-in zoom-in-95 duration-150"
-                    style={{
-                      width: `${scaledW}px`,
-                      height: `${scaledH}px`,
-                      left: `${imgLeft}px`,
-                      top: `${imgTop}px`,
-                      transformOrigin: `${originX}px ${originY}px`,
-                    }}
-                  />
-                );
-              })()}
-          </div>
-
-          <div className="flex items-center justify-center gap-2 text-xs text-gray-500">
-            <span className="inline-flex items-center font-medium">
-              <ScanFace className="h-3 w-3 mr-0.5" />
-              {Math.round(face.similarity * 100)}%
-            </span>
-            {isClustered && (
-              <Link
-                to={`/cluster/${face.cluster_id}`}
-                onClick={(e) => e.stopPropagation()}
-                className="text-blue-600 hover:text-blue-800 truncate max-w-[60px]"
-                title={face.person_name || `Cluster ${face.cluster_id}`}
-              >
-                {face.person_name || `#${face.cluster_id}`}
-              </Link>
-            )}
-          </div>
-        </div>
-      </CardContent>
-    </Card>
+          </CardContent>
+        </Card>
+      </ContextMenuTrigger>
+      <ContextMenuContent>
+        <ContextMenuItem onClick={() => navigate(`/face/${face.id}/similar`)}>
+          <ScanFace className="h-4 w-4 mr-2" />
+          Find similar faces
+        </ContextMenuItem>
+        {isClustered && (
+          <ContextMenuItem variant="destructive" onClick={() => onUnlinkFace(face.id)}>
+            <Unlink className="h-4 w-4 mr-2" />
+            Unlink from {face.person_name || "cluster"}
+          </ContextMenuItem>
+        )}
+      </ContextMenuContent>
+    </ContextMenu>
   );
 });
 
@@ -253,6 +283,16 @@ export async function action({ request, params }: Route.ActionArgs) {
     if (result.success) {
       return redirect(`/cluster/${targetClusterId}`);
     }
+    return result;
+  }
+
+  if (intent === "unlink-face") {
+    const targetFaceId = formData.get("targetFaceId") as string;
+    if (!targetFaceId) {
+      return { success: false, message: "No face specified" };
+    }
+
+    const result = await removeFaceFromClusterWithConstraint(parseInt(targetFaceId, 10));
     return result;
   }
 
@@ -356,6 +396,48 @@ export default function SimilarFacesPage({ loaderData }: Route.ComponentProps) {
   const unclusteredFaces = similarFaces.filter((f: SimilarFace) => !f.cluster_id);
   const displayedFaces = hideClustered ? unclusteredFaces : similarFaces;
 
+  // Compute possible person matches from similar faces with person names
+  const possibleMatches = useMemo(() => {
+    const personCounts = new Map<
+      string,
+      {
+        name: string;
+        clusterId: string;
+        count: number;
+        // Thumbnail data from a representative face
+        photo_id?: string;
+        bbox_x?: number;
+        bbox_y?: number;
+        bbox_width?: number;
+        bbox_height?: number;
+        normalized_width?: number;
+        normalized_height?: number;
+      }
+    >();
+    for (const f of similarFaces) {
+      if (f.person_name && f.cluster_id) {
+        const existing = personCounts.get(f.cluster_id);
+        if (existing) {
+          existing.count++;
+        } else {
+          personCounts.set(f.cluster_id, {
+            name: f.person_name,
+            clusterId: f.cluster_id,
+            count: 1,
+            photo_id: f.photo_id,
+            bbox_x: f.bbox_x,
+            bbox_y: f.bbox_y,
+            bbox_width: f.bbox_width,
+            bbox_height: f.bbox_height,
+            normalized_width: f.normalized_width,
+            normalized_height: f.normalized_height,
+          });
+        }
+      }
+    }
+    return Array.from(personCounts.values()).sort((a, b) => b.count - a.count);
+  }, [similarFaces]);
+
   // Debounced search for clusters
   const searchClusters = useCallback(async (query: string) => {
     setIsSearching(true);
@@ -415,6 +497,19 @@ export default function SimilarFacesPage({ loaderData }: Route.ComponentProps) {
     );
     setAddToClusterModalOpen(false);
   };
+
+  const handleUnlinkFace = useCallback(
+    (faceId: string) => {
+      fetcher.submit(
+        {
+          intent: "unlink-face",
+          targetFaceId: faceId,
+        },
+        { method: "post" },
+      );
+    },
+    [fetcher],
+  );
 
   const isSubmitting = fetcher.state === "submitting";
 
@@ -491,7 +586,7 @@ export default function SimilarFacesPage({ loaderData }: Route.ComponentProps) {
                   />
                 </Link>
               </div>
-              <div>
+              <div className="space-y-1">
                 <h2 className="font-medium">{face.person_name || "Source Face"}</h2>
                 <p className="text-sm text-gray-500">
                   From{" "}
@@ -499,9 +594,23 @@ export default function SimilarFacesPage({ loaderData }: Route.ComponentProps) {
                     Photo #{face.photo_id}
                   </Link>
                 </p>
-                <p className="text-xs text-gray-400 mt-1">
+                <p className="text-xs text-gray-400">
                   Face size: {Math.round(face.bbox_width)}×{Math.round(face.bbox_height)}px
                 </p>
+                {possibleMatches.length > 0 && (
+                  <div className="flex items-center gap-2 pt-1">
+                    <span className="text-xs text-gray-500">Possible matches:</span>
+                    <div className="flex flex-wrap gap-1">
+                      {possibleMatches.map((match) => (
+                        <Link key={match.clusterId} to={`/cluster/${match.clusterId}`}>
+                          <Badge variant="secondary" className="text-xs hover:bg-gray-200">
+                            {match.name} ({match.count})
+                          </Badge>
+                        </Link>
+                      ))}
+                    </div>
+                  </div>
+                )}
               </div>
             </div>
           </CardContent>
@@ -582,54 +691,132 @@ export default function SimilarFacesPage({ loaderData }: Route.ComponentProps) {
                       <div className="max-h-80 overflow-y-auto space-y-2">
                         {isSearching ? (
                           <div className="text-center py-4 text-gray-500">Searching...</div>
-                        ) : searchResults.length > 0 ? (
-                          searchResults.map((result) => (
-                            <button
-                              type="button"
-                              key={result.id}
-                              className="w-full flex items-center justify-between p-3 border rounded-lg hover:bg-gray-50 cursor-pointer text-left"
-                              onClick={() => handleAddToCluster(result.id)}
-                            >
-                              <div className="flex items-center space-x-3">
-                                {result.photo_id && result.bbox_x !== undefined && result.normalized_width ? (
-                                  <div className="relative w-12 h-12 bg-gray-100 rounded border overflow-hidden flex-shrink-0">
-                                    <img
-                                      src={`/api/image/${result.photo_id}`}
-                                      alt={`Cluster ${result.id}`}
-                                      className="absolute max-w-none max-h-none"
-                                      style={getFaceCropStyle(
-                                        {
-                                          bbox_x: result.bbox_x,
-                                          bbox_y: result.bbox_y || 0,
-                                          bbox_width: result.bbox_width || 0.1,
-                                          bbox_height: result.bbox_height || 0.1,
-                                        },
-                                        result.normalized_width,
-                                        result.normalized_height || result.normalized_width,
-                                        48,
-                                      )}
-                                    />
-                                  </div>
-                                ) : (
-                                  <div className="w-12 h-12 bg-gray-200 rounded flex items-center justify-center flex-shrink-0">
-                                    <Users className="h-5 w-5 text-gray-400" />
-                                  </div>
-                                )}
-                                <div>
-                                  <div className="font-medium">{result.person_name || `Cluster ${result.id}`}</div>
-                                  <div className="text-sm text-gray-500">
-                                    {result.face_count} face
-                                    {result.face_count !== 1 ? "s" : ""}
-                                  </div>
-                                </div>
-                              </div>
-                              <span className="text-sm text-blue-600 hover:text-blue-800">Add to</span>
-                            </button>
-                          ))
-                        ) : searchQuery ? (
-                          <div className="text-center py-4 text-gray-500">No clusters found</div>
                         ) : (
-                          <div className="text-center py-4 text-gray-500">Type to search for clusters</div>
+                          <>
+                            {/* Possible matches section - shown at top */}
+                            {possibleMatches.length > 0 &&
+                              (() => {
+                                const filteredMatches = searchQuery
+                                  ? possibleMatches.filter((m) =>
+                                      m.name.toLowerCase().includes(searchQuery.toLowerCase()),
+                                    )
+                                  : possibleMatches;
+                                if (filteredMatches.length === 0) return null;
+                                return (
+                                  <>
+                                    <div className="text-xs text-gray-500 font-medium px-1">Possible matches</div>
+                                    {filteredMatches.map((match) => (
+                                      <button
+                                        type="button"
+                                        key={match.clusterId}
+                                        className="w-full flex items-center justify-between p-3 border-2 border-blue-200 bg-blue-50 rounded-lg hover:bg-blue-100 cursor-pointer text-left"
+                                        onClick={() => handleAddToCluster(match.clusterId)}
+                                      >
+                                        <div className="flex items-center space-x-3">
+                                          {match.photo_id && match.bbox_x !== undefined && match.normalized_width ? (
+                                            <div className="relative w-12 h-12 bg-gray-100 rounded border overflow-hidden flex-shrink-0">
+                                              <img
+                                                src={`/api/image/${match.photo_id}`}
+                                                alt={match.name}
+                                                className="absolute max-w-none max-h-none"
+                                                style={getFaceCropStyle(
+                                                  {
+                                                    bbox_x: match.bbox_x,
+                                                    bbox_y: match.bbox_y || 0,
+                                                    bbox_width: match.bbox_width || 0.1,
+                                                    bbox_height: match.bbox_height || 0.1,
+                                                  },
+                                                  match.normalized_width,
+                                                  match.normalized_height || match.normalized_width,
+                                                  48,
+                                                )}
+                                              />
+                                            </div>
+                                          ) : (
+                                            <div className="w-12 h-12 bg-gray-200 rounded flex items-center justify-center flex-shrink-0">
+                                              <Users className="h-5 w-5 text-gray-400" />
+                                            </div>
+                                          )}
+                                          <div>
+                                            <div className="font-medium">{match.name}</div>
+                                            <div className="text-sm text-gray-500">
+                                              {match.count} similar face{match.count !== 1 ? "s" : ""}
+                                            </div>
+                                          </div>
+                                        </div>
+                                        <span className="text-sm text-blue-600 hover:text-blue-800">Add to</span>
+                                      </button>
+                                    ))}
+                                  </>
+                                );
+                              })()}
+                            {/* Other search results - exclude possible matches */}
+                            {searchResults.length > 0 &&
+                              (() => {
+                                const possibleMatchIds = new Set(possibleMatches.map((m) => m.clusterId));
+                                const otherResults = searchResults.filter((r) => !possibleMatchIds.has(r.id));
+                                if (otherResults.length === 0) return null;
+                                return (
+                                  <>
+                                    {possibleMatches.length > 0 && (
+                                      <div className="text-xs text-gray-500 font-medium px-1 mt-3">Other clusters</div>
+                                    )}
+                                    {otherResults.map((result) => (
+                                      <button
+                                        type="button"
+                                        key={result.id}
+                                        className="w-full flex items-center justify-between p-3 border rounded-lg hover:bg-gray-50 cursor-pointer text-left"
+                                        onClick={() => handleAddToCluster(result.id)}
+                                      >
+                                        <div className="flex items-center space-x-3">
+                                          {result.photo_id && result.bbox_x !== undefined && result.normalized_width ? (
+                                            <div className="relative w-12 h-12 bg-gray-100 rounded border overflow-hidden flex-shrink-0">
+                                              <img
+                                                src={`/api/image/${result.photo_id}`}
+                                                alt={`Cluster ${result.id}`}
+                                                className="absolute max-w-none max-h-none"
+                                                style={getFaceCropStyle(
+                                                  {
+                                                    bbox_x: result.bbox_x,
+                                                    bbox_y: result.bbox_y || 0,
+                                                    bbox_width: result.bbox_width || 0.1,
+                                                    bbox_height: result.bbox_height || 0.1,
+                                                  },
+                                                  result.normalized_width,
+                                                  result.normalized_height || result.normalized_width,
+                                                  48,
+                                                )}
+                                              />
+                                            </div>
+                                          ) : (
+                                            <div className="w-12 h-12 bg-gray-200 rounded flex items-center justify-center flex-shrink-0">
+                                              <Users className="h-5 w-5 text-gray-400" />
+                                            </div>
+                                          )}
+                                          <div>
+                                            <div className="font-medium">
+                                              {result.person_name || `Cluster ${result.id}`}
+                                            </div>
+                                            <div className="text-sm text-gray-500">
+                                              {result.face_count} face
+                                              {result.face_count !== 1 ? "s" : ""}
+                                            </div>
+                                          </div>
+                                        </div>
+                                        <span className="text-sm text-blue-600 hover:text-blue-800">Add to</span>
+                                      </button>
+                                    ))}
+                                  </>
+                                );
+                              })()}
+                            {/* Empty states */}
+                            {searchResults.length === 0 && possibleMatches.length === 0 && searchQuery && (
+                              <div className="text-center py-4 text-gray-500">No clusters found</div>
+                            )}
+                            {searchResults.length === 0 && possibleMatches.length === 0 && !searchQuery && (
+                              <div className="text-center py-4 text-gray-500">Type to search for clusters</div>
+                            )}
+                          </>
                         )}
                       </div>
                     </div>
@@ -664,6 +851,7 @@ export default function SimilarFacesPage({ loaderData }: Route.ComponentProps) {
                 onToggleSelection={toggleFaceSelection}
                 onZoomEnter={handleZoomMouseEnter}
                 onZoomLeave={handleZoomMouseLeave}
+                onUnlinkFace={handleUnlinkFace}
               />
             ))}
           </div>

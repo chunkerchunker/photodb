@@ -327,7 +327,7 @@ export default function PhotoDetail({ loaderData }: Route.ComponentProps) {
                   imageMeasures.height && (
                     <FaceOverlay
                       faces={
-                        showFaces || isToggleHovered ? photo.faces : photo.faces.filter((f) => f.id === hoveredFaceId)
+                        showFaces || isToggleHovered ? photo.faces : photo.faces.filter((f: Face) => f.id === hoveredFaceId)
                       }
                       originalWidth={photo.image_width}
                       originalHeight={photo.image_height}

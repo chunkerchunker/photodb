@@ -1,4 +1,17 @@
-import { Check, FolderPlus, Plus, ScanFace, Search, Unlink, UserPlus, Users, XCircle, ZoomIn } from "lucide-react";
+import {
+  Check,
+  ChevronLeft,
+  ChevronRight,
+  FolderPlus,
+  Plus,
+  ScanFace,
+  Search,
+  Unlink,
+  UserPlus,
+  Users,
+  XCircle,
+  ZoomIn,
+} from "lucide-react";
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Link, redirect, useFetcher, useNavigate } from "react-router";
 import { Breadcrumb } from "~/components/breadcrumb";
@@ -220,7 +233,16 @@ const SimilarFaceCard = memo(function SimilarFaceCard({
         </Card>
       </ContextMenuTrigger>
       <ContextMenuContent>
-        <ContextMenuItem onClick={() => navigate(`/face/${face.id}/similar`)}>
+        <ContextMenuItem
+          onClick={(e) => {
+            const url = `/face/${face.id}/similar`;
+            if (e.metaKey || e.ctrlKey) {
+              window.open(url, "_blank");
+            } else {
+              navigate(url);
+            }
+          }}
+        >
           <ScanFace className="h-4 w-4 mr-2" />
           Find similar faces
         </ContextMenuItem>
@@ -387,10 +409,25 @@ export default function SimilarFacesPage({ loaderData }: Route.ComponentProps) {
     (value: number[]) => {
       const newThreshold = value[0];
       if (newThreshold !== threshold) {
-        navigate(`/face/${face?.id}/similar?threshold=${newThreshold}`);
+        navigate(`/face/${face?.id}/similar?threshold=${newThreshold}`, { replace: true });
       }
     },
     [navigate, face?.id, threshold],
+  );
+
+  const nudgeThreshold = useCallback(
+    (direction: "down" | "up") => {
+      const step = 0.05;
+      const min = 0.3;
+      const max = 0.95;
+      const newValue = direction === "down" ? Math.max(min, sliderValue - step) : Math.min(max, sliderValue + step);
+      // Round to avoid floating point issues
+      const rounded = Math.round(newValue * 100) / 100;
+      if (rounded !== threshold) {
+        navigate(`/face/${face?.id}/similar?threshold=${rounded}`, { replace: true });
+      }
+    },
+    [sliderValue, threshold, navigate, face?.id],
   );
 
   const unclusteredFaces = similarFaces.filter((f: SimilarFace) => !f.cluster_id);
@@ -537,8 +574,18 @@ export default function SimilarFacesPage({ loaderData }: Route.ComponentProps) {
         <div className="flex items-center space-x-4">
           <h1 className="text-2xl font-bold text-gray-900">Similar Faces</h1>
           <Badge variant="secondary">{similarFaces.length} found</Badge>
-          <div className="flex items-center space-x-2">
+          <div className="flex items-center space-x-1">
             <span className="text-xs text-gray-400">≥</span>
+            <Button
+              variant="ghost"
+              size="icon"
+              className="h-6 w-6"
+              onClick={() => nudgeThreshold("down")}
+              disabled={sliderValue <= 0.3}
+              title="Show more matches (lower threshold)"
+            >
+              <ChevronLeft className="h-4 w-4" />
+            </Button>
             <Slider
               value={[sliderValue]}
               onValueChange={handleThresholdChange}
@@ -548,6 +595,16 @@ export default function SimilarFacesPage({ loaderData }: Route.ComponentProps) {
               step={0.05}
               className="w-24"
             />
+            <Button
+              variant="ghost"
+              size="icon"
+              className="h-6 w-6"
+              onClick={() => nudgeThreshold("up")}
+              disabled={sliderValue >= 0.95}
+              title="Show fewer matches (higher threshold)"
+            >
+              <ChevronRight className="h-4 w-4" />
+            </Button>
             <span className="text-xs text-gray-500 w-8">{Math.round(sliderValue * 100)}%</span>
           </div>
           <div className="flex items-center space-x-2">
@@ -587,7 +644,21 @@ export default function SimilarFacesPage({ loaderData }: Route.ComponentProps) {
                 </Link>
               </div>
               <div className="space-y-1">
-                <h2 className="font-medium">{face.person_name || "Source Face"}</h2>
+                <div className="flex items-center gap-2">
+                  <h2 className="font-medium">{face.person_name || "Source Face"}</h2>
+                  {face.cluster_id && (
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      className="h-6 w-6 text-gray-400 hover:text-red-600"
+                      onClick={() => handleUnlinkFace(face.id.toString())}
+                      disabled={isSubmitting}
+                      title={`Unlink from ${face.person_name || "cluster"}`}
+                    >
+                      <Unlink className="h-4 w-4" />
+                    </Button>
+                  )}
+                </div>
                 <p className="text-sm text-gray-500">
                   From{" "}
                   <Link to={`/photo/${face.photo_id}`} className="text-blue-600 hover:underline">

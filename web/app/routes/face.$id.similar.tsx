@@ -112,11 +112,7 @@ const SimilarFaceCard = memo(function SimilarFaceCard({
   return (
     <Card
       className={`transition-all cursor-default select-none ${
-        isClustered
-          ? "opacity-60"
-          : isSelected
-            ? "ring-2 ring-blue-500 bg-blue-50"
-            : "hover:ring-1 hover:ring-gray-300"
+        isClustered ? "opacity-60" : isSelected ? "ring-2 ring-blue-500 bg-blue-50" : "hover:ring-1 hover:ring-gray-300"
       }`}
       onClick={() => !isClustered && onToggleSelection(faceIdNum)}
     >
@@ -129,11 +125,7 @@ const SimilarFaceCard = memo(function SimilarFaceCard({
         <div className="text-center space-y-1">
           <div className="relative w-28 h-28 mx-auto">
             <div className="group relative w-full h-full bg-gray-100 rounded-lg border overflow-hidden">
-              <Link
-                to={`/photo/${face.photo_id}`}
-                onClick={(e) => e.stopPropagation()}
-                className="cursor-pointer"
-              >
+              <Link to={`/photo/${face.photo_id}`} onClick={(e) => e.stopPropagation()} className="cursor-pointer">
                 <img
                   src={`/api/image/${face.photo_id}`}
                   alt={`Similar face ${face.id}`}
@@ -163,31 +155,32 @@ const SimilarFaceCard = memo(function SimilarFaceCard({
               </div>
             </div>
             {/* Preview overlay - shows full image with face aligned over card */}
-            {isPreviewVisible && (() => {
-              const thumbSize = 112;
-              const faceScale = thumbSize / face.bbox_width;
-              const scaledW = face.normalized_width * faceScale;
-              const scaledH = face.normalized_height * faceScale;
-              const imgLeft = -face.bbox_x * faceScale;
-              const imgTop = -face.bbox_y * faceScale;
-              const originX = -imgLeft + thumbSize / 2;
-              const originY = -imgTop + thumbSize / 2;
+            {isPreviewVisible &&
+              (() => {
+                const thumbSize = 112;
+                const faceScale = thumbSize / face.bbox_width;
+                const scaledW = face.normalized_width * faceScale;
+                const scaledH = face.normalized_height * faceScale;
+                const imgLeft = -face.bbox_x * faceScale;
+                const imgTop = -face.bbox_y * faceScale;
+                const originX = -imgLeft + thumbSize / 2;
+                const originY = -imgTop + thumbSize / 2;
 
-              return (
-                <img
-                  src={`/api/image/${face.photo_id}`}
-                  alt={`Face ${face.id} preview`}
-                  className="absolute z-50 max-w-none max-h-none pointer-events-none rounded-xl shadow-2xl animate-in fade-in zoom-in-95 duration-150"
-                  style={{
-                    width: `${scaledW}px`,
-                    height: `${scaledH}px`,
-                    left: `${imgLeft}px`,
-                    top: `${imgTop}px`,
-                    transformOrigin: `${originX}px ${originY}px`,
-                  }}
-                />
-              );
-            })()}
+                return (
+                  <img
+                    src={`/api/image/${face.photo_id}`}
+                    alt={`Face ${face.id} preview`}
+                    className="absolute z-50 max-w-none max-h-none pointer-events-none rounded-xl shadow-2xl animate-in fade-in zoom-in-95 duration-150"
+                    style={{
+                      width: `${scaledW}px`,
+                      height: `${scaledH}px`,
+                      left: `${imgLeft}px`,
+                      top: `${imgTop}px`,
+                      transformOrigin: `${originX}px ${originY}px`,
+                    }}
+                  />
+                );
+              })()}
           </div>
 
           <div className="flex items-center justify-center gap-2 text-xs text-gray-500">
@@ -568,80 +561,80 @@ export default function SimilarFacesPage({ loaderData }: Route.ComponentProps) {
                       Add to Cluster ({selectedFaces.length + 1})
                     </Button>
                   </DialogTrigger>
-                <DialogContent className="max-w-lg">
-                  <DialogHeader>
-                    <DialogTitle>Add to existing cluster</DialogTitle>
-                    <DialogDescription>
-                      Search for a cluster to add {selectedFaces.length + 1} face
-                      {selectedFaces.length === 0 ? "" : "s"} to.
-                    </DialogDescription>
-                  </DialogHeader>
-                  <div className="space-y-4">
-                    <div className="relative">
-                      <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-gray-400" />
-                      <Input
-                        placeholder="Search by cluster ID or person name..."
-                        value={searchQuery}
-                        onChange={(e) => setSearchQuery(e.target.value)}
-                        className="pl-9"
-                      />
-                    </div>
-                    <div className="max-h-80 overflow-y-auto space-y-2">
-                      {isSearching ? (
-                        <div className="text-center py-4 text-gray-500">Searching...</div>
-                      ) : searchResults.length > 0 ? (
-                        searchResults.map((result) => (
-                          <button
-                            type="button"
-                            key={result.id}
-                            className="w-full flex items-center justify-between p-3 border rounded-lg hover:bg-gray-50 cursor-pointer text-left"
-                            onClick={() => handleAddToCluster(result.id)}
-                          >
-                            <div className="flex items-center space-x-3">
-                              {result.photo_id && result.bbox_x !== undefined && result.normalized_width ? (
-                                <div className="relative w-12 h-12 bg-gray-100 rounded border overflow-hidden flex-shrink-0">
-                                  <img
-                                    src={`/api/image/${result.photo_id}`}
-                                    alt={`Cluster ${result.id}`}
-                                    className="absolute max-w-none max-h-none"
-                                    style={getFaceCropStyle(
-                                      {
-                                        bbox_x: result.bbox_x,
-                                        bbox_y: result.bbox_y || 0,
-                                        bbox_width: result.bbox_width || 0.1,
-                                        bbox_height: result.bbox_height || 0.1,
-                                      },
-                                      result.normalized_width,
-                                      result.normalized_height || result.normalized_width,
-                                      48,
-                                    )}
-                                  />
-                                </div>
-                              ) : (
-                                <div className="w-12 h-12 bg-gray-200 rounded flex items-center justify-center flex-shrink-0">
-                                  <Users className="h-5 w-5 text-gray-400" />
-                                </div>
-                              )}
-                              <div>
-                                <div className="font-medium">{result.person_name || `Cluster ${result.id}`}</div>
-                                <div className="text-sm text-gray-500">
-                                  {result.face_count} face
-                                  {result.face_count !== 1 ? "s" : ""}
+                  <DialogContent className="max-w-lg">
+                    <DialogHeader>
+                      <DialogTitle>Add to existing cluster</DialogTitle>
+                      <DialogDescription>
+                        Search for a cluster to add {selectedFaces.length + 1} face
+                        {selectedFaces.length === 0 ? "" : "s"} to.
+                      </DialogDescription>
+                    </DialogHeader>
+                    <div className="space-y-4">
+                      <div className="relative">
+                        <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-gray-400" />
+                        <Input
+                          placeholder="Search by cluster ID or person name..."
+                          value={searchQuery}
+                          onChange={(e) => setSearchQuery(e.target.value)}
+                          className="pl-9"
+                        />
+                      </div>
+                      <div className="max-h-80 overflow-y-auto space-y-2">
+                        {isSearching ? (
+                          <div className="text-center py-4 text-gray-500">Searching...</div>
+                        ) : searchResults.length > 0 ? (
+                          searchResults.map((result) => (
+                            <button
+                              type="button"
+                              key={result.id}
+                              className="w-full flex items-center justify-between p-3 border rounded-lg hover:bg-gray-50 cursor-pointer text-left"
+                              onClick={() => handleAddToCluster(result.id)}
+                            >
+                              <div className="flex items-center space-x-3">
+                                {result.photo_id && result.bbox_x !== undefined && result.normalized_width ? (
+                                  <div className="relative w-12 h-12 bg-gray-100 rounded border overflow-hidden flex-shrink-0">
+                                    <img
+                                      src={`/api/image/${result.photo_id}`}
+                                      alt={`Cluster ${result.id}`}
+                                      className="absolute max-w-none max-h-none"
+                                      style={getFaceCropStyle(
+                                        {
+                                          bbox_x: result.bbox_x,
+                                          bbox_y: result.bbox_y || 0,
+                                          bbox_width: result.bbox_width || 0.1,
+                                          bbox_height: result.bbox_height || 0.1,
+                                        },
+                                        result.normalized_width,
+                                        result.normalized_height || result.normalized_width,
+                                        48,
+                                      )}
+                                    />
+                                  </div>
+                                ) : (
+                                  <div className="w-12 h-12 bg-gray-200 rounded flex items-center justify-center flex-shrink-0">
+                                    <Users className="h-5 w-5 text-gray-400" />
+                                  </div>
+                                )}
+                                <div>
+                                  <div className="font-medium">{result.person_name || `Cluster ${result.id}`}</div>
+                                  <div className="text-sm text-gray-500">
+                                    {result.face_count} face
+                                    {result.face_count !== 1 ? "s" : ""}
+                                  </div>
                                 </div>
                               </div>
-                            </div>
-                            <span className="text-sm text-blue-600 hover:text-blue-800">Add to</span>
-                          </button>
-                        ))
-                      ) : searchQuery ? (
-                        <div className="text-center py-4 text-gray-500">No clusters found</div>
-                      ) : (
-                        <div className="text-center py-4 text-gray-500">Type to search for clusters</div>
-                      )}
+                              <span className="text-sm text-blue-600 hover:text-blue-800">Add to</span>
+                            </button>
+                          ))
+                        ) : searchQuery ? (
+                          <div className="text-center py-4 text-gray-500">No clusters found</div>
+                        ) : (
+                          <div className="text-center py-4 text-gray-500">Type to search for clusters</div>
+                        )}
+                      </div>
                     </div>
-                  </div>
-                </DialogContent>
-              </Dialog>
+                  </DialogContent>
+                </Dialog>
               )}
               {!face.cluster_id && (
                 <Button onClick={handleCreateCluster} disabled={selectedFaces.length === 0 || isSubmitting} size="sm">

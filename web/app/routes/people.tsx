@@ -97,7 +97,13 @@ function getFaceCropStyle(
 type Cluster = Route.ComponentProps["loaderData"]["clusters"][number];
 
 export default function PeopleView({ loaderData }: Route.ComponentProps) {
-  const { clusters: initialClusters, totalClusters, hasMore: initialHasMore, page: initialPage, sort: initialSort } = loaderData;
+  const {
+    clusters: initialClusters,
+    totalClusters,
+    hasMore: initialHasMore,
+    page: initialPage,
+    sort: initialSort,
+  } = loaderData;
 
   const [clusters, setClusters] = useState<Cluster[]>(initialClusters);
   const [page, setPage] = useState(initialPage);
@@ -276,9 +282,7 @@ export default function PeopleView({ loaderData }: Route.ComponentProps) {
                 type="button"
                 onClick={() => navigate("/people?sort=photos")}
                 className={`flex items-center gap-1.5 px-3 py-1.5 rounded-md text-sm font-medium transition-colors ${
-                  sort === "photos"
-                    ? "bg-white text-gray-900 shadow-sm"
-                    : "text-gray-500 hover:text-gray-700"
+                  sort === "photos" ? "bg-white text-gray-900 shadow-sm" : "text-gray-500 hover:text-gray-700"
                 }`}
                 title="Sort by most photos"
               >
@@ -288,9 +292,7 @@ export default function PeopleView({ loaderData }: Route.ComponentProps) {
                 type="button"
                 onClick={() => navigate("/people?sort=name")}
                 className={`flex items-center gap-1.5 px-3 py-1.5 rounded-md text-sm font-medium transition-colors ${
-                  sort === "name"
-                    ? "bg-white text-gray-900 shadow-sm"
-                    : "text-gray-500 hover:text-gray-700"
+                  sort === "name" ? "bg-white text-gray-900 shadow-sm" : "text-gray-500 hover:text-gray-700"
                 }`}
                 title="Sort alphabetically"
               >

@@ -213,7 +213,8 @@ export default function PhotoDetail({ loaderData }: Route.ComponentProps) {
   const fetcher = useFetcher();
   const fromWall = (location.state as { fromWall?: boolean } | null)?.fromWall === true;
   const [showFaces, setShowFaces] = useState(false);
-  const [showLowConfidenceTags, setShowLowConfidenceTags] = useState(false);
+  const [showLowConfidenceFaceTags, setShowLowConfidenceFaceTags] = useState(false);
+  const [showLowConfidenceSceneTags, setShowLowConfidenceSceneTags] = useState(false);
   const [hoveredFaceId, setHoveredFaceId] = useState<string | null>(null);
   const [isToggleHovered, setIsToggleHovered] = useState(false);
   const [imageMeasures, imageMeasureRef] = useMeasure<HTMLImageElement>();
@@ -238,10 +239,14 @@ export default function PhotoDetail({ loaderData }: Route.ComponentProps) {
       setShowFaces(savedFaceState === "true");
     }
 
-    // Load low confidence tags preference
-    const savedLowConfidenceState = localStorage.getItem("showLowConfidenceTags");
-    if (savedLowConfidenceState) {
-      setShowLowConfidenceTags(savedLowConfidenceState === "true");
+    // Load low confidence tags preferences
+    const savedLowConfidenceFaceState = localStorage.getItem("showLowConfidenceFaceTags");
+    if (savedLowConfidenceFaceState) {
+      setShowLowConfidenceFaceTags(savedLowConfidenceFaceState === "true");
+    }
+    const savedLowConfidenceSceneState = localStorage.getItem("showLowConfidenceSceneTags");
+    if (savedLowConfidenceSceneState) {
+      setShowLowConfidenceSceneTags(savedLowConfidenceSceneState === "true");
     }
   }, []);
 
@@ -257,10 +262,16 @@ export default function PhotoDetail({ loaderData }: Route.ComponentProps) {
     localStorage.setItem("showFaceBoundingBoxes", checked.toString());
   };
 
-  const updateLowConfidenceTagsState = (checked: boolean | "indeterminate") => {
+  const updateLowConfidenceFaceTagsState = (checked: boolean | "indeterminate") => {
     if (checked === "indeterminate") return;
-    setShowLowConfidenceTags(checked);
-    localStorage.setItem("showLowConfidenceTags", checked.toString());
+    setShowLowConfidenceFaceTags(checked);
+    localStorage.setItem("showLowConfidenceFaceTags", checked.toString());
+  };
+
+  const updateLowConfidenceSceneTagsState = (checked: boolean | "indeterminate") => {
+    if (checked === "indeterminate") return;
+    setShowLowConfidenceSceneTags(checked);
+    localStorage.setItem("showLowConfidenceSceneTags", checked.toString());
   };
 
   if (!photo) {
@@ -316,9 +327,7 @@ export default function PhotoDetail({ loaderData }: Route.ComponentProps) {
                   imageMeasures.height && (
                     <FaceOverlay
                       faces={
-                        showFaces || isToggleHovered
-                          ? photo.faces
-                          : photo.faces.filter((f) => f.id === hoveredFaceId)
+                        showFaces || isToggleHovered ? photo.faces : photo.faces.filter((f) => f.id === hoveredFaceId)
                       }
                       originalWidth={photo.image_width}
                       originalHeight={photo.image_height}
@@ -482,12 +491,12 @@ export default function PhotoDetail({ loaderData }: Route.ComponentProps) {
                         </div>
                         <div className="flex items-center space-x-2">
                           <Checkbox
-                            name="show-low-confidence"
-                            checked={showLowConfidenceTags}
-                            onCheckedChange={updateLowConfidenceTagsState}
+                            name="show-low-confidence-face"
+                            checked={showLowConfidenceFaceTags}
+                            onCheckedChange={updateLowConfidenceFaceTagsState}
                           />
-                          <label htmlFor="show-low-confidence" className="text-sm cursor-pointer">
-                            Show low-confidence tags
+                          <label htmlFor="show-low-confidence-face" className="text-sm cursor-pointer">
+                            Show low-confidence face tags
                           </label>
                         </div>
                       </div>
@@ -619,17 +628,18 @@ export default function PhotoDetail({ loaderData }: Route.ComponentProps) {
                                   </div>
                                   {/* Face tags (expression, emotion, gaze) - only show if face detection confidence is high enough */}
                                   {face.tags &&
-                                    (showLowConfidenceTags ||
+                                    (showLowConfidenceFaceTags ||
                                       face.confidence >= displaySettings.minFaceConfidenceForTags) &&
                                     face.tags.filter(
                                       (t: SceneTag) =>
-                                        showLowConfidenceTags || t.confidence > displaySettings.minTagConfidence,
+                                        showLowConfidenceFaceTags || t.confidence > displaySettings.minTagConfidence,
                                     ).length > 0 && (
                                       <div className="flex flex-wrap gap-1 mt-1">
                                         {face.tags
                                           .filter(
                                             (t: SceneTag) =>
-                                              showLowConfidenceTags || t.confidence > displaySettings.minTagConfidence,
+                                              showLowConfidenceFaceTags ||
+                                              t.confidence > displaySettings.minTagConfidence,
                                           )
                                           .map((tag: SceneTag, tagIndex: number) => (
                                             <Badge
@@ -695,11 +705,11 @@ export default function PhotoDetail({ loaderData }: Route.ComponentProps) {
 
             {/* Scene & Face Tags */}
             {(photo.scene_tags?.some(
-              (t: SceneTag) => showLowConfidenceTags || t.confidence > displaySettings.minTagConfidence,
+              (t: SceneTag) => showLowConfidenceSceneTags || t.confidence > displaySettings.minTagConfidence,
             ) ||
               photo.scene_taxonomy?.top_labels?.some(
                 (t: SceneTaxonomyLabel) =>
-                  showLowConfidenceTags || t.confidence > displaySettings.minTaxonomyConfidence,
+                  showLowConfidenceSceneTags || t.confidence > displaySettings.minTaxonomyConfidence,
               )) && (
               <Card>
                 <Collapsible
@@ -719,11 +729,22 @@ export default function PhotoDetail({ loaderData }: Route.ComponentProps) {
                   </CollapsibleTrigger>
                   <CollapsibleContent>
                     <CardContent className="space-y-4">
+                      <div className="flex items-center space-x-2">
+                        <Checkbox
+                          name="show-low-confidence-scene"
+                          checked={showLowConfidenceSceneTags}
+                          onCheckedChange={updateLowConfidenceSceneTagsState}
+                        />
+                        <label htmlFor="show-low-confidence-scene" className="text-sm cursor-pointer">
+                          Show low-confidence tags
+                        </label>
+                      </div>
+
                       {/* Apple Vision Taxonomy */}
                       {photo.scene_taxonomy?.top_labels &&
                         photo.scene_taxonomy.top_labels.filter(
                           (t: SceneTaxonomyLabel) =>
-                            showLowConfidenceTags || t.confidence > displaySettings.minTaxonomyConfidence,
+                            showLowConfidenceSceneTags || t.confidence > displaySettings.minTaxonomyConfidence,
                         ).length > 0 && (
                           <div>
                             <h6 className="font-medium text-sm mb-2 flex items-center">
@@ -734,7 +755,7 @@ export default function PhotoDetail({ loaderData }: Route.ComponentProps) {
                               {photo.scene_taxonomy.top_labels
                                 .filter(
                                   (t: SceneTaxonomyLabel) =>
-                                    showLowConfidenceTags || t.confidence > displaySettings.minTaxonomyConfidence,
+                                    showLowConfidenceSceneTags || t.confidence > displaySettings.minTaxonomyConfidence,
                                 )
                                 .map((item: SceneTaxonomyLabel, index: number) => (
                                   <Badge
@@ -754,7 +775,8 @@ export default function PhotoDetail({ loaderData }: Route.ComponentProps) {
                       {/* Scene Tags by Category */}
                       {photo.scene_tags &&
                         photo.scene_tags.filter(
-                          (t: SceneTag) => showLowConfidenceTags || t.confidence > displaySettings.minTagConfidence,
+                          (t: SceneTag) =>
+                            showLowConfidenceSceneTags || t.confidence > displaySettings.minTagConfidence,
                         ).length > 0 && (
                           <div className="space-y-3">
                             {/* Group tags by category */}
@@ -762,7 +784,7 @@ export default function PhotoDetail({ loaderData }: Route.ComponentProps) {
                               photo.scene_tags
                                 .filter(
                                   (t: SceneTag) =>
-                                    showLowConfidenceTags || t.confidence > displaySettings.minTagConfidence,
+                                    showLowConfidenceSceneTags || t.confidence > displaySettings.minTagConfidence,
                                 )
                                 .reduce(
                                   (acc: Record<string, SceneTag[]>, tag: SceneTag) => {

@@ -530,9 +530,7 @@ export default function ClustersView({ loaderData }: Route.ComponentProps) {
                                       </div>
                                       <div className="text-sm text-gray-600">
                                         {cluster.face_count} face{cluster.face_count !== 1 ? "s" : ""}
-                                        {cluster.person_name && (
-                                          <span className="text-gray-400"> · #{cluster.id}</span>
-                                        )}
+                                        {cluster.person_name && <span className="text-gray-400"> · #{cluster.id}</span>}
                                       </div>
                                     </div>
                                   </div>

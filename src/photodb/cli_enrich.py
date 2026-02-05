@@ -96,7 +96,9 @@ def main(
             connection_string=config_data.get("DATABASE_URL"), min_conn=2, max_conn=10
         ) as connection_pool:
             logger.info("Created connection pool for enrich processing")
-            repository = PhotoRepository(connection_pool)
+            repository = PhotoRepository(
+                connection_pool, collection_id=int(config_data.get("COLLECTION_ID", 1))
+            )
 
             # Handle batch checking mode
             if check_batches:
@@ -235,6 +237,7 @@ def load_configuration(config_path: Optional[str]) -> dict:
         "DATABASE_URL": os.getenv("DATABASE_URL", "postgresql://localhost/photodb"),
         "INGEST_PATH": os.getenv("INGEST_PATH", "./photos/raw"),
         "IMG_PATH": os.getenv("IMG_PATH", "./photos/processed"),
+        "COLLECTION_ID": int(os.getenv("COLLECTION_ID", "1")),
         "LOG_LEVEL": os.getenv("LOG_LEVEL", "INFO"),
         "LOG_FILE": os.getenv("LOG_FILE", "./logs/photodb.log"),
         # LLM Configuration

@@ -158,7 +158,10 @@ class LocalProcessor(BaseProcessor):
                         stage_obj.process(file_path)
 
                         # Check if the stage actually succeeded by looking at processing status
-                        photo = stage_obj.repository.get_photo_by_filename(str(file_path))
+                        photo = stage_obj.repository.get_photo_by_filename(
+                            str(file_path),
+                            collection_id=int(self.config.get("COLLECTION_ID", 1)),
+                        )
                         if photo:
                             stage_status = stage_obj.repository.get_processing_status(
                                 photo.id, stage_obj.stage_name
@@ -231,7 +234,9 @@ class LocalProcessor(BaseProcessor):
             """Process file with a repository using the connection pool."""
             if self.connection_pool:
                 # Create a temporary repository using the PostgreSQL connection pool
-                pooled_repo = PhotoRepository(self.connection_pool)
+                pooled_repo = PhotoRepository(
+                    self.connection_pool, collection_id=int(self.config.get("COLLECTION_ID", 1))
+                )
 
                 # Create stages with the pooled repository
                 # IMPORTANT: Reuse shared ML models to avoid expensive reloading

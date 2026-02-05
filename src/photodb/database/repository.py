@@ -36,18 +36,24 @@ MIN_FACE_CONFIDENCE = float(os.environ.get("MIN_FACE_CONFIDENCE", 0.9))  # Defau
 
 
 class PhotoRepository:
-    def __init__(self, connection_pool: ConnectionPool):
+    def __init__(self, connection_pool: ConnectionPool, collection_id: Optional[int] = None):
         self.pool = connection_pool
+        env_collection_id = os.environ.get("COLLECTION_ID")
+        self.collection_id = collection_id or int(env_collection_id) if env_collection_id else 1
+
+    def _resolve_collection_id(self, collection_id: Optional[int]) -> int:
+        return collection_id if collection_id is not None else self.collection_id
 
     def create_photo(self, photo: Photo) -> None:
         """Insert a new photo record."""
         with self.pool.transaction() as conn:
             with conn.cursor() as cursor:
                 cursor.execute(
-                    """INSERT INTO photo (filename, normalized_path, width, height, 
+                    """INSERT INTO photo (collection_id, filename, normalized_path, width, height, 
                                          normalized_width, normalized_height, created_at, updated_at)
-                       VALUES (%s, %s, %s, %s, %s, %s, %s, %s) RETURNING id""",
+                       VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s) RETURNING id""",
                     (
+                        photo.collection_id,
                         photo.filename,
                         photo.normalized_path,
                         photo.width,
@@ -60,22 +66,34 @@ class PhotoRepository:
                 )
                 photo.id = cursor.fetchone()[0]
 
-    def get_photo_by_filename(self, filename: str) -> Optional[Photo]:
+    def get_photo_by_filename(
+        self, filename: str, collection_id: Optional[int] = None
+    ) -> Optional[Photo]:
         """Get photo by filename."""
+        collection_id = self._resolve_collection_id(collection_id)
         with self.pool.get_connection() as conn:
             with conn.cursor(row_factory=dict_row) as cursor:
-                cursor.execute("SELECT * FROM photo WHERE filename = %s", (filename,))
+                cursor.execute(
+                    "SELECT * FROM photo WHERE collection_id = %s AND filename = %s",
+                    (collection_id, filename),
+                )
                 row = cursor.fetchone()
 
                 if row:
                     return Photo(**dict(row))  # type: ignore[arg-type]
                 return None
 
-    def get_photo_by_id(self, photo_id: int) -> Optional[Photo]:
+    def get_photo_by_id(
+        self, photo_id: int, collection_id: Optional[int] = None
+    ) -> Optional[Photo]:
         """Get photo by ID."""
+        collection_id = self._resolve_collection_id(collection_id)
         with self.pool.get_connection() as conn:
             with conn.cursor(row_factory=dict_row) as cursor:
-                cursor.execute("SELECT * FROM photo WHERE id = %s", (photo_id,))
+                cursor.execute(
+                    "SELECT * FROM photo WHERE id = %s AND collection_id = %s",
+                    (photo_id, collection_id),
+                )
                 row = cursor.fetchone()
 
                 if row:
@@ -109,17 +127,19 @@ class PhotoRepository:
             with conn.cursor() as cursor:
                 cursor.execute(
                     """INSERT INTO metadata 
-                       (photo_id, captured_at, latitude, longitude, extra, created_at)
-                       VALUES (%s, %s, %s, %s, %s, %s)
+                       (photo_id, collection_id, captured_at, latitude, longitude, extra, created_at)
+                       VALUES (%s, %s, %s, %s, %s, %s, %s)
                        ON CONFLICT (photo_id) 
                        DO UPDATE SET 
                            created_at = EXCLUDED.created_at,
+                           collection_id = EXCLUDED.collection_id,
                            captured_at = EXCLUDED.captured_at,
                            latitude = EXCLUDED.latitude,
                            longitude = EXCLUDED.longitude,
                            extra = EXCLUDED.extra""",
                     (
                         metadata.photo_id,
+                        metadata.collection_id,
                         metadata.captured_at,
                         metadata.latitude,
                         metadata.longitude,
@@ -196,8 +216,9 @@ class PhotoRepository:
                              AND ps.stage = %s
                              AND ps.status = 'completed'
                        )
+                       AND p.collection_id = %s
                        LIMIT %s""",
-                    (stage, limit),
+                    (stage, self.collection_id, limit),
                 )
                 rows = cursor.fetchall()
 
@@ -211,8 +232,9 @@ class PhotoRepository:
                     """SELECT p.*, ps.error_message, ps.processed_at 
                        FROM photo p
                        JOIN processing_status ps ON p.id = ps.photo_id
-                       WHERE ps.stage = %s AND ps.status = 'failed'""",
-                    (stage,),
+                       WHERE ps.stage = %s AND ps.status = 'failed'
+                         AND p.collection_id = %s""",
+                    (stage, self.collection_id),
                 )
                 rows = cursor.fetchall()
 
@@ -439,9 +461,10 @@ class PhotoRepository:
         with self.pool.transaction() as conn:
             with conn.cursor() as cursor:
                 cursor.execute(
-                    """INSERT INTO person (first_name, last_name, created_at, updated_at)
-                       VALUES (%s, %s, %s, %s) RETURNING id""",
+                    """INSERT INTO person (collection_id, first_name, last_name, created_at, updated_at)
+                       VALUES (%s, %s, %s, %s, %s) RETURNING id""",
                     (
+                        person.collection_id,
                         person.first_name,
                         person.last_name,
                         person.created_at,
@@ -454,7 +477,10 @@ class PhotoRepository:
         """Get person by ID."""
         with self.pool.get_connection() as conn:
             with conn.cursor(row_factory=dict_row) as cursor:
-                cursor.execute("SELECT * FROM person WHERE id = %s", (person_id,))
+                cursor.execute(
+                    "SELECT * FROM person WHERE id = %s AND collection_id = %s",
+                    (person_id, self.collection_id),
+                )
                 row = cursor.fetchone()
 
                 if row:
@@ -469,13 +495,15 @@ class PhotoRepository:
             with conn.cursor(row_factory=dict_row) as cursor:
                 if last_name:
                     cursor.execute(
-                        "SELECT * FROM person WHERE first_name = %s AND last_name = %s",
-                        (first_name, last_name),
+                        """SELECT * FROM person
+                           WHERE collection_id = %s AND first_name = %s AND last_name = %s""",
+                        (self.collection_id, first_name, last_name),
                     )
                 else:
                     cursor.execute(
-                        "SELECT * FROM person WHERE first_name = %s AND last_name IS NULL",
-                        (first_name,),
+                        """SELECT * FROM person
+                           WHERE collection_id = %s AND first_name = %s AND last_name IS NULL""",
+                        (self.collection_id, first_name),
                     )
                 row = cursor.fetchone()
 
@@ -499,7 +527,12 @@ class PhotoRepository:
         """List all people."""
         with self.pool.get_connection() as conn:
             with conn.cursor(row_factory=dict_row) as cursor:
-                cursor.execute("SELECT * FROM person ORDER BY first_name, last_name")
+                cursor.execute(
+                    """SELECT * FROM person
+                       WHERE collection_id = %s
+                       ORDER BY first_name, last_name""",
+                    (self.collection_id,),
+                )
                 rows = cursor.fetchall()
 
                 return [Person(**dict(row)) for row in rows]  # type: ignore[arg-type]
@@ -664,9 +697,10 @@ class PhotoRepository:
                     """SELECT id, centroid <=> %s AS distance
                        FROM cluster
                        WHERE centroid IS NOT NULL
+                         AND collection_id = %s
                        ORDER BY centroid <=> %s
                        LIMIT %s""",
-                    (embedding, embedding, limit),
+                    (embedding, self.collection_id, embedding, limit),
                 )
                 return cursor.fetchall()
 
@@ -682,11 +716,18 @@ class PhotoRepository:
             with conn.cursor() as cursor:
                 cursor.execute(
                     """INSERT INTO cluster
-                       (face_count, face_count_at_last_medoid, representative_face_id,
+                       (collection_id, face_count, face_count_at_last_medoid, representative_face_id,
                         centroid, medoid_face_id, created_at, updated_at)
-                       VALUES (%s, %s, %s, %s, %s, NOW(), NOW())
+                       VALUES (%s, %s, %s, %s, %s, %s, NOW(), NOW())
                        RETURNING id""",
-                    (face_count, face_count, representative_face_id, centroid, medoid_face_id),
+                    (
+                        self.collection_id,
+                        face_count,
+                        face_count,
+                        representative_face_id,
+                        centroid,
+                        medoid_face_id,
+                    ),
                 )
                 return cursor.fetchone()[0]
 
@@ -943,9 +984,9 @@ class PhotoRepository:
             with conn.cursor() as cursor:
                 cursor.executemany(
                     """INSERT INTO face_match_candidate 
-                       (face_id, cluster_id, similarity, status, created_at)
-                       VALUES (%s, %s, %s, 'pending', NOW())""",
-                    candidates,
+                       (face_id, cluster_id, collection_id, similarity, status, created_at)
+                       VALUES (%s, %s, %s, %s, 'pending', NOW())""",
+                    [(face_id, cluster_id, self.collection_id, similarity) for face_id, cluster_id, similarity in candidates],
                 )
 
     def get_cluster_by_id(self, cluster_id: int) -> Optional[Cluster]:
@@ -1059,11 +1100,11 @@ class PhotoRepository:
         with self.pool.transaction() as conn:
             with conn.cursor() as cursor:
                 cursor.execute(
-                    """INSERT INTO must_link (face_id_1, face_id_2, created_by)
-                       VALUES (%s, %s, %s)
+                    """INSERT INTO must_link (face_id_1, face_id_2, collection_id, created_by)
+                       VALUES (%s, %s, %s, %s)
                        ON CONFLICT (face_id_1, face_id_2) DO NOTHING
                        RETURNING id""",
-                    (face_id_1, face_id_2, created_by),
+                    (face_id_1, face_id_2, self.collection_id, created_by),
                 )
                 result = cursor.fetchone()
                 return result[0] if result else None
@@ -1084,11 +1125,11 @@ class PhotoRepository:
         with self.pool.transaction() as conn:
             with conn.cursor() as cursor:
                 cursor.execute(
-                    """INSERT INTO cannot_link (face_id_1, face_id_2, created_by)
-                       VALUES (%s, %s, %s)
+                    """INSERT INTO cannot_link (face_id_1, face_id_2, collection_id, created_by)
+                       VALUES (%s, %s, %s, %s)
                        ON CONFLICT (face_id_1, face_id_2) DO NOTHING
                        RETURNING id""",
-                    (face_id_1, face_id_2, created_by),
+                    (face_id_1, face_id_2, self.collection_id, created_by),
                 )
                 result = cursor.fetchone()
 
@@ -1126,11 +1167,11 @@ class PhotoRepository:
         with self.pool.transaction() as conn:
             with conn.cursor() as cursor:
                 cursor.execute(
-                    """INSERT INTO cluster_cannot_link (cluster_id_1, cluster_id_2)
-                       VALUES (%s, %s)
+                    """INSERT INTO cluster_cannot_link (cluster_id_1, cluster_id_2, collection_id)
+                       VALUES (%s, %s, %s)
                        ON CONFLICT (cluster_id_1, cluster_id_2) DO NOTHING
                        RETURNING id""",
-                    (cluster_id_1, cluster_id_2),
+                    (cluster_id_1, cluster_id_2, self.collection_id),
                 )
                 result = cursor.fetchone()
                 return result[0] if result else None
@@ -1270,15 +1311,16 @@ class PhotoRepository:
             with conn.cursor() as cursor:
                 cursor.execute(
                     """INSERT INTO person_detection
-                       (photo_id, face_bbox_x, face_bbox_y, face_bbox_width, face_bbox_height,
+                       (photo_id, collection_id, face_bbox_x, face_bbox_y, face_bbox_width, face_bbox_height,
                         face_confidence, body_bbox_x, body_bbox_y, body_bbox_width, body_bbox_height,
                         body_confidence, age_estimate, gender, gender_confidence, mivolo_output,
                         person_id, cluster_status, cluster_id, cluster_confidence,
                         detector_model, detector_version, created_at)
-                       VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                       VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
                        RETURNING id""",
                     (
                         detection.photo_id,
+                        detection.collection_id,
                         detection.face_bbox_x,
                         detection.face_bbox_y,
                         detection.face_bbox_width,
@@ -1467,9 +1509,10 @@ class PhotoRepository:
                        FROM person_detection pd
                        JOIN face_embedding fe ON pd.id = fe.person_detection_id
                        WHERE pd.cluster_id IS NOT NULL
+                         AND pd.collection_id = %s
                        ORDER BY fe.embedding <=> %s
                        LIMIT %s""",
-                    (embedding, embedding, limit),
+                    (embedding, self.collection_id, embedding, limit),
                 )
                 return [dict(row) for row in cursor.fetchall()]
 
@@ -1481,11 +1524,16 @@ class PhotoRepository:
                     """SELECT pd.id, pd.cluster_id
                        FROM person_detection pd
                        JOIN (
-                           SELECT detection_id_2 AS linked_id FROM must_link WHERE detection_id_1 = %s
+                           SELECT detection_id_2 AS linked_id
+                           FROM must_link
+                           WHERE detection_id_1 = %s AND collection_id = %s
                            UNION
-                           SELECT detection_id_1 AS linked_id FROM must_link WHERE detection_id_2 = %s
-                       ) ml ON pd.id = ml.linked_id""",
-                    (detection_id, detection_id),
+                           SELECT detection_id_1 AS linked_id
+                           FROM must_link
+                           WHERE detection_id_2 = %s AND collection_id = %s
+                        ) ml ON pd.id = ml.linked_id
+                       WHERE pd.collection_id = %s""",
+                    (detection_id, self.collection_id, detection_id, self.collection_id, self.collection_id),
                 )
                 return [dict(row) for row in cursor.fetchall()]
 
@@ -1497,11 +1545,16 @@ class PhotoRepository:
                     """SELECT pd.id, pd.cluster_id
                        FROM person_detection pd
                        JOIN (
-                           SELECT detection_id_2 AS linked_id FROM cannot_link WHERE detection_id_1 = %s
+                           SELECT detection_id_2 AS linked_id
+                           FROM cannot_link
+                           WHERE detection_id_1 = %s AND collection_id = %s
                            UNION
-                           SELECT detection_id_1 AS linked_id FROM cannot_link WHERE detection_id_2 = %s
-                       ) cl ON pd.id = cl.linked_id""",
-                    (detection_id, detection_id),
+                           SELECT detection_id_1 AS linked_id
+                           FROM cannot_link
+                           WHERE detection_id_2 = %s AND collection_id = %s
+                        ) cl ON pd.id = cl.linked_id
+                       WHERE pd.collection_id = %s""",
+                    (detection_id, self.collection_id, detection_id, self.collection_id, self.collection_id),
                 )
                 return [dict(row) for row in cursor.fetchall()]
 
@@ -1755,11 +1808,15 @@ class PhotoRepository:
             with conn.cursor() as cursor:
                 cursor.execute(
                     """INSERT INTO cluster
-                       (face_count, face_count_at_last_medoid, representative_detection_id,
+                       (collection_id, face_count, face_count_at_last_medoid, representative_detection_id,
                         centroid, medoid_detection_id, created_at, updated_at)
-                       VALUES (%s, %s, %s, %s, %s, NOW(), NOW())
+                       VALUES (
+                           (SELECT collection_id FROM person_detection WHERE id = %s),
+                           %s, %s, %s, %s, %s, NOW(), NOW()
+                       )
                        RETURNING id""",
                     (
+                        representative_detection_id,
                         face_count,
                         face_count,
                         representative_detection_id,
@@ -1773,11 +1830,15 @@ class PhotoRepository:
         """Create multiple detection match candidate records."""
         with self.pool.transaction() as conn:
             with conn.cursor() as cursor:
+                candidates_with_collection = [
+                    (detection_id, cluster_id, detection_id, similarity)
+                    for detection_id, cluster_id, similarity in candidates
+                ]
                 cursor.executemany(
                     """INSERT INTO face_match_candidate
-                       (detection_id, cluster_id, similarity, status, created_at)
-                       VALUES (%s, %s, %s, 'pending', NOW())""",
-                    candidates,
+                       (detection_id, cluster_id, collection_id, similarity, status, created_at)
+                       VALUES (%s, %s, (SELECT collection_id FROM person_detection WHERE id = %s), %s, 'pending', NOW())""",
+                    candidates_with_collection,
                 )
 
     # Prompt Category methods

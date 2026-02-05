@@ -1,27 +1,68 @@
 CREATE EXTENSION IF NOT EXISTS vector;
 
+-- Users table: Application users (minimal auth)
+CREATE TABLE IF NOT EXISTS app_user(
+    id bigserial PRIMARY KEY,
+    username text NOT NULL UNIQUE,
+    password_hash text NOT NULL,
+    first_name text NOT NULL,
+    last_name text NOT NULL,
+    default_collection_id bigint,
+    created_at timestamptz DEFAULT now()
+);
+
+-- Collections table: Named groups of photos owned by users
+CREATE TABLE IF NOT EXISTS collection(
+    id bigserial PRIMARY KEY,
+    owner_user_id bigint NOT NULL,
+    name text NOT NULL,
+    created_at timestamptz DEFAULT now(),
+    FOREIGN KEY (owner_user_id) REFERENCES app_user(id) ON DELETE CASCADE
+);
+
+-- Collection membership table: Explicit access rows (owner included)
+CREATE TABLE IF NOT EXISTS collection_member(
+    collection_id bigint NOT NULL,
+    user_id bigint NOT NULL,
+    created_at timestamptz DEFAULT now(),
+    PRIMARY KEY (collection_id, user_id),
+    FOREIGN KEY (collection_id) REFERENCES collection(id) ON DELETE CASCADE,
+    FOREIGN KEY (user_id) REFERENCES app_user(id) ON DELETE CASCADE
+);
+
+-- Add default collection FK after collection exists (nullable to avoid cyclic bootstrapping)
+ALTER TABLE app_user
+    ADD CONSTRAINT app_user_default_collection_fk
+    FOREIGN KEY (default_collection_id) REFERENCES collection(id) ON DELETE SET NULL;
+
 -- Photo table: Core photo records
 CREATE TABLE IF NOT EXISTS photo(
     id bigserial PRIMARY KEY,
-    filename text NOT NULL UNIQUE, -- Relative path from INGEST_PATH
-    normalized_path text UNIQUE, -- Path to normalized image in IMG_PATH
+    collection_id bigint NOT NULL,
+    filename text NOT NULL, -- Relative path from INGEST_PATH
+    normalized_path text, -- Path to normalized image in IMG_PATH
     width integer, -- Original image width in pixels
     height integer, -- Original image height in pixels
     normalized_width integer, -- Normalized image width in pixels
     normalized_height integer, -- Normalized image height in pixels
     created_at timestamptz DEFAULT now(),
-    updated_at timestamptz DEFAULT now()
+    updated_at timestamptz DEFAULT now(),
+    FOREIGN KEY (collection_id) REFERENCES collection(id) ON DELETE CASCADE,
+    UNIQUE (collection_id, filename),
+    UNIQUE (collection_id, normalized_path)
 );
 
 -- Metadata table: Extracted photo metadata
 CREATE TABLE IF NOT EXISTS metadata(
     photo_id bigint PRIMARY KEY,
+    collection_id bigint NOT NULL,
     captured_at timestamptz, -- When photo was taken
     latitude real,
     longitude real,
     extra jsonb, -- All EXIF/TIFF/IFD metadata as JSONB (PostgreSQL native JSON)
     created_at timestamptz DEFAULT now(),
-    FOREIGN KEY (photo_id) REFERENCES photo(id) ON DELETE CASCADE
+    FOREIGN KEY (photo_id) REFERENCES photo(id) ON DELETE CASCADE,
+    FOREIGN KEY (collection_id) REFERENCES collection(id) ON DELETE CASCADE
 );
 
 -- Processing status table: Track processing stages
@@ -38,14 +79,20 @@ CREATE TABLE IF NOT EXISTS processing_status(
 -- Indexes for performance
 -- Note: photo.filename has UNIQUE constraint which creates an implicit index
 
+CREATE INDEX IF NOT EXISTS idx_photo_collection_id ON photo(collection_id, id);
+
 CREATE INDEX IF NOT EXISTS idx_metadata_captured_at ON metadata(captured_at);
+CREATE INDEX IF NOT EXISTS idx_metadata_collection_captured_at ON metadata(collection_id, captured_at);
 
 -- Expression index for date-based queries using EXTRACT(YEAR/MONTH FROM captured_at)
 -- Note: Must use AT TIME ZONE 'UTC' for EXTRACT to be immutable on timestamptz
 CREATE INDEX IF NOT EXISTS idx_metadata_year_month
 ON metadata (EXTRACT(YEAR FROM captured_at AT TIME ZONE 'UTC'), EXTRACT(MONTH FROM captured_at AT TIME ZONE 'UTC'));
+CREATE INDEX IF NOT EXISTS idx_metadata_collection_year_month
+ON metadata (collection_id, EXTRACT(YEAR FROM captured_at AT TIME ZONE 'UTC'), EXTRACT(MONTH FROM captured_at AT TIME ZONE 'UTC'));
 
 CREATE INDEX IF NOT EXISTS idx_metadata_location ON metadata(latitude, longitude);
+CREATE INDEX IF NOT EXISTS idx_metadata_collection_location ON metadata(collection_id, latitude, longitude);
 
 CREATE INDEX IF NOT EXISTS idx_processing_status ON processing_status(status, stage);
 
@@ -134,6 +181,7 @@ CREATE INDEX IF NOT EXISTS idx_batch_job_submitted_at ON batch_job(submitted_at)
 -- People table: Named individuals that can appear in photos (whether detected or manually assigned)
 CREATE TABLE IF NOT EXISTS person(
     id bigserial PRIMARY KEY,
+    collection_id bigint NOT NULL,
     first_name text NOT NULL,
     last_name text,
     -- Age/gender aggregation from detections
@@ -144,13 +192,15 @@ CREATE TABLE IF NOT EXISTS person(
     age_gender_sample_count integer DEFAULT 0,
     age_gender_updated_at timestamptz,
     created_at timestamp with time zone DEFAULT NOW(),
-    updated_at timestamp with time zone DEFAULT NOW()
+    updated_at timestamp with time zone DEFAULT NOW(),
+    FOREIGN KEY (collection_id) REFERENCES collection(id) ON DELETE CASCADE
 );
 
 -- Person Detection table: Detected faces/bodies in photos with bounding boxes and age/gender
 CREATE TABLE IF NOT EXISTS person_detection(
     id bigserial PRIMARY KEY,
     photo_id bigint NOT NULL,
+    collection_id bigint NOT NULL,
 
     -- Face bounding box (nullable - may have body-only detection)
     face_bbox_x real,
@@ -189,12 +239,14 @@ CREATE TABLE IF NOT EXISTS person_detection(
     created_at timestamptz DEFAULT now(),
 
     FOREIGN KEY (photo_id) REFERENCES photo(id) ON DELETE CASCADE,
+    FOREIGN KEY (collection_id) REFERENCES collection(id) ON DELETE CASCADE,
     FOREIGN KEY (person_id) REFERENCES person(id) ON DELETE SET NULL,
     FOREIGN KEY (cluster_id) REFERENCES "cluster"(id) ON DELETE SET NULL
 );
 
 -- Indexes for person detection performance
 CREATE INDEX IF NOT EXISTS idx_person_detection_photo_id ON person_detection(photo_id);
+CREATE INDEX IF NOT EXISTS idx_person_detection_collection_id ON person_detection(collection_id);
 
 CREATE INDEX IF NOT EXISTS idx_person_detection_person_id ON person_detection(person_id);
 
@@ -217,6 +269,8 @@ CREATE INDEX IF NOT EXISTS idx_person_detection_age ON person_detection(age_esti
 
 CREATE INDEX IF NOT EXISTS idx_person_first_name ON person(first_name);
 CREATE INDEX IF NOT EXISTS idx_person_last_name ON person(last_name);
+CREATE INDEX IF NOT EXISTS idx_person_collection_first_name ON person(collection_id, first_name);
+CREATE INDEX IF NOT EXISTS idx_person_collection_last_name ON person(collection_id, last_name);
 
 -- Face-level embeddings (for clustering & recognition)
 CREATE TABLE IF NOT EXISTS face_embedding(
@@ -229,6 +283,7 @@ CREATE INDEX IF NOT EXISTS face_embedding_idx ON face_embedding USING ivfflat(em
 -- Group of faces belonging to the same person
 CREATE TABLE IF NOT EXISTS "cluster"(
     id bigserial PRIMARY KEY,
+    collection_id bigint NOT NULL,
     face_count bigint DEFAULT 0,
     face_count_at_last_medoid bigint DEFAULT 0, -- For threshold-based medoid recomputation
     representative_detection_id bigint REFERENCES person_detection(id) ON DELETE SET NULL,
@@ -243,7 +298,8 @@ CREATE TABLE IF NOT EXISTS "cluster"(
     hidden boolean DEFAULT false,
     created_at timestamptz DEFAULT now(),
     updated_at timestamptz DEFAULT now(),
-    FOREIGN KEY (person_id) REFERENCES person(id) ON DELETE SET NULL
+    FOREIGN KEY (person_id) REFERENCES person(id) ON DELETE SET NULL,
+    FOREIGN KEY (collection_id) REFERENCES collection(id) ON DELETE CASCADE
 );
 
 -- Tracks potential cluster assignments requiring review
@@ -251,6 +307,7 @@ CREATE TABLE IF NOT EXISTS face_match_candidate(
     candidate_id bigserial PRIMARY KEY,
     detection_id bigint REFERENCES person_detection(id) ON DELETE CASCADE,
     cluster_id bigint REFERENCES "cluster"(id) ON DELETE CASCADE,
+    collection_id bigint NOT NULL REFERENCES collection(id) ON DELETE CASCADE,
     similarity float NOT NULL,
     status text CHECK (status IN ('pending', 'accepted', 'rejected')) DEFAULT 'pending',
     created_at timestamp DEFAULT now()
@@ -263,6 +320,9 @@ CREATE INDEX IF NOT EXISTS idx_cluster_centroid ON "cluster" USING ivfflat(centr
 CREATE INDEX IF NOT EXISTS idx_cluster_visible
 ON cluster(face_count DESC, id)
 WHERE face_count > 0 AND (hidden = false OR hidden IS NULL);
+CREATE INDEX IF NOT EXISTS idx_cluster_collection_visible
+ON cluster(collection_id, face_count DESC, id)
+WHERE face_count > 0 AND (hidden = false OR hidden IS NULL);
 
 -- Simple filter index for hidden column (from migration 003)
 CREATE INDEX IF NOT EXISTS idx_cluster_hidden ON cluster(hidden) WHERE hidden = true;
@@ -271,8 +331,12 @@ CREATE INDEX IF NOT EXISTS idx_cluster_hidden ON cluster(hidden) WHERE hidden = 
 CREATE INDEX IF NOT EXISTS idx_cluster_hidden_listing
 ON cluster(face_count DESC, id)
 WHERE face_count > 0 AND hidden = true;
+CREATE INDEX IF NOT EXISTS idx_cluster_collection_hidden_listing
+ON cluster(collection_id, face_count DESC, id)
+WHERE face_count > 0 AND hidden = true;
 
 CREATE INDEX IF NOT EXISTS idx_face_match_candidate_detection ON face_match_candidate(detection_id);
+CREATE INDEX IF NOT EXISTS idx_face_match_candidate_collection ON face_match_candidate(collection_id);
 
 CREATE INDEX IF NOT EXISTS idx_face_match_candidate_status ON face_match_candidate(status);
 
@@ -281,6 +345,7 @@ CREATE TABLE IF NOT EXISTS must_link(
     id bigserial PRIMARY KEY,
     detection_id_1 bigint NOT NULL REFERENCES person_detection(id) ON DELETE CASCADE,
     detection_id_2 bigint NOT NULL REFERENCES person_detection(id) ON DELETE CASCADE,
+    collection_id bigint NOT NULL REFERENCES collection(id) ON DELETE CASCADE,
     created_by text DEFAULT 'human', -- 'human' or 'system'
     created_at timestamptz DEFAULT NOW(),
     UNIQUE(detection_id_1, detection_id_2),
@@ -292,6 +357,7 @@ CREATE TABLE IF NOT EXISTS cannot_link(
     id bigserial PRIMARY KEY,
     detection_id_1 bigint NOT NULL REFERENCES person_detection(id) ON DELETE CASCADE,
     detection_id_2 bigint NOT NULL REFERENCES person_detection(id) ON DELETE CASCADE,
+    collection_id bigint NOT NULL REFERENCES collection(id) ON DELETE CASCADE,
     created_by text DEFAULT 'human',
     created_at timestamptz DEFAULT NOW(),
     UNIQUE(detection_id_1, detection_id_2),
@@ -303,6 +369,7 @@ CREATE TABLE IF NOT EXISTS cluster_cannot_link(
     id bigserial PRIMARY KEY,
     cluster_id_1 bigint NOT NULL REFERENCES "cluster"(id) ON DELETE CASCADE,
     cluster_id_2 bigint NOT NULL REFERENCES "cluster"(id) ON DELETE CASCADE,
+    collection_id bigint NOT NULL REFERENCES collection(id) ON DELETE CASCADE,
     created_at timestamptz DEFAULT NOW(),
     UNIQUE(cluster_id_1, cluster_id_2),
     CHECK (cluster_id_1 < cluster_id_2)
@@ -311,16 +378,19 @@ CREATE TABLE IF NOT EXISTS cluster_cannot_link(
 -- Indexes for constraint lookups
 CREATE INDEX IF NOT EXISTS idx_must_link_detection1 ON must_link(detection_id_1);
 CREATE INDEX IF NOT EXISTS idx_must_link_detection2 ON must_link(detection_id_2);
+CREATE INDEX IF NOT EXISTS idx_must_link_collection ON must_link(collection_id);
 CREATE INDEX IF NOT EXISTS idx_cannot_link_detection1 ON cannot_link(detection_id_1);
 CREATE INDEX IF NOT EXISTS idx_cannot_link_detection2 ON cannot_link(detection_id_2);
+CREATE INDEX IF NOT EXISTS idx_cannot_link_collection ON cannot_link(collection_id);
 CREATE INDEX IF NOT EXISTS idx_cluster_cannot_link_c1 ON cluster_cannot_link(cluster_id_1);
 CREATE INDEX IF NOT EXISTS idx_cluster_cannot_link_c2 ON cluster_cannot_link(cluster_id_2);
+CREATE INDEX IF NOT EXISTS idx_cluster_cannot_link_collection ON cluster_cannot_link(collection_id);
 CREATE INDEX IF NOT EXISTS idx_cluster_verified ON "cluster"(verified) WHERE verified = true;
 
 -- Helper functions for constraint management
 
 -- Function to add a must-link constraint with canonical ordering
-CREATE OR REPLACE FUNCTION add_must_link(p_detection_id_1 bigint, p_detection_id_2 bigint, p_created_by text DEFAULT 'human')
+CREATE OR REPLACE FUNCTION add_must_link(p_detection_id_1 bigint, p_detection_id_2 bigint, p_collection_id bigint, p_created_by text DEFAULT 'human')
 RETURNS bigint AS $$
 DECLARE
     v_id bigint;
@@ -336,8 +406,8 @@ BEGIN
         v_detection_2 := p_detection_id_1;
     END IF;
 
-    INSERT INTO must_link (detection_id_1, detection_id_2, created_by)
-    VALUES (v_detection_1, v_detection_2, p_created_by)
+    INSERT INTO must_link (detection_id_1, detection_id_2, collection_id, created_by)
+    VALUES (v_detection_1, v_detection_2, p_collection_id, p_created_by)
     ON CONFLICT (detection_id_1, detection_id_2) DO NOTHING
     RETURNING id INTO v_id;
 
@@ -346,7 +416,7 @@ END;
 $$ LANGUAGE plpgsql;
 
 -- Function to add a cannot-link constraint with canonical ordering
-CREATE OR REPLACE FUNCTION add_cannot_link(p_detection_id_1 bigint, p_detection_id_2 bigint, p_created_by text DEFAULT 'human')
+CREATE OR REPLACE FUNCTION add_cannot_link(p_detection_id_1 bigint, p_detection_id_2 bigint, p_collection_id bigint, p_created_by text DEFAULT 'human')
 RETURNS bigint AS $$
 DECLARE
     v_id bigint;
@@ -362,8 +432,8 @@ BEGIN
         v_detection_2 := p_detection_id_1;
     END IF;
 
-    INSERT INTO cannot_link (detection_id_1, detection_id_2, created_by)
-    VALUES (v_detection_1, v_detection_2, p_created_by)
+    INSERT INTO cannot_link (detection_id_1, detection_id_2, collection_id, created_by)
+    VALUES (v_detection_1, v_detection_2, p_collection_id, p_created_by)
     ON CONFLICT (detection_id_1, detection_id_2) DO NOTHING
     RETURNING id INTO v_id;
 

@@ -14,6 +14,12 @@ const pool = new Pool({
   connectionTimeoutMillis: 2000,
 });
 
+function getCollectionId(): number {
+  const raw = process.env.COLLECTION_ID || "1";
+  const parsed = Number.parseInt(raw, 10);
+  return Number.isNaN(parsed) ? 1 : parsed;
+}
+
 // Initialize database on first connection
 let dbInitialized = false;
 
@@ -51,6 +57,8 @@ async function initDatabase() {
 export async function getYearsWithPhotos() {
   await initDatabase();
 
+  const collectionId = getCollectionId();
+
   // Single query with LATERAL join for sample photos
   // Uses day-of-year to create daily-varying but deterministic selection
   // The modulo with a prime (997) spreads photos across the ID space
@@ -65,6 +73,7 @@ export async function getYearsWithPhotos() {
         COUNT(*)::int as photo_count
       FROM metadata m
       WHERE m.captured_at IS NOT NULL
+        AND m.collection_id = $1
       GROUP BY year
     ) y
     LEFT JOIN LATERAL (
@@ -76,13 +85,15 @@ export async function getYearsWithPhotos() {
         FROM photo p
         JOIN metadata m ON p.id = m.photo_id
         WHERE EXTRACT(YEAR FROM m.captured_at AT TIME ZONE 'UTC') = y.year
+          AND m.collection_id = $1
+          AND p.collection_id = $1
         LIMIT 4
       ) ranked
     ) s ON true
     ORDER BY y.year DESC
   `;
 
-  const result = await pool.query(query);
+  const result = await pool.query(query, [collectionId]);
 
   // Add backward compatibility field
   return result.rows.map((row) => ({
@@ -93,6 +104,8 @@ export async function getYearsWithPhotos() {
 
 export async function getMonthsInYear(year: number) {
   await initDatabase();
+
+  const collectionId = getCollectionId();
 
   // Single query with LATERAL join for sample photos
   // Uses daily-varying deterministic selection like getYearsWithPhotos
@@ -108,6 +121,7 @@ export async function getMonthsInYear(year: number) {
       FROM metadata m
       WHERE EXTRACT(YEAR FROM m.captured_at AT TIME ZONE 'UTC') = $1
         AND m.captured_at IS NOT NULL
+        AND m.collection_id = $2
       GROUP BY month
     ) mo
     LEFT JOIN LATERAL (
@@ -120,13 +134,15 @@ export async function getMonthsInYear(year: number) {
         JOIN metadata m ON p.id = m.photo_id
         WHERE EXTRACT(YEAR FROM m.captured_at AT TIME ZONE 'UTC') = $1
           AND EXTRACT(MONTH FROM m.captured_at AT TIME ZONE 'UTC') = mo.month
+          AND m.collection_id = $2
+          AND p.collection_id = $2
         LIMIT 4
       ) ranked
     ) s ON true
     ORDER BY mo.month
   `;
 
-  const result = await pool.query(query, [year]);
+  const result = await pool.query(query, [year, collectionId]);
 
   const monthNames = [
     "",
@@ -153,6 +169,8 @@ export async function getMonthsInYear(year: number) {
 export async function getPhotosByMonth(year: number, month: number, limit = 100, offset = 0) {
   await initDatabase();
 
+  const collectionId = getCollectionId();
+
   const query = `
     SELECT p.id, p.filename, p.normalized_path,
            m.captured_at, m.latitude, m.longitude,
@@ -163,11 +181,13 @@ export async function getPhotosByMonth(year: number, month: number, limit = 100,
     LEFT JOIN llm_analysis la ON p.id = la.photo_id
     WHERE EXTRACT(YEAR FROM m.captured_at AT TIME ZONE 'UTC') = $1
       AND EXTRACT(MONTH FROM m.captured_at AT TIME ZONE 'UTC') = $2
+      AND m.collection_id = $3
+      AND p.collection_id = $3
     ORDER BY m.captured_at, p.filename
-    LIMIT $3 OFFSET $4
+    LIMIT $4 OFFSET $5
   `;
 
-  const result = await pool.query(query, [year, month, limit, offset]);
+  const result = await pool.query(query, [year, month, collectionId, limit, offset]);
 
   // Process photos to add computed fields
   const photos = result.rows.map((photo) => ({
@@ -186,19 +206,24 @@ export async function getPhotosByMonth(year: number, month: number, limit = 100,
 export async function getPhotoCountByMonth(year: number, month: number) {
   await initDatabase();
 
+  const collectionId = getCollectionId();
+
   const query = `
     SELECT COUNT(*) as count
     FROM metadata m
     WHERE EXTRACT(YEAR FROM m.captured_at AT TIME ZONE 'UTC') = $1
       AND EXTRACT(MONTH FROM m.captured_at AT TIME ZONE 'UTC') = $2
+      AND m.collection_id = $3
   `;
 
-  const result = await pool.query(query, [year, month]);
+  const result = await pool.query(query, [year, month, collectionId]);
   return parseInt(result.rows[0].count, 10);
 }
 
 export async function getPhotoDetails(photoId: number) {
   await initDatabase();
+
+  const collectionId = getCollectionId();
 
   const query = `
     SELECT p.id, p.filename, p.normalized_path, 
@@ -213,10 +238,10 @@ export async function getPhotoDetails(photoId: number) {
     FROM photo p
     LEFT JOIN metadata m ON p.id = m.photo_id
     LEFT JOIN llm_analysis la ON p.id = la.photo_id
-    WHERE p.id = $1
+    WHERE p.id = $1 AND p.collection_id = $2
   `;
 
-  const result = await pool.query(query, [photoId]);
+  const result = await pool.query(query, [photoId, collectionId]);
   if (result.rows.length === 0) {
     return null;
   }
@@ -370,18 +395,22 @@ export async function getPhotoDetails(photoId: number) {
 export async function getPhotoById(photoId: number) {
   await initDatabase();
 
+  const collectionId = getCollectionId();
+
   const query = `
     SELECT id, filename, normalized_path
     FROM photo
-    WHERE id = $1
+    WHERE id = $1 AND collection_id = $2
   `;
 
-  const result = await pool.query(query, [photoId]);
+  const result = await pool.query(query, [photoId, collectionId]);
   return result.rows[0] || null;
 }
 
 export async function getClusters(limit = 50, offset = 0) {
   await initDatabase();
+
+  const collectionId = getCollectionId();
 
   const query = `
     SELECT c.id, c.face_count, c.representative_detection_id,
@@ -395,29 +424,35 @@ export async function getClusters(limit = 50, offset = 0) {
     LEFT JOIN photo p ON pd.photo_id = p.id
     LEFT JOIN person per ON c.person_id = per.id
     WHERE c.face_count > 0 AND (c.hidden = false OR c.hidden IS NULL)
+      AND c.collection_id = $1
     ORDER BY c.face_count DESC, c.id
-    LIMIT $1 OFFSET $2
+    LIMIT $2 OFFSET $3
   `;
 
-  const result = await pool.query(query, [limit, offset]);
+  const result = await pool.query(query, [collectionId, limit, offset]);
   return result.rows;
 }
 
 export async function getClustersCount() {
   await initDatabase();
 
+  const collectionId = getCollectionId();
+
   const query = `
     SELECT COUNT(*) as count
     FROM cluster
     WHERE face_count > 0 AND (hidden = false OR hidden IS NULL)
+      AND collection_id = $1
   `;
 
-  const result = await pool.query(query);
+  const result = await pool.query(query, [collectionId]);
   return parseInt(result.rows[0].count, 10);
 }
 
 export async function getHiddenClusters(limit = 50, offset = 0) {
   await initDatabase();
+
+  const collectionId = getCollectionId();
 
   const query = `
     SELECT c.id, c.face_count, c.representative_detection_id,
@@ -431,29 +466,35 @@ export async function getHiddenClusters(limit = 50, offset = 0) {
     LEFT JOIN photo p ON pd.photo_id = p.id
     LEFT JOIN person per ON c.person_id = per.id
     WHERE c.face_count > 0 AND c.hidden = true
+      AND c.collection_id = $1
     ORDER BY c.face_count DESC, c.id
-    LIMIT $1 OFFSET $2
+    LIMIT $2 OFFSET $3
   `;
 
-  const result = await pool.query(query, [limit, offset]);
+  const result = await pool.query(query, [collectionId, limit, offset]);
   return result.rows;
 }
 
 export async function getHiddenClustersCount() {
   await initDatabase();
 
+  const collectionId = getCollectionId();
+
   const query = `
     SELECT COUNT(*) as count
     FROM cluster
     WHERE face_count > 0 AND hidden = true
+      AND collection_id = $1
   `;
 
-  const result = await pool.query(query);
+  const result = await pool.query(query, [collectionId]);
   return parseInt(result.rows[0].count, 10);
 }
 
 export async function getNamedClusters(limit = 50, offset = 0, sort: "photos" | "name" = "name") {
   await initDatabase();
+
+  const collectionId = getCollectionId();
 
   const orderBy =
     sort === "photos"
@@ -472,39 +513,45 @@ export async function getNamedClusters(limit = 50, offset = 0, sort: "photos" | 
     LEFT JOIN person_detection pd ON c.representative_detection_id = pd.id
     LEFT JOIN photo p ON pd.photo_id = p.id
     WHERE c.face_count > 0 AND (c.hidden = false OR c.hidden IS NULL)
+      AND c.collection_id = $1
     ORDER BY ${orderBy}
-    LIMIT $1 OFFSET $2
+    LIMIT $2 OFFSET $3
   `;
 
-  const result = await pool.query(query, [limit, offset]);
+  const result = await pool.query(query, [collectionId, limit, offset]);
   return result.rows;
 }
 
 export async function getNamedClustersCount() {
   await initDatabase();
 
+  const collectionId = getCollectionId();
+
   const query = `
     SELECT COUNT(*) as count
     FROM cluster c
     INNER JOIN person per ON c.person_id = per.id
     WHERE c.face_count > 0 AND (c.hidden = false OR c.hidden IS NULL)
+      AND c.collection_id = $1
   `;
 
-  const result = await pool.query(query);
+  const result = await pool.query(query, [collectionId]);
   return parseInt(result.rows[0].count, 10);
 }
 
 export async function setClusterHidden(clusterId: string, hidden: boolean) {
   await initDatabase();
 
+  const collectionId = getCollectionId();
+
   const query = `
     UPDATE cluster
     SET hidden = $1, updated_at = NOW()
-    WHERE id = $2
+    WHERE id = $2 AND collection_id = $3
     RETURNING id
   `;
 
-  const result = await pool.query(query, [hidden, clusterId]);
+  const result = await pool.query(query, [hidden, clusterId, collectionId]);
   return {
     success: result.rows.length > 0,
     message: hidden ? "Cluster hidden" : "Cluster unhidden",
@@ -514,12 +561,17 @@ export async function setClusterHidden(clusterId: string, hidden: boolean) {
 export async function setClusterPersonName(clusterId: string, firstName: string, lastName?: string) {
   await initDatabase();
 
+  const collectionId = getCollectionId();
+
   const client = await pool.connect();
   try {
     await client.query("BEGIN");
 
     // Check if cluster already has a person_id
-    const clusterResult = await client.query("SELECT person_id FROM cluster WHERE id = $1", [clusterId]);
+    const clusterResult = await client.query(
+      "SELECT person_id FROM cluster WHERE id = $1 AND collection_id = $2",
+      [clusterId, collectionId],
+    );
     if (clusterResult.rows.length === 0) {
       await client.query("ROLLBACK");
       return { success: false, message: "Cluster not found" };
@@ -529,21 +581,21 @@ export async function setClusterPersonName(clusterId: string, firstName: string,
 
     if (existingPersonId) {
       // Update existing person's name
-      await client.query("UPDATE person SET first_name = $1, last_name = $2, updated_at = NOW() WHERE id = $3", [
-        firstName,
-        lastName || null,
-        existingPersonId,
-      ]);
+      await client.query(
+        "UPDATE person SET first_name = $1, last_name = $2, updated_at = NOW() WHERE id = $3 AND collection_id = $4",
+        [firstName, lastName || null, existingPersonId, collectionId],
+      );
     } else {
       // Create new person and link to cluster
       const personResult = await client.query(
-        "INSERT INTO person (first_name, last_name) VALUES ($1, $2) RETURNING id",
-        [firstName, lastName || null],
+        "INSERT INTO person (collection_id, first_name, last_name) VALUES ($1, $2, $3) RETURNING id",
+        [collectionId, firstName, lastName || null],
       );
       const newPersonId = personResult.rows[0].id;
-      await client.query("UPDATE cluster SET person_id = $1, updated_at = NOW() WHERE id = $2", [
+      await client.query("UPDATE cluster SET person_id = $1, updated_at = NOW() WHERE id = $2 AND collection_id = $3", [
         newPersonId,
         clusterId,
+        collectionId,
       ]);
     }
 
@@ -561,6 +613,8 @@ export async function setClusterPersonName(clusterId: string, firstName: string,
 export async function deleteCluster(clusterId: string) {
   await initDatabase();
 
+  const collectionId = getCollectionId();
+
   const client = await pool.connect();
   try {
     await client.query("BEGIN");
@@ -572,19 +626,19 @@ export async function deleteCluster(clusterId: string) {
           cluster_status = 'unassigned',
           cluster_confidence = 0,
           unassigned_since = NOW()
-      WHERE cluster_id = $1
+      WHERE cluster_id = $1 AND collection_id = $2
       RETURNING id
     `;
-    const detectionsResult = await client.query(updateDetectionsQuery, [clusterId]);
+    const detectionsResult = await client.query(updateDetectionsQuery, [clusterId, collectionId]);
     const detectionsRemoved = detectionsResult.rowCount || 0;
 
     // Delete the cluster
     const deleteQuery = `
       DELETE FROM cluster
-      WHERE id = $1
+      WHERE id = $1 AND collection_id = $2
       RETURNING id
     `;
-    const deleteResult = await client.query(deleteQuery, [clusterId]);
+    const deleteResult = await client.query(deleteQuery, [clusterId, collectionId]);
 
     await client.query("COMMIT");
 
@@ -608,6 +662,8 @@ export async function deleteCluster(clusterId: string) {
 export async function getClusterDetails(clusterId: string) {
   await initDatabase();
 
+  const collectionId = getCollectionId();
+
   const query = `
     SELECT c.id, c.face_count, c.representative_detection_id,
            c.hidden,
@@ -623,15 +679,17 @@ export async function getClusterDetails(clusterId: string) {
     LEFT JOIN person per ON c.person_id = per.id
     LEFT JOIN person_detection rep ON c.representative_detection_id = rep.id
     LEFT JOIN photo p ON rep.photo_id = p.id
-    WHERE c.id = $1
+    WHERE c.id = $1 AND c.collection_id = $2
   `;
 
-  const result = await pool.query(query, [clusterId]);
+  const result = await pool.query(query, [clusterId, collectionId]);
   return result.rows[0] || null;
 }
 
 export async function getClusterFaces(clusterId: string, limit = 24, offset = 0) {
   await initDatabase();
+
+  const collectionId = getCollectionId();
 
   const query = `
     SELECT pd.id, pd.face_bbox_x as bbox_x, pd.face_bbox_y as bbox_y,
@@ -641,26 +699,28 @@ export async function getClusterFaces(clusterId: string, limit = 24, offset = 0)
            p.normalized_path, p.filename, p.normalized_width, p.normalized_height
     FROM person_detection pd
     JOIN photo p ON pd.photo_id = p.id
-    WHERE pd.cluster_id = $1
-    ORDER BY (pd.id = (SELECT representative_detection_id FROM cluster WHERE id = $1)) DESC,
+    WHERE pd.cluster_id = $1 AND pd.collection_id = $2
+    ORDER BY (pd.id = (SELECT representative_detection_id FROM cluster WHERE id = $1 AND collection_id = $2)) DESC,
              pd.cluster_confidence DESC, pd.id
-    LIMIT $2 OFFSET $3
+    LIMIT $3 OFFSET $4
   `;
 
-  const result = await pool.query(query, [clusterId, limit, offset]);
+  const result = await pool.query(query, [clusterId, collectionId, limit, offset]);
   return result.rows;
 }
 
 export async function getClusterFacesCount(clusterId: string) {
   await initDatabase();
 
+  const collectionId = getCollectionId();
+
   const query = `
     SELECT COUNT(*) as count
     FROM person_detection
-    WHERE cluster_id = $1
+    WHERE cluster_id = $1 AND collection_id = $2
   `;
 
-  const result = await pool.query(query, [clusterId]);
+  const result = await pool.query(query, [clusterId, collectionId]);
   return parseInt(result.rows[0].count, 10);
 }
 
@@ -669,22 +729,26 @@ export async function getClusterFacesCount(clusterId: string) {
 export async function addCannotLink(detectionId1: number, detectionId2: number) {
   await initDatabase();
 
+  const collectionId = getCollectionId();
+
   // Canonical ordering to prevent duplicates
   const [id1, id2] = detectionId1 < detectionId2 ? [detectionId1, detectionId2] : [detectionId2, detectionId1];
 
   const query = `
-    INSERT INTO cannot_link (detection_id_1, detection_id_2, created_by)
-    VALUES ($1, $2, 'web')
+    INSERT INTO cannot_link (detection_id_1, detection_id_2, collection_id, created_by)
+    VALUES ($1, $2, $3, 'web')
     ON CONFLICT (detection_id_1, detection_id_2) DO NOTHING
     RETURNING id
   `;
 
-  const result = await pool.query(query, [id1, id2]);
+  const result = await pool.query(query, [id1, id2, collectionId]);
   return result.rows[0]?.id || null;
 }
 
 export async function getCannotLinksForCluster(clusterId: string) {
   await initDatabase();
+
+  const collectionId = getCollectionId();
 
   // Get all cannot-link pairs where both detections are in this cluster
   const query = `
@@ -693,34 +757,41 @@ export async function getCannotLinksForCluster(clusterId: string) {
     JOIN person_detection pd1 ON cl.detection_id_1 = pd1.id
     JOIN person_detection pd2 ON cl.detection_id_2 = pd2.id
     WHERE pd1.cluster_id = $1 AND pd2.cluster_id = $1
+      AND cl.collection_id = $2
+      AND pd1.collection_id = $2
+      AND pd2.collection_id = $2
     ORDER BY cl.created_at DESC
   `;
 
-  const result = await pool.query(query, [clusterId]);
+  const result = await pool.query(query, [clusterId, collectionId]);
   return result.rows;
 }
 
 export async function removeCannotLink(cannotLinkId: number) {
   await initDatabase();
 
+  const collectionId = getCollectionId();
+
   const query = `
     DELETE FROM cannot_link
-    WHERE id = $1
+    WHERE id = $1 AND collection_id = $2
     RETURNING id
   `;
 
-  const result = await pool.query(query, [cannotLinkId]);
+  const result = await pool.query(query, [cannotLinkId, collectionId]);
   return result.rows[0]?.id || null;
 }
 
 export async function setClusterRepresentative(clusterId: string, detectionId: number) {
   await initDatabase();
 
+  const collectionId = getCollectionId();
+
   // Verify detection belongs to this cluster
   const verifyQuery = `
-    SELECT cluster_id FROM person_detection WHERE id = $1
+    SELECT cluster_id FROM person_detection WHERE id = $1 AND collection_id = $2
   `;
-  const verifyResult = await pool.query(verifyQuery, [detectionId]);
+  const verifyResult = await pool.query(verifyQuery, [detectionId, collectionId]);
   if (verifyResult.rows.length === 0 || verifyResult.rows[0].cluster_id?.toString() !== clusterId) {
     return { success: false, message: "Detection does not belong to this cluster" };
   }
@@ -730,11 +801,11 @@ export async function setClusterRepresentative(clusterId: string, detectionId: n
     UPDATE cluster
     SET representative_detection_id = $1,
         updated_at = NOW()
-    WHERE id = $2
+    WHERE id = $2 AND collection_id = $3
     RETURNING id
   `;
 
-  const result = await pool.query(updateQuery, [detectionId, clusterId]);
+  const result = await pool.query(updateQuery, [detectionId, clusterId, collectionId]);
   return {
     success: result.rows.length > 0,
     message: result.rows.length > 0 ? "Representative photo updated" : "Failed to update",
@@ -748,6 +819,8 @@ export async function dissociateFacesFromCluster(
 ) {
   await initDatabase();
 
+  const collectionId = getCollectionId();
+
   if (detectionIds.length === 0) {
     return { success: false, message: "No detections selected", removedCount: 0 };
   }
@@ -755,6 +828,15 @@ export async function dissociateFacesFromCluster(
   const client = await pool.connect();
   try {
     await client.query("BEGIN");
+
+    const clusterCheck = await client.query(
+      "SELECT id FROM cluster WHERE id = $1 AND collection_id = $2",
+      [clusterId, collectionId],
+    );
+    if (clusterCheck.rows.length === 0) {
+      await client.query("ROLLBACK");
+      return { success: false, message: "Cluster not found", removedCount: 0 };
+    }
 
     // Step 1: Find all detections in cluster similar to selected detections above threshold
     // Using cosine distance: 1 - cosine_similarity, so threshold becomes 1 - similarityThreshold
@@ -809,16 +891,16 @@ export async function dissociateFacesFromCluster(
           cluster_status = 'unassigned',
           cluster_confidence = 0,
           unassigned_since = NOW()
-      WHERE id = ANY($1) AND cluster_id = $2
+      WHERE id = ANY($1) AND cluster_id = $2 AND collection_id = $3
       RETURNING id
     `;
-    const removeResult = await client.query(removeQuery, [allDetectionsToRemove, clusterId]);
+    const removeResult = await client.query(removeQuery, [allDetectionsToRemove, clusterId, collectionId]);
     const removedCount = removeResult.rowCount || 0;
 
     // Step 4: Update cluster face count
     await client.query(
-      `UPDATE cluster SET face_count = GREATEST(0, face_count - $1), updated_at = NOW() WHERE id = $2`,
-      [removedCount, clusterId],
+      `UPDATE cluster SET face_count = GREATEST(0, face_count - $1), updated_at = NOW() WHERE id = $2 AND collection_id = $3`,
+      [removedCount, clusterId, collectionId],
     );
 
     // Step 5: Create cannot-link constraints between removed detections and a remaining cluster detection
@@ -834,10 +916,10 @@ export async function dissociateFacesFromCluster(
             : [remainingDetectionId, removedDetectionId];
 
         await client.query(
-          `INSERT INTO cannot_link (detection_id_1, detection_id_2, created_by)
-           VALUES ($1, $2, 'web')
+          `INSERT INTO cannot_link (detection_id_1, detection_id_2, collection_id, created_by)
+           VALUES ($1, $2, $3, 'web')
            ON CONFLICT (detection_id_1, detection_id_2) DO NOTHING`,
-          [id1, id2],
+          [id1, id2, collectionId],
         );
       }
     }
@@ -861,6 +943,8 @@ export async function dissociateFacesFromCluster(
 export async function searchClusters(query: string, excludeClusterId?: string, limit = 20) {
   await initDatabase();
 
+  const collectionId = getCollectionId();
+
   // Search by cluster ID or person name
   const searchQuery = `
     SELECT c.id, c.face_count, c.representative_detection_id,
@@ -874,6 +958,7 @@ export async function searchClusters(query: string, excludeClusterId?: string, l
     LEFT JOIN person per ON c.person_id = per.id
     WHERE c.face_count > 0
       AND (c.hidden = false OR c.hidden IS NULL)
+      AND c.collection_id = $4
       AND ($1::text IS NULL OR c.id::text = $1
            OR per.first_name ILIKE '%' || $1 || '%'
            OR per.last_name ILIKE '%' || $1 || '%'
@@ -886,12 +971,19 @@ export async function searchClusters(query: string, excludeClusterId?: string, l
     LIMIT $3
   `;
 
-  const result = await pool.query(searchQuery, [query || null, excludeClusterId || null, limit]);
+  const result = await pool.query(searchQuery, [
+    query || null,
+    excludeClusterId || null,
+    limit,
+    collectionId,
+  ]);
   return result.rows;
 }
 
 export async function mergeClusters(sourceClusterId: string, targetClusterId: string) {
   await initDatabase();
+
+  const collectionId = getCollectionId();
 
   if (sourceClusterId === targetClusterId) {
     return { success: false, message: "Cannot merge a cluster with itself" };
@@ -902,16 +994,16 @@ export async function mergeClusters(sourceClusterId: string, targetClusterId: st
     await client.query("BEGIN");
 
     // Get source cluster info
-    const sourceQuery = `SELECT id, face_count, person_id FROM cluster WHERE id = $1`;
-    const sourceResult = await client.query(sourceQuery, [sourceClusterId]);
+    const sourceQuery = `SELECT id, face_count, person_id FROM cluster WHERE id = $1 AND collection_id = $2`;
+    const sourceResult = await client.query(sourceQuery, [sourceClusterId, collectionId]);
     if (sourceResult.rows.length === 0) {
       await client.query("ROLLBACK");
       return { success: false, message: "Source cluster not found" };
     }
 
     // Get target cluster info
-    const targetQuery = `SELECT id, face_count, person_id FROM cluster WHERE id = $1`;
-    const targetResult = await client.query(targetQuery, [targetClusterId]);
+    const targetQuery = `SELECT id, face_count, person_id FROM cluster WHERE id = $1 AND collection_id = $2`;
+    const targetResult = await client.query(targetQuery, [targetClusterId, collectionId]);
     if (targetResult.rows.length === 0) {
       await client.query("ROLLBACK");
       return { success: false, message: "Target cluster not found" };
@@ -922,17 +1014,21 @@ export async function mergeClusters(sourceClusterId: string, targetClusterId: st
       UPDATE person_detection
       SET cluster_id = $1,
           cluster_status = 'manual'
-      WHERE cluster_id = $2
+      WHERE cluster_id = $2 AND collection_id = $3
       RETURNING id
     `;
-    const moveResult = await client.query(moveDetectionsQuery, [targetClusterId, sourceClusterId]);
+    const moveResult = await client.query(moveDetectionsQuery, [
+      targetClusterId,
+      sourceClusterId,
+      collectionId,
+    ]);
     const movedCount = moveResult.rowCount || 0;
 
     // Update target cluster face count
-    await client.query(`UPDATE cluster SET face_count = face_count + $1, updated_at = NOW() WHERE id = $2`, [
-      movedCount,
-      targetClusterId,
-    ]);
+    await client.query(
+      `UPDATE cluster SET face_count = face_count + $1, updated_at = NOW() WHERE id = $2 AND collection_id = $3`,
+      [movedCount, targetClusterId, collectionId],
+    );
 
     // Recompute target cluster centroid
     const centroidQuery = `
@@ -943,12 +1039,15 @@ export async function mergeClusters(sourceClusterId: string, targetClusterId: st
         JOIN face_embedding fe ON pd.id = fe.person_detection_id
         WHERE pd.cluster_id = $1
       )
-      WHERE id = $1
+      WHERE id = $1 AND collection_id = $2
     `;
-    await client.query(centroidQuery, [targetClusterId]);
+    await client.query(centroidQuery, [targetClusterId, collectionId]);
 
     // Delete the source cluster
-    await client.query(`DELETE FROM cluster WHERE id = $1`, [sourceClusterId]);
+    await client.query(`DELETE FROM cluster WHERE id = $1 AND collection_id = $2`, [
+      sourceClusterId,
+      collectionId,
+    ]);
 
     await client.query("COMMIT");
 
@@ -970,6 +1069,8 @@ export async function mergeClusters(sourceClusterId: string, targetClusterId: st
 export async function addFacesToCluster(clusterId: string, detectionIds: number[]) {
   await initDatabase();
 
+  const collectionId = getCollectionId();
+
   if (detectionIds.length === 0) {
     return { success: false, message: "No detections selected", addedCount: 0 };
   }
@@ -979,8 +1080,8 @@ export async function addFacesToCluster(clusterId: string, detectionIds: number[
     await client.query("BEGIN");
 
     // Verify cluster exists
-    const clusterQuery = `SELECT id, face_count FROM cluster WHERE id = $1`;
-    const clusterResult = await client.query(clusterQuery, [clusterId]);
+    const clusterQuery = `SELECT id, face_count FROM cluster WHERE id = $1 AND collection_id = $2`;
+    const clusterResult = await client.query(clusterQuery, [clusterId, collectionId]);
     if (clusterResult.rows.length === 0) {
       await client.query("ROLLBACK");
       return { success: false, message: "Cluster not found", addedCount: 0 };
@@ -993,10 +1094,10 @@ export async function addFacesToCluster(clusterId: string, detectionIds: number[
           cluster_status = 'manual',
           cluster_confidence = 1.0,
           unassigned_since = NULL
-      WHERE id = ANY($2) AND cluster_id IS NULL
+      WHERE id = ANY($2) AND cluster_id IS NULL AND collection_id = $3
       RETURNING id
     `;
-    const addResult = await client.query(addDetectionsQuery, [clusterId, detectionIds]);
+    const addResult = await client.query(addDetectionsQuery, [clusterId, detectionIds, collectionId]);
     const addedCount = addResult.rowCount || 0;
 
     if (addedCount === 0) {
@@ -1005,10 +1106,10 @@ export async function addFacesToCluster(clusterId: string, detectionIds: number[
     }
 
     // Update cluster face count
-    await client.query(`UPDATE cluster SET face_count = face_count + $1, updated_at = NOW() WHERE id = $2`, [
-      addedCount,
-      clusterId,
-    ]);
+    await client.query(
+      `UPDATE cluster SET face_count = face_count + $1, updated_at = NOW() WHERE id = $2 AND collection_id = $3`,
+      [addedCount, clusterId, collectionId],
+    );
 
     // Recompute cluster centroid
     const centroidQuery = `
@@ -1019,9 +1120,9 @@ export async function addFacesToCluster(clusterId: string, detectionIds: number[
         JOIN face_embedding fe ON pd.id = fe.person_detection_id
         WHERE pd.cluster_id = $1
       )
-      WHERE id = $1
+      WHERE id = $1 AND collection_id = $2
     `;
-    await client.query(centroidQuery, [clusterId]);
+    await client.query(centroidQuery, [clusterId, collectionId]);
 
     await client.query("COMMIT");
 
@@ -1043,6 +1144,8 @@ export async function addFacesToCluster(clusterId: string, detectionIds: number[
 export async function getFaceDetails(detectionId: number) {
   await initDatabase();
 
+  const collectionId = getCollectionId();
+
   const query = `
     SELECT pd.id, pd.face_bbox_x as bbox_x, pd.face_bbox_y as bbox_y,
            pd.face_bbox_width as bbox_width, pd.face_bbox_height as bbox_height,
@@ -1054,15 +1157,17 @@ export async function getFaceDetails(detectionId: number) {
     JOIN photo p ON pd.photo_id = p.id
     LEFT JOIN cluster c ON pd.cluster_id = c.id
     LEFT JOIN person per ON c.person_id = per.id
-    WHERE pd.id = $1
+    WHERE pd.id = $1 AND pd.collection_id = $2
   `;
 
-  const result = await pool.query(query, [detectionId]);
+  const result = await pool.query(query, [detectionId, collectionId]);
   return result.rows[0] || null;
 }
 
 export async function createClusterFromFaces(detectionIds: number[]) {
   await initDatabase();
+
+  const collectionId = getCollectionId();
 
   if (detectionIds.length === 0) {
     return { success: false, message: "No detections selected", clusterId: null };
@@ -1074,11 +1179,11 @@ export async function createClusterFromFaces(detectionIds: number[]) {
 
     // Step 1: Create a new cluster
     const createClusterQuery = `
-      INSERT INTO cluster (face_count, created_at, updated_at)
-      VALUES ($1, NOW(), NOW())
+      INSERT INTO cluster (collection_id, face_count, created_at, updated_at)
+      VALUES ($1, $2, NOW(), NOW())
       RETURNING id
     `;
-    const clusterResult = await client.query(createClusterQuery, [detectionIds.length]);
+    const clusterResult = await client.query(createClusterQuery, [collectionId, detectionIds.length]);
     const clusterId = clusterResult.rows[0].id;
 
     // Step 2: Assign all detections to the new cluster
@@ -1087,21 +1192,29 @@ export async function createClusterFromFaces(detectionIds: number[]) {
       SET cluster_id = $1,
           cluster_status = 'manual',
           cluster_confidence = 1.0
-      WHERE id = ANY($2) AND cluster_id IS NULL
+      WHERE id = ANY($2) AND cluster_id IS NULL AND collection_id = $3
       RETURNING id
     `;
-    const assignResult = await client.query(assignDetectionsQuery, [clusterId, detectionIds]);
+    const assignResult = await client.query(assignDetectionsQuery, [
+      clusterId,
+      detectionIds,
+      collectionId,
+    ]);
     const assignedCount = assignResult.rowCount || 0;
 
     // Step 3: Update the cluster face count to match actual assigned
-    await client.query(`UPDATE cluster SET face_count = $1 WHERE id = $2`, [assignedCount, clusterId]);
+    await client.query(`UPDATE cluster SET face_count = $1 WHERE id = $2 AND collection_id = $3`, [
+      assignedCount,
+      clusterId,
+      collectionId,
+    ]);
 
     // Step 4: Set the first detection as the representative
     if (assignedCount > 0) {
       const firstDetectionId = detectionIds[0];
       await client.query(
-        `UPDATE cluster SET representative_detection_id = $1, medoid_detection_id = $1 WHERE id = $2`,
-        [firstDetectionId, clusterId],
+        `UPDATE cluster SET representative_detection_id = $1, medoid_detection_id = $1 WHERE id = $2 AND collection_id = $3`,
+        [firstDetectionId, clusterId, collectionId],
       );
     }
 
@@ -1117,9 +1230,9 @@ export async function createClusterFromFaces(detectionIds: number[]) {
         SELECT AVG(embedding)::vector(512)
         FROM cluster_embeddings
       )
-      WHERE id = $2
+      WHERE id = $2 AND collection_id = $3
     `;
-    await client.query(centroidQuery, [detectionIds, clusterId]);
+    await client.query(centroidQuery, [detectionIds, clusterId, collectionId]);
 
     await client.query("COMMIT");
 
@@ -1141,6 +1254,8 @@ export async function createClusterFromFaces(detectionIds: number[]) {
 export async function getSimilarFaces(detectionId: number, limit = 12, similarityThreshold = 0.7) {
   await initDatabase();
 
+  const collectionId = getCollectionId();
+
   // Convert similarity threshold to distance threshold (cosine distance = 1 - similarity)
   const distanceThreshold = 1 - similarityThreshold;
 
@@ -1154,7 +1269,7 @@ export async function getSimilarFaces(detectionId: number, limit = 12, similarit
       SELECT embedding FROM face_embedding WHERE person_detection_id = $1
     ),
     target_detection AS (
-      SELECT photo_id FROM person_detection WHERE id = $1
+      SELECT photo_id FROM person_detection WHERE id = $1 AND collection_id = $5
     ),
     candidates AS (
       SELECT pd.id, pd.face_bbox_x as bbox_x, pd.face_bbox_y as bbox_y,
@@ -1173,6 +1288,8 @@ export async function getSimilarFaces(detectionId: number, limit = 12, similarit
       LEFT JOIN person per ON c.person_id = per.id
       WHERE fe.person_detection_id != $1
         AND pd.photo_id != (SELECT photo_id FROM target_detection)
+        AND pd.collection_id = $5
+        AND p.collection_id = $5
       ORDER BY fe.embedding <=> te.embedding ASC
       LIMIT $3
     )
@@ -1187,22 +1304,39 @@ export async function getSimilarFaces(detectionId: number, limit = 12, similarit
     LIMIT $4
   `;
 
-  const result = await pool.query(query, [detectionId, distanceThreshold, overfetchLimit, limit]);
+  const result = await pool.query(query, [
+    detectionId,
+    distanceThreshold,
+    overfetchLimit,
+    limit,
+    collectionId,
+  ]);
   return result.rows;
 }
 
 export async function dissociateFaceWithConfidenceCutoff(clusterId: string, detectionId: number) {
   await initDatabase();
 
+  const collectionId = getCollectionId();
+
   const client = await pool.connect();
   try {
     await client.query("BEGIN");
 
+    const clusterCheck = await client.query(
+      "SELECT id FROM cluster WHERE id = $1 AND collection_id = $2",
+      [clusterId, collectionId],
+    );
+    if (clusterCheck.rows.length === 0) {
+      await client.query("ROLLBACK");
+      return { success: false, message: "Cluster not found", constrainedCount: 0, cutoffCount: 0 };
+    }
+
     // Step 1: Get the confidence of the selected detection
     const confidenceQuery = `
-      SELECT cluster_confidence FROM person_detection WHERE id = $1 AND cluster_id = $2
+      SELECT cluster_confidence FROM person_detection WHERE id = $1 AND cluster_id = $2 AND collection_id = $3
     `;
-    const confidenceResult = await client.query(confidenceQuery, [detectionId, clusterId]);
+    const confidenceResult = await client.query(confidenceQuery, [detectionId, clusterId, collectionId]);
 
     if (confidenceResult.rows.length === 0) {
       await client.query("ROLLBACK");
@@ -1214,19 +1348,28 @@ export async function dissociateFaceWithConfidenceCutoff(clusterId: string, dete
     // Step 2: Find all detections with lower confidence (these will be unconstrained)
     const lowerConfidenceQuery = `
       SELECT id FROM person_detection
-      WHERE cluster_id = $1 AND cluster_confidence < $2 AND id != $3
+      WHERE cluster_id = $1 AND cluster_confidence < $2 AND id != $3 AND collection_id = $4
     `;
-    const lowerResult = await client.query(lowerConfidenceQuery, [clusterId, cutoffConfidence, detectionId]);
+    const lowerResult = await client.query(lowerConfidenceQuery, [
+      clusterId,
+      cutoffConfidence,
+      detectionId,
+      collectionId,
+    ]);
     const lowerConfidenceDetectionIds = lowerResult.rows.map((r) => parseInt(r.id, 10));
 
     // Step 3: Get a remaining detection for the cannot-link constraint
     const allDetectionsToRemove = [detectionId, ...lowerConfidenceDetectionIds];
     const remainingDetectionQuery = `
       SELECT id FROM person_detection
-      WHERE cluster_id = $1 AND id != ALL($2)
+      WHERE cluster_id = $1 AND id != ALL($2) AND collection_id = $3
       LIMIT 1
     `;
-    const remainingResult = await client.query(remainingDetectionQuery, [clusterId, allDetectionsToRemove]);
+    const remainingResult = await client.query(remainingDetectionQuery, [
+      clusterId,
+      allDetectionsToRemove,
+      collectionId,
+    ]);
 
     // Step 4: Remove the selected detection (constrained - cannot rejoin)
     await client.query(
@@ -1235,8 +1378,8 @@ export async function dissociateFaceWithConfidenceCutoff(clusterId: string, dete
            cluster_status = 'unassigned',
            cluster_confidence = 0,
            unassigned_since = NOW()
-       WHERE id = $1`,
-      [detectionId],
+       WHERE id = $1 AND collection_id = $2`,
+      [detectionId, collectionId],
     );
 
     // Step 5: Create cannot-link for the selected detection only
@@ -1246,10 +1389,10 @@ export async function dissociateFaceWithConfidenceCutoff(clusterId: string, dete
         detectionId < remainingDetectionId ? [detectionId, remainingDetectionId] : [remainingDetectionId, detectionId];
 
       await client.query(
-        `INSERT INTO cannot_link (detection_id_1, detection_id_2, created_by)
-         VALUES ($1, $2, 'web')
+        `INSERT INTO cannot_link (detection_id_1, detection_id_2, collection_id, created_by)
+         VALUES ($1, $2, $3, 'web')
          ON CONFLICT (detection_id_1, detection_id_2) DO NOTHING`,
-        [id1, id2],
+        [id1, id2, collectionId],
       );
     }
 
@@ -1262,9 +1405,9 @@ export async function dissociateFaceWithConfidenceCutoff(clusterId: string, dete
              cluster_status = 'unassigned',
              cluster_confidence = 0,
              unassigned_since = NOW()
-         WHERE id = ANY($1)
+         WHERE id = ANY($1) AND collection_id = $2
          RETURNING id`,
-        [lowerConfidenceDetectionIds],
+        [lowerConfidenceDetectionIds, collectionId],
       );
       cutoffCount = cutoffResult.rowCount || 0;
     }
@@ -1272,8 +1415,8 @@ export async function dissociateFaceWithConfidenceCutoff(clusterId: string, dete
     // Step 7: Update cluster face count
     const totalRemoved = 1 + cutoffCount;
     await client.query(
-      `UPDATE cluster SET face_count = GREATEST(0, face_count - $1), updated_at = NOW() WHERE id = $2`,
-      [totalRemoved, clusterId],
+      `UPDATE cluster SET face_count = GREATEST(0, face_count - $1), updated_at = NOW() WHERE id = $2 AND collection_id = $3`,
+      [totalRemoved, clusterId, collectionId],
     );
 
     await client.query("COMMIT");
@@ -1296,13 +1439,15 @@ export async function dissociateFaceWithConfidenceCutoff(clusterId: string, dete
 export async function removeFaceFromClusterWithConstraint(detectionId: number) {
   await initDatabase();
 
+  const collectionId = getCollectionId();
+
   const client = await pool.connect();
   try {
     await client.query("BEGIN");
 
     // Get the detection's current cluster
-    const detectionQuery = `SELECT cluster_id FROM person_detection WHERE id = $1`;
-    const detectionResult = await client.query(detectionQuery, [detectionId]);
+    const detectionQuery = `SELECT cluster_id FROM person_detection WHERE id = $1 AND collection_id = $2`;
+    const detectionResult = await client.query(detectionQuery, [detectionId, collectionId]);
 
     if (detectionResult.rows.length === 0) {
       await client.query("ROLLBACK");
@@ -1318,10 +1463,14 @@ export async function removeFaceFromClusterWithConstraint(detectionId: number) {
     // Get a remaining detection in the cluster for the cannot-link constraint
     const remainingDetectionQuery = `
       SELECT id FROM person_detection
-      WHERE cluster_id = $1 AND id != $2
+      WHERE cluster_id = $1 AND id != $2 AND collection_id = $3
       LIMIT 1
     `;
-    const remainingResult = await client.query(remainingDetectionQuery, [clusterId, detectionId]);
+    const remainingResult = await client.query(remainingDetectionQuery, [
+      clusterId,
+      detectionId,
+      collectionId,
+    ]);
 
     // Remove detection from cluster
     await client.query(
@@ -1330,14 +1479,14 @@ export async function removeFaceFromClusterWithConstraint(detectionId: number) {
            cluster_status = 'unassigned',
            cluster_confidence = 0,
            unassigned_since = NOW()
-       WHERE id = $1`,
-      [detectionId],
+       WHERE id = $1 AND collection_id = $2`,
+      [detectionId, collectionId],
     );
 
     // Update cluster face count
     await client.query(
-      `UPDATE cluster SET face_count = GREATEST(0, face_count - 1), updated_at = NOW() WHERE id = $1`,
-      [clusterId],
+      `UPDATE cluster SET face_count = GREATEST(0, face_count - 1), updated_at = NOW() WHERE id = $1 AND collection_id = $2`,
+      [clusterId, collectionId],
     );
 
     // Create cannot-link constraint if there's a remaining detection
@@ -1347,10 +1496,10 @@ export async function removeFaceFromClusterWithConstraint(detectionId: number) {
         detectionId < remainingDetectionId ? [detectionId, remainingDetectionId] : [remainingDetectionId, detectionId];
 
       await client.query(
-        `INSERT INTO cannot_link (detection_id_1, detection_id_2, created_by)
-         VALUES ($1, $2, 'web')
+        `INSERT INTO cannot_link (detection_id_1, detection_id_2, collection_id, created_by)
+         VALUES ($1, $2, $3, 'web')
          ON CONFLICT (detection_id_1, detection_id_2) DO NOTHING`,
-        [id1, id2],
+        [id1, id2, collectionId],
       );
     }
 

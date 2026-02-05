@@ -49,7 +49,9 @@ class ClusteringStage(BaseStage):
         if force:
             return True
 
-        photo = self.repository.get_photo_by_filename(str(file_path))
+        photo = self.repository.get_photo_by_filename(
+            str(file_path), collection_id=self.collection_id
+        )
         if not photo or photo.id is None:
             return False
 

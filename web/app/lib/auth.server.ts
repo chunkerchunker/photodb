@@ -11,6 +11,7 @@ import {
 
 const SESSION_COOKIE_NAME = "photodb_session";
 const SESSION_TTL_DAYS = 30;
+const SESSION_COOKIE_SECURE = process.env.NODE_ENV === "production";
 
 function parseCookies(cookieHeader: string | null): Record<string, string> {
   if (!cookieHeader) return {};
@@ -24,11 +25,13 @@ function parseCookies(cookieHeader: string | null): Record<string, string> {
 
 function buildSetCookie(token: string, expiresAt: Date): string {
   const expires = expiresAt.toUTCString();
-  return `${SESSION_COOKIE_NAME}=${encodeURIComponent(token)}; Path=/; HttpOnly; SameSite=Lax; Expires=${expires}`;
+  const secure = SESSION_COOKIE_SECURE ? "; Secure" : "";
+  return `${SESSION_COOKIE_NAME}=${encodeURIComponent(token)}; Path=/; HttpOnly; SameSite=Lax; Expires=${expires}${secure}`;
 }
 
 function buildClearCookie(): string {
-  return `${SESSION_COOKIE_NAME}=; Path=/; HttpOnly; SameSite=Lax; Expires=Thu, 01 Jan 1970 00:00:00 GMT`;
+  const secure = SESSION_COOKIE_SECURE ? "; Secure" : "";
+  return `${SESSION_COOKIE_NAME}=; Path=/; HttpOnly; SameSite=Lax; Expires=Thu, 01 Jan 1970 00:00:00 GMT${secure}`;
 }
 
 async function scryptHash(password: string, salt: Buffer): Promise<Buffer> {

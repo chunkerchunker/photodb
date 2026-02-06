@@ -7,6 +7,15 @@
 	--font-sans:
 		"Inter", ui-sans-serif, system-ui, sans-serif, "Apple Color Emoji",
 		"Segoe UI Emoji", "Segoe UI Symbol", "Noto Color Emoji";
+    
+    --font-display: "Timeless Memories", var(--font-sans);
+}
+
+@font-face {
+  font-family: "Timeless Memories";
+  src: url("/Timeless-Memories-BF6629d0a524dfb.otf") format("opentype");
+  font-weight: normal;
+  font-style: normal;
 }
 
 html,

@@ -1,7 +1,10 @@
-import { ArrowLeft, Grid, Loader2 } from "lucide-react";
+import { ArrowLeft, Camera, Grid, Loader2, User, Users } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
-import { Link, useLocation, useNavigate } from "react-router";
+import { Link, useLocation, useNavigate, data } from "react-router";
 import * as THREE from "three";
+import { Header } from "~/components/header";
+import { ViewSwitcher } from "~/components/view-switcher";
+import { CoverflowIcon } from "~/components/coverflow-icon";
 import { getPhotoCountByMonth, getPhotosByMonth } from "~/lib/db.server";
 import type { Route } from "./+types/month.wall";
 
@@ -32,6 +35,8 @@ export function meta({ params }: Route.MetaArgs) {
   ];
 }
 
+import { dataWithViewMode } from "~/lib/cookies.server";
+
 export async function loader({ params }: Route.LoaderArgs) {
   const year = parseInt(params.year, 10);
   const month = parseInt(params.month, 10);
@@ -58,22 +63,22 @@ export async function loader({ params }: Route.LoaderArgs) {
     const photos = await getPhotosByMonth(year, month, 500, 0);
     const totalPhotos = await getPhotoCountByMonth(year, month);
 
-    return {
+    return dataWithViewMode({
       photos,
       totalPhotos,
       year: params.year,
       month: params.month,
       monthName,
-    };
+    }, "wall");
   } catch (error) {
     console.error(`Failed to load photos for ${year}-${month}:`, error);
-    return {
+    return dataWithViewMode({
       photos: [],
       totalPhotos: 0,
       year: params.year,
       month: params.month,
       monthName,
-    };
+    }, "wall");
   }
 }
 
@@ -1146,34 +1151,32 @@ function ThreeWall({ photos, year, month, totalPhotos, monthName }: ThreeWallPro
       <div ref={containerRef} className="w-full h-full" style={{ cursor: "grab" }} />
 
       {/* Header overlay */}
-      <div className="absolute top-0 left-0 right-0 p-4 bg-gradient-to-b from-black/80 to-transparent pointer-events-none">
-        <div className="flex items-center justify-between pointer-events-auto">
-          <div className="flex items-center gap-4">
-            <Link
-              to={`/year/${year}/month/${month}`}
-              className="text-white/80 hover:text-white transition-colors p-2 rounded-lg hover:bg-white/10"
-              title="Grid view"
-            >
-              <Grid className="h-5 w-5" />
-            </Link>
-            <div>
-              <h1 className="text-2xl font-bold text-white">
-                {monthName} {year}
-              </h1>
-              <p className="text-white/60 text-sm">
-                {totalPhotos} photo{totalPhotos !== 1 ? "s" : ""} - 3D Wall View
-              </p>
-            </div>
-          </div>
-          <Link
-            to={`/year/${year}`}
-            className="text-white/80 hover:text-white transition-colors flex items-center gap-2"
-          >
-            <ArrowLeft className="h-4 w-4" />
-            Back to {year}
-          </Link>
-        </div>
-      </div>
+      <Header
+        homeTo="/wall"
+        breadcrumbs={[
+          { label: year.toString(), to: `/year/${year}/wall` },
+          { label: monthName },
+        ]}
+        viewAction={
+          <ViewSwitcher
+            modes={[
+              {
+                key: "grid",
+                label: "Grid View",
+                icon: <Grid className="h-4 w-4" />,
+                to: `/year/${year}/month/${month}/grid`,
+                isActive: false,
+              },
+              {
+                key: "wall",
+                label: "3D Wall",
+                icon: <CoverflowIcon className="h-4 w-4" />,
+                isActive: true,
+              },
+            ]}
+          />
+        }
+      />
 
       {/* Photo info overlay */}
       {hoveredPhoto && (

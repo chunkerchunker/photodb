@@ -107,7 +107,9 @@ def main(
             logger.info(
                 f"Created connection pool with max {max_connections} connections for {parallel} workers"
             )
-            repository = PhotoRepository(connection_pool)
+            repository = PhotoRepository(
+                connection_pool, collection_id=int(config_data.get("COLLECTION_ID", 1))
+            )
 
             input_path = resolve_path(path, config_data["INGEST_PATH"])
 
@@ -154,6 +156,7 @@ def load_configuration(config_path: Optional[str]) -> dict:
         "DATABASE_URL": os.getenv("DATABASE_URL", "postgresql://localhost/photodb"),
         "INGEST_PATH": os.getenv("INGEST_PATH", "./photos/raw"),
         "IMG_PATH": os.getenv("IMG_PATH", "./photos/processed"),
+        "COLLECTION_ID": int(os.getenv("COLLECTION_ID", "1")),
         "LOG_LEVEL": os.getenv("LOG_LEVEL", "INFO"),
         "LOG_FILE": os.getenv("LOG_FILE", "./logs/photodb.log"),
         "RESIZE_SCALE": float(os.getenv("RESIZE_SCALE", "1.0")),

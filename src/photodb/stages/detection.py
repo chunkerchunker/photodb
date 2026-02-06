@@ -75,7 +75,9 @@ class DetectionStage(BaseStage):
                 body_data = detection_data.get("body")
 
                 # Create PersonDetection record
-                detection = self._create_detection_record(photo_id, face_data, body_data)
+                detection = self._create_detection_record(
+                    photo_id, photo.collection_id, face_data, body_data
+                )
 
                 # Save detection to database
                 self.repository.create_person_detection(detection)
@@ -97,7 +99,11 @@ class DetectionStage(BaseStage):
             return False
 
     def _create_detection_record(
-        self, photo_id: int, face_data: dict | None, body_data: dict | None
+        self,
+        photo_id: int,
+        collection_id: int,
+        face_data: dict | None,
+        body_data: dict | None,
     ) -> PersonDetection:
         """Create a PersonDetection record from detector output."""
         # Extract face bounding box if present
@@ -132,6 +138,7 @@ class DetectionStage(BaseStage):
 
         return PersonDetection.create(
             photo_id=photo_id,
+            collection_id=collection_id,
             face_bbox_x=face_bbox_x,
             face_bbox_y=face_bbox_y,
             face_bbox_width=face_bbox_width,

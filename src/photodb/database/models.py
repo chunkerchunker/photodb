@@ -9,6 +9,7 @@ import warnings
 @dataclass
 class Photo:
     id: Optional[int]
+    collection_id: int
     filename: str
     normalized_path: str | None
     width: Optional[int]
@@ -19,11 +20,14 @@ class Photo:
     updated_at: datetime
 
     @classmethod
-    def create(cls, filename: str, normalized_path: Optional[str] = None) -> "Photo":
+    def create(
+        cls, filename: str, collection_id: int, normalized_path: Optional[str] = None
+    ) -> "Photo":
         """Create a new photo record."""
         now = datetime.now(timezone.utc)
         return cls(
             id=None,  # Will be assigned by database
+            collection_id=collection_id,
             filename=filename,
             normalized_path=normalized_path,
             width=None,
@@ -37,6 +41,7 @@ class Photo:
     def to_dict(self) -> Dict[str, Any]:
         return {
             "id": self.id,
+            "collection_id": self.collection_id,
             "filename": self.filename,
             "normalized_path": self.normalized_path,
             "width": self.width,
@@ -51,6 +56,7 @@ class Photo:
 @dataclass
 class Metadata:
     photo_id: int
+    collection_id: int
     captured_at: Optional[datetime]
     latitude: Optional[float]
     longitude: Optional[float]
@@ -58,10 +64,11 @@ class Metadata:
     created_at: datetime
 
     @classmethod
-    def create(cls, photo_id: int, **kwargs) -> "Metadata":
+    def create(cls, photo_id: int, collection_id: int, **kwargs) -> "Metadata":
         """Create metadata record from extracted data."""
         return cls(
             photo_id=photo_id,
+            collection_id=collection_id,
             captured_at=kwargs.get("captured_at"),
             latitude=kwargs.get("latitude"),
             longitude=kwargs.get("longitude"),
@@ -72,6 +79,7 @@ class Metadata:
     def to_dict(self) -> Dict[str, Any]:
         return {
             "photo_id": self.photo_id,
+            "collection_id": self.collection_id,
             "captured_at": self.captured_at,
             "latitude": self.latitude,
             "longitude": self.longitude,
@@ -184,6 +192,7 @@ class LLMAnalysis:
 @dataclass
 class Person:
     id: Optional[int]
+    collection_id: int
     first_name: str
     last_name: Optional[str]
     created_at: datetime
@@ -199,6 +208,7 @@ class Person:
     @classmethod
     def create(
         cls,
+        collection_id: int,
         first_name: str,
         last_name: Optional[str] = None,
         estimated_birth_year: Optional[int] = None,
@@ -212,6 +222,7 @@ class Person:
         now = datetime.now(timezone.utc)
         return cls(
             id=None,  # Will be assigned by database
+            collection_id=collection_id,
             first_name=first_name,
             last_name=last_name,
             created_at=now,
@@ -234,6 +245,7 @@ class Person:
     def to_dict(self) -> Dict[str, Any]:
         return {
             "id": self.id,
+            "collection_id": self.collection_id,
             "first_name": self.first_name,
             "last_name": self.last_name,
             "full_name": self.full_name,
@@ -254,6 +266,7 @@ class PersonDetection:
 
     id: Optional[int]
     photo_id: int
+    collection_id: int
     # Face bounding box (optional - may have body only)
     face_bbox_x: Optional[float] = None
     face_bbox_y: Optional[float] = None
@@ -288,6 +301,7 @@ class PersonDetection:
     def create(
         cls,
         photo_id: int,
+        collection_id: int,
         face_bbox_x: Optional[float] = None,
         face_bbox_y: Optional[float] = None,
         face_bbox_width: Optional[float] = None,
@@ -313,6 +327,7 @@ class PersonDetection:
         return cls(
             id=None,  # Will be assigned by database
             photo_id=photo_id,
+            collection_id=collection_id,
             face_bbox_x=face_bbox_x,
             face_bbox_y=face_bbox_y,
             face_bbox_width=face_bbox_width,
@@ -358,6 +373,7 @@ class PersonDetection:
         return {
             "id": self.id,
             "photo_id": self.photo_id,
+            "collection_id": self.collection_id,
             "face_bbox_x": self.face_bbox_x,
             "face_bbox_y": self.face_bbox_y,
             "face_bbox_width": self.face_bbox_width,
@@ -460,6 +476,7 @@ class Face:
 @dataclass
 class Cluster:
     id: Optional[int]
+    collection_id: int
     face_count: int
     face_count_at_last_medoid: int
     representative_detection_id: Optional[int]
@@ -476,6 +493,7 @@ class Cluster:
     @classmethod
     def create(
         cls,
+        collection_id: int,
         face_count: int = 0,
         representative_detection_id: Optional[int] = None,
         centroid: Optional[List[float]] = None,
@@ -486,6 +504,7 @@ class Cluster:
         now = datetime.now(timezone.utc)
         return cls(
             id=None,  # Will be assigned by database
+            collection_id=collection_id,
             face_count=face_count,
             face_count_at_last_medoid=face_count,
             representative_detection_id=representative_detection_id,
@@ -503,6 +522,7 @@ class Cluster:
     def to_dict(self) -> Dict[str, Any]:
         return {
             "id": self.id,
+            "collection_id": self.collection_id,
             "face_count": self.face_count,
             "face_count_at_last_medoid": self.face_count_at_last_medoid,
             "representative_detection_id": self.representative_detection_id,

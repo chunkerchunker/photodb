@@ -50,6 +50,7 @@ class MetadataStage(BaseStage):
             # Create metadata record
             metadata = Metadata(
                 photo_id=photo_id,
+                collection_id=photo.collection_id,
                 captured_at=captured_at or self._infer_date_from_filename(photo.filename),
                 latitude=gps_coords[0] if gps_coords else None,
                 longitude=gps_coords[1] if gps_coords else None,

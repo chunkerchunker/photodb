@@ -1,7 +1,8 @@
-import { isRouteErrorResponse, Links, Meta, Outlet, Scripts, ScrollRestoration } from "react-router";
+import { isRouteErrorResponse, Links, Meta, Outlet, Scripts, ScrollRestoration, redirect } from "react-router";
 
 import type { Route } from "./+types/root";
 import "./app.css";
+import { getSessionUser } from "~/lib/auth.server";
 
 export const links: Route.LinksFunction = () => [
   { rel: "preconnect", href: "https://fonts.googleapis.com" },
@@ -15,6 +16,22 @@ export const links: Route.LinksFunction = () => [
     href: "https://fonts.googleapis.com/css2?family=Inter:ital,opsz,wght@0,14..32,100..900;1,14..32,100..900&display=swap",
   },
 ];
+
+export async function loader({ request }: Route.LoaderArgs) {
+  const { pathname } = new URL(request.url);
+  const publicPaths = new Set<string>(["/login", "/logout"]);
+
+  if (publicPaths.has(pathname)) {
+    return null;
+  }
+
+  const user = await getSessionUser(request);
+  if (!user) {
+    throw redirect("/login");
+  }
+
+  return { user };
+}
 
 export function Layout({ children }: { children: React.ReactNode }) {
   return (

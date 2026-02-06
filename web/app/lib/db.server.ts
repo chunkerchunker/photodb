@@ -1,4 +1,3 @@
-import fs from "node:fs";
 import path from "node:path";
 import dotenv from "dotenv";
 import { Pool } from "pg";
@@ -20,43 +19,9 @@ function getCollectionId(): number {
   return Number.isNaN(parsed) ? 1 : parsed;
 }
 
-// Initialize database on first connection
-let dbInitialized = false;
-
-async function initDatabase() {
-  if (dbInitialized) return;
-
-  try {
-    // Check if tables exist first
-    const result = await pool.query(`
-      SELECT EXISTS (
-        SELECT FROM information_schema.tables 
-        WHERE table_schema = 'public' 
-        AND table_name = 'photo'
-      );
-    `);
-
-    if (!result.rows[0].exists) {
-      // Try to find and run schema.sql
-      const schemaPath = path.join(process.cwd(), "..", "schema.sql");
-      if (fs.existsSync(schemaPath)) {
-        const schema = fs.readFileSync(schemaPath, "utf-8");
-        await pool.query(schema);
-        console.log("Database schema initialized");
-      }
-    }
-
-    dbInitialized = true;
-  } catch (error) {
-    console.error("Failed to initialize database:", error);
-  }
-}
-
 // Query functions that match the Python PhotoQueries class
 
 export async function getYearsWithPhotos() {
-  await initDatabase();
-
   const collectionId = getCollectionId();
 
   // Single query with LATERAL join for sample photos
@@ -103,8 +68,6 @@ export async function getYearsWithPhotos() {
 }
 
 export async function getMonthsInYear(year: number) {
-  await initDatabase();
-
   const collectionId = getCollectionId();
 
   // Single query with LATERAL join for sample photos
@@ -167,8 +130,6 @@ export async function getMonthsInYear(year: number) {
 }
 
 export async function getPhotosByMonth(year: number, month: number, limit = 100, offset = 0) {
-  await initDatabase();
-
   const collectionId = getCollectionId();
 
   const query = `
@@ -204,8 +165,6 @@ export async function getPhotosByMonth(year: number, month: number, limit = 100,
 }
 
 export async function getPhotoCountByMonth(year: number, month: number) {
-  await initDatabase();
-
   const collectionId = getCollectionId();
 
   const query = `
@@ -221,8 +180,6 @@ export async function getPhotoCountByMonth(year: number, month: number) {
 }
 
 export async function getPhotoDetails(photoId: number) {
-  await initDatabase();
-
   const collectionId = getCollectionId();
 
   const query = `
@@ -393,8 +350,6 @@ export async function getPhotoDetails(photoId: number) {
 }
 
 export async function getPhotoById(photoId: number) {
-  await initDatabase();
-
   const collectionId = getCollectionId();
 
   const query = `
@@ -417,25 +372,20 @@ export type AppUser = {
 };
 
 export async function getUserByUsername(username: string): Promise<AppUser | null> {
-  await initDatabase();
   const result = await pool.query("SELECT * FROM app_user WHERE username = $1", [username]);
   return (result.rows[0] as AppUser) || null;
 }
 
 export async function getUserById(userId: number): Promise<AppUser | null> {
-  await initDatabase();
   const result = await pool.query("SELECT * FROM app_user WHERE id = $1", [userId]);
   return (result.rows[0] as AppUser) || null;
 }
 
 export async function updateUserPasswordHash(userId: number, passwordHash: string): Promise<void> {
-  await initDatabase();
   await pool.query("UPDATE app_user SET password_hash = $1 WHERE id = $2", [passwordHash, userId]);
 }
 
 export async function getClusters(limit = 50, offset = 0) {
-  await initDatabase();
-
   const collectionId = getCollectionId();
 
   const query = `
@@ -460,8 +410,6 @@ export async function getClusters(limit = 50, offset = 0) {
 }
 
 export async function getClustersCount() {
-  await initDatabase();
-
   const collectionId = getCollectionId();
 
   const query = `
@@ -476,8 +424,6 @@ export async function getClustersCount() {
 }
 
 export async function getHiddenClusters(limit = 50, offset = 0) {
-  await initDatabase();
-
   const collectionId = getCollectionId();
 
   const query = `
@@ -502,8 +448,6 @@ export async function getHiddenClusters(limit = 50, offset = 0) {
 }
 
 export async function getHiddenClustersCount() {
-  await initDatabase();
-
   const collectionId = getCollectionId();
 
   const query = `
@@ -518,8 +462,6 @@ export async function getHiddenClustersCount() {
 }
 
 export async function getNamedClusters(limit = 50, offset = 0, sort: "photos" | "name" = "name") {
-  await initDatabase();
-
   const collectionId = getCollectionId();
 
   const orderBy =
@@ -549,8 +491,6 @@ export async function getNamedClusters(limit = 50, offset = 0, sort: "photos" | 
 }
 
 export async function getNamedClustersCount() {
-  await initDatabase();
-
   const collectionId = getCollectionId();
 
   const query = `
@@ -566,8 +506,6 @@ export async function getNamedClustersCount() {
 }
 
 export async function setClusterHidden(clusterId: string, hidden: boolean) {
-  await initDatabase();
-
   const collectionId = getCollectionId();
 
   const query = `
@@ -585,8 +523,6 @@ export async function setClusterHidden(clusterId: string, hidden: boolean) {
 }
 
 export async function setClusterPersonName(clusterId: string, firstName: string, lastName?: string) {
-  await initDatabase();
-
   const collectionId = getCollectionId();
 
   const client = await pool.connect();
@@ -637,8 +573,6 @@ export async function setClusterPersonName(clusterId: string, firstName: string,
 }
 
 export async function deleteCluster(clusterId: string) {
-  await initDatabase();
-
   const collectionId = getCollectionId();
 
   const client = await pool.connect();
@@ -686,8 +620,6 @@ export async function deleteCluster(clusterId: string) {
 }
 
 export async function getClusterDetails(clusterId: string) {
-  await initDatabase();
-
   const collectionId = getCollectionId();
 
   const query = `
@@ -713,8 +645,6 @@ export async function getClusterDetails(clusterId: string) {
 }
 
 export async function getClusterFaces(clusterId: string, limit = 24, offset = 0) {
-  await initDatabase();
-
   const collectionId = getCollectionId();
 
   const query = `
@@ -736,8 +666,6 @@ export async function getClusterFaces(clusterId: string, limit = 24, offset = 0)
 }
 
 export async function getClusterFacesCount(clusterId: string) {
-  await initDatabase();
-
   const collectionId = getCollectionId();
 
   const query = `
@@ -753,8 +681,6 @@ export async function getClusterFacesCount(clusterId: string) {
 // Constraint management functions
 
 export async function addCannotLink(detectionId1: number, detectionId2: number) {
-  await initDatabase();
-
   const collectionId = getCollectionId();
 
   // Canonical ordering to prevent duplicates
@@ -772,8 +698,6 @@ export async function addCannotLink(detectionId1: number, detectionId2: number) 
 }
 
 export async function getCannotLinksForCluster(clusterId: string) {
-  await initDatabase();
-
   const collectionId = getCollectionId();
 
   // Get all cannot-link pairs where both detections are in this cluster
@@ -794,8 +718,6 @@ export async function getCannotLinksForCluster(clusterId: string) {
 }
 
 export async function removeCannotLink(cannotLinkId: number) {
-  await initDatabase();
-
   const collectionId = getCollectionId();
 
   const query = `
@@ -809,8 +731,6 @@ export async function removeCannotLink(cannotLinkId: number) {
 }
 
 export async function setClusterRepresentative(clusterId: string, detectionId: number) {
-  await initDatabase();
-
   const collectionId = getCollectionId();
 
   // Verify detection belongs to this cluster
@@ -843,8 +763,6 @@ export async function dissociateFacesFromCluster(
   detectionIds: number[],
   similarityThreshold = 0.85,
 ) {
-  await initDatabase();
-
   const collectionId = getCollectionId();
 
   if (detectionIds.length === 0) {
@@ -967,8 +885,6 @@ export async function dissociateFacesFromCluster(
 }
 
 export async function searchClusters(query: string, excludeClusterId?: string, limit = 20) {
-  await initDatabase();
-
   const collectionId = getCollectionId();
 
   // Search by cluster ID or person name
@@ -1007,8 +923,6 @@ export async function searchClusters(query: string, excludeClusterId?: string, l
 }
 
 export async function mergeClusters(sourceClusterId: string, targetClusterId: string) {
-  await initDatabase();
-
   const collectionId = getCollectionId();
 
   if (sourceClusterId === targetClusterId) {
@@ -1093,8 +1007,6 @@ export async function mergeClusters(sourceClusterId: string, targetClusterId: st
 }
 
 export async function addFacesToCluster(clusterId: string, detectionIds: number[]) {
-  await initDatabase();
-
   const collectionId = getCollectionId();
 
   if (detectionIds.length === 0) {
@@ -1168,8 +1080,6 @@ export async function addFacesToCluster(clusterId: string, detectionIds: number[
 }
 
 export async function getFaceDetails(detectionId: number) {
-  await initDatabase();
-
   const collectionId = getCollectionId();
 
   const query = `
@@ -1191,8 +1101,6 @@ export async function getFaceDetails(detectionId: number) {
 }
 
 export async function createClusterFromFaces(detectionIds: number[]) {
-  await initDatabase();
-
   const collectionId = getCollectionId();
 
   if (detectionIds.length === 0) {
@@ -1278,8 +1186,6 @@ export async function createClusterFromFaces(detectionIds: number[]) {
 }
 
 export async function getSimilarFaces(detectionId: number, limit = 12, similarityThreshold = 0.7) {
-  await initDatabase();
-
   const collectionId = getCollectionId();
 
   // Convert similarity threshold to distance threshold (cosine distance = 1 - similarity)
@@ -1341,8 +1247,6 @@ export async function getSimilarFaces(detectionId: number, limit = 12, similarit
 }
 
 export async function dissociateFaceWithConfidenceCutoff(clusterId: string, detectionId: number) {
-  await initDatabase();
-
   const collectionId = getCollectionId();
 
   const client = await pool.connect();
@@ -1463,8 +1367,6 @@ export async function dissociateFaceWithConfidenceCutoff(clusterId: string, dete
 }
 
 export async function removeFaceFromClusterWithConstraint(detectionId: number) {
-  await initDatabase();
-
   const collectionId = getCollectionId();
 
   const client = await pool.connect();

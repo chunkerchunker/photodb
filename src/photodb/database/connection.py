@@ -1,7 +1,6 @@
 import psycopg
 from psycopg_pool import ConnectionPool as PsycopgPool
 import os
-from pathlib import Path
 from contextlib import contextmanager
 from typing import Optional, Generator, Any
 import logging
@@ -26,21 +25,6 @@ class Connection:
         self.connection_string = connection_string or os.getenv(
             "DATABASE_URL", "postgresql://localhost/photodb"
         )
-        self._init_database()
-
-    def _init_database(self):
-        """Initialize database with schema."""
-        schema_path = Path(__file__).parent.parent.parent.parent / "schema.sql"
-
-        if not schema_path.exists():
-            raise FileNotFoundError(f"Schema file not found at: {schema_path}")
-
-        with self.get_connection() as conn:
-            with conn.cursor() as cursor:
-                with open(schema_path, "r") as f:
-                    cursor.execute(f.read())
-                conn.commit()
-                logger.info("Database initialized")
 
     @contextmanager
     def get_connection(self) -> Generator[Any, None, None]:
@@ -92,7 +76,6 @@ class ConnectionPool:
         logger.info(
             f"PostgreSQL connection pool initialized with {min_conn}-{max_conn} connections"
         )
-        self._init_database()
 
     def __enter__(self):
         """Enter context manager."""
@@ -101,21 +84,6 @@ class ConnectionPool:
     def __exit__(self, exc_type, exc_val, exc_tb):
         """Exit context manager and close pool."""
         self.close_all()
-
-    def _init_database(self):
-        """Initialize database with schema."""
-        schema_path = Path(__file__).parent.parent.parent.parent / "schema.sql"
-
-        if not schema_path.exists():
-            logger.warning(f"Schema file not found at: {schema_path}, skipping initialization")
-            return
-
-        with self.get_connection() as conn:
-            with conn.cursor() as cursor:
-                with open(schema_path, "r") as f:
-                    cursor.execute(f.read())
-                conn.commit()
-                logger.info("Database schema initialized")
 
     @contextmanager
     def get_connection(self) -> Generator[Any, None, None]:

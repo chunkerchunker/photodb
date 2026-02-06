@@ -31,9 +31,17 @@ CREATE TABLE IF NOT EXISTS collection_member(
 );
 
 -- Add default collection FK after collection exists (nullable to avoid cyclic bootstrapping)
-ALTER TABLE app_user
-    ADD CONSTRAINT app_user_default_collection_fk
-    FOREIGN KEY (default_collection_id) REFERENCES collection(id) ON DELETE SET NULL;
+DO $$
+BEGIN
+    IF NOT EXISTS (
+        SELECT 1 FROM pg_constraint WHERE conname = 'app_user_default_collection_fk'
+    ) THEN
+        ALTER TABLE app_user
+            ADD CONSTRAINT app_user_default_collection_fk
+            FOREIGN KEY (default_collection_id) REFERENCES collection(id) ON DELETE SET NULL;
+    END IF;
+END;
+$$;
 
 -- Photo table: Core photo records
 CREATE TABLE IF NOT EXISTS photo(

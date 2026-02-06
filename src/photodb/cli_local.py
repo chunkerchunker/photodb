@@ -52,6 +52,16 @@ from .utils.logging import setup_logging  # noqa: E402
 @click.option(
     "--max-photos", type=int, help="Maximum number of photos to process (excluding skipped ones)"
 )
+@click.option(
+    "--force-directory-scan",
+    is_flag=True,
+    help="Force scanning directory for files (default for normalize stage)",
+)
+@click.option(
+    "--skip-directory-scan",
+    is_flag=True,
+    help="Force skipping directory scan and using database instead (default for non-normalize stages)",
+)
 def main(
     path: str,
     force: bool,
@@ -65,6 +75,8 @@ def main(
     parallel: int,
     config: Optional[str],
     max_photos: Optional[int],
+    force_directory_scan: bool,
+    skip_directory_scan: bool,
 ):
     """
     Process photos locally from PATH (file or directory).
@@ -128,6 +140,8 @@ def main(
                 max_photos=max_photos,
                 stage=stage,
                 exclude=list(exclude),
+                force_directory_scan=force_directory_scan,
+                skip_directory_scan=skip_directory_scan,
             ) as processor:
                 if input_path.is_file():
                     logger.info(f"Processing single file: {input_path}")

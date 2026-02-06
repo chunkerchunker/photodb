@@ -29,11 +29,15 @@ class LocalProcessor(BaseProcessor):
         max_photos: Optional[int] = None,
         stage: str = "all",
         exclude: Optional[List[str]] = None,
+        force_directory_scan: bool = False,
+        skip_directory_scan: bool = False,
     ):
         super().__init__(repository, config, force, dry_run, max_photos)
         self.parallel = max(1, parallel)
         self.stage = stage
         self.exclude = exclude or []
+        self.force_directory_scan = force_directory_scan
+        self.skip_directory_scan = skip_directory_scan
 
         # Create connection pool for parallel processing
         if parallel > 1:
@@ -289,10 +293,29 @@ class LocalProcessor(BaseProcessor):
             futures = {}
 
             # Stream files and submit them for processing as they're found
-            if recursive:
-                file_iter = directory.rglob(pattern)
+            should_scan = False
+            if self.force_directory_scan:
+                should_scan = True
+            elif self.skip_directory_scan:
+                should_scan = False
+            elif "normalize" in self._get_stages(stage):
+                should_scan = True
+
+            if should_scan:
+                logger.info("Scanning directory for files...")
+                if recursive:
+                    file_iter = directory.rglob(pattern)
+                else:
+                    file_iter = directory.glob(pattern)
             else:
-                file_iter = directory.glob(pattern)
+                logger.info(f"Querying database for photos in {directory}...")
+                photos = self.repository.get_photos_by_directory(str(directory))
+                # Create generator that matches the pattern (consistent with glob)
+                file_iter = (
+                    Path(p.filename)
+                    for p in photos
+                    if Path(p.filename).match(pattern)
+                )
 
             for file_path in file_iter:
                 if file_path.is_file() and file_path.suffix.lower() in supported_extensions:

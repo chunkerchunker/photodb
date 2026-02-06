@@ -32,7 +32,9 @@ fi
 echo "Restoring ${STAGE} from ${BACKUPS_DIR}/${BACKUP_FILE}"
 
 PGGSSENCMODE=disable PGSSLMODE=allow psql ${DATABASE_URL} -c "drop schema public cascade;" > /dev/null 2>&1
-OUTPUT=$(gzcat ${BACKUPS_DIR}/${BACKUP_FILE} | PGGSSENCMODE=disable PGSSLMODE=allow psql $DATABASE_URL 2>&1)
+PGGSSENCMODE=disable PGSSLMODE=allow psql ${DATABASE_URL} -c "create schema public;" > /dev/null 2>&1
+PGGSSENCMODE=disable PGSSLMODE=allow psql ${DATABASE_URL} -c "CREATE EXTENSION IF NOT EXISTS vector WITH SCHEMA public;" > /dev/null 2>&1
+OUTPUT=$(gzcat ${BACKUPS_DIR}/${BACKUP_FILE} | PGGSSENCMODE=disable PGSSLMODE=allow pg_restore --no-owner --no-privileges -d $DATABASE_URL2>&1)
 if echo "$OUTPUT" | grep -q "ERROR"; then
   echo "Error detected during restore:"
   echo "$OUTPUT"

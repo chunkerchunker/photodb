@@ -21,5 +21,5 @@ TIMESTAMP=`date +%Y-%m-%d_%H%M%S`
 BACKUPS_DIR=`realpath $(dirname $0)/../bkup`
 mkdir -p $BACKUPS_DIR
 echo "Backing up ${STAGE} to ${BACKUPS_DIR}/${STAGE}__${TIMESTAMP}.sql.gz"
-PGPASSWORD=${PASSWORD} PGGSSENCMODE=disable PGSSLMODE=allow pg_dump ${PROTOCOL}://${HOST}:${PORT}/${DATABASE} -U ${USER} -w --no-owner -n public | gzip > ${BACKUPS_DIR}/${STAGE}__${TIMESTAMP}.sql.gz
+PGPASSWORD=${PASSWORD} PGGSSENCMODE=disable PGSSLMODE=allow pg_dump ${PROTOCOL}://${HOST}:${PORT}/${DATABASE} -U ${USER}  -Fc -w --no-owner --no-privileges --no-comments --clean --if-exists -n public ${PG_DUMP_OPTS} | gzip > ${BACKUPS_DIR}/${STAGE}__${TIMESTAMP}.sql.gz
 echo "Done"

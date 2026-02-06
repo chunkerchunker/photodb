@@ -195,6 +195,25 @@ def update_stats(args):
         pool.close_all()
 
 
+def revert_singletons(args):
+    """Revert maintenance-created singleton clusters to unassigned pool."""
+    logger.info("Reverting singleton clusters...")
+
+    database_url = os.getenv("DATABASE_URL", "postgresql://localhost/photodb")
+    pool = ConnectionPool(connection_string=database_url)
+    maintenance = MaintenanceUtilities(pool)
+
+    try:
+        count = maintenance.revert_singleton_clusters()
+        print(f"✅ Reverted {count} singleton clusters to unassigned pool")
+        return 0
+    except Exception as e:
+        logger.error(f"Failed to revert singletons: {e}")
+        return 1
+    finally:
+        pool.close_all()
+
+
 def health_check(args):
     """Check clustering system health."""
     logger.info("Checking cluster health...")
@@ -316,6 +335,10 @@ Examples:
     stats_parser = subparsers.add_parser('update-stats',
                                          help='Update cluster statistics')
     stats_parser.set_defaults(func=update_stats)
+
+    revert_parser = subparsers.add_parser('revert-singletons',
+                                          help='Revert maintenance-created singleton clusters to unassigned pool')
+    revert_parser.set_defaults(func=revert_singletons)
 
     # Health check
     health_parser = subparsers.add_parser('health',

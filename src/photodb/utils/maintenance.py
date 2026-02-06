@@ -643,6 +643,53 @@ class MaintenanceUtilities:
         logger.info(f"Created {created} singleton clusters from old unassigned faces")
         return created
 
+    def revert_singleton_clusters(self) -> int:
+        """
+        Revert maintenance-created singleton clusters back to unassigned pool.
+
+        Finds clusters with face_count=1 and confidence=0.5 (the markers used
+        by cleanup_unassigned_pool), moves their faces back to unassigned status,
+        and deletes the empty clusters.
+
+        Returns:
+            Number of singleton clusters reverted
+        """
+        logger.info("Reverting maintenance-created singleton clusters")
+        reverted = 0
+
+        with self.pool.get_connection() as conn:
+            with conn.cursor() as cursor:
+                # Find singleton clusters created by maintenance
+                # These have face_count=1 and the detection has confidence=0.5 and status='auto'
+                cursor.execute("""
+                    SELECT c.id as cluster_id, pd.id as detection_id
+                    FROM cluster c
+                    JOIN person_detection pd ON pd.cluster_id = c.id
+                    WHERE c.face_count = 1
+                      AND pd.cluster_confidence = 0.5
+                      AND pd.cluster_status = 'auto'
+                """)
+                singletons = cursor.fetchall()
+
+        for cluster_id, detection_id in singletons:
+            # Move detection back to unassigned pool
+            with self.pool.transaction() as conn:
+                with conn.cursor() as cursor:
+                    cursor.execute("""
+                        UPDATE person_detection
+                        SET cluster_id = NULL,
+                            cluster_status = 'unassigned',
+                            cluster_confidence = 0,
+                            unassigned_since = NOW()
+                        WHERE id = %s
+                    """, (detection_id,))
+
+                    # Delete the now-empty cluster
+                    cursor.execute("DELETE FROM cluster WHERE id = %s", (cluster_id,))
+                    reverted += 1
+
+        logger.info(f"Reverted {reverted} singleton clusters to unassigned pool")
+        return reverted
 
     def run_daily_maintenance(self) -> Dict[str, int]:
         """
@@ -722,11 +769,9 @@ class MaintenanceUtilities:
             logger.error(f"Failed to merge similar clusters: {e}")
             results['clusters_merged'] = 0
 
-        try:
-            results['unassigned_cleanup'] = self.cleanup_unassigned_pool()
-        except Exception as e:
-            logger.error(f"Failed to cleanup unassigned pool: {e}")
-            results['unassigned_cleanup'] = 0
+        # Skip singleton creation - unassigned faces stay in pool indefinitely
+        # They can still match future photos and don't need artificial clusters
+        results['unassigned_cleanup'] = 0
 
         logger.info(f"Weekly maintenance completed: {results}")
         return results

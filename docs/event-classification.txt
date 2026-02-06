@@ -1,0 +1,157 @@
+TARGET EVENT CLASSES
+	1.	Birth / Newborn
+	2.	Wedding / Marriage
+	3.	Funeral / Memorial
+	4.	Graduation
+	5.	Birthday (milestone + annual)
+	6.	Holidays / Traditions
+	7.	Family Portraits / Multi-generation
+	8.	Retirement
+	9.	Major Travel / Vacation
+	10.	Birth of Grandchild
+
+⸻
+
+CORE SIGNAL TYPES USED BY RULES
+	•	Visual cues: clothing, objects, environments, facial age patterns, number of people.
+	•	Contextual cues: time of year, location, decor, repeated people.
+	•	Metadata cues: timestamp, GPS, captions, album titles, EXIF tags.
+	•	Social graph cues: recurring faces, generational differences.
+	•	Temporal patterns: clustering, anniversaries, yearly recurrence.
+
+⸻
+
+EVENT-SPECIFIC CLASSIFICATION RULES
+
+1. Birth / Newborn
+
+High-confidence rule:
+	•	Infant face < 3 months old
+	•	Hospital or home bedroom setting
+	•	Presence of bassinets, swaddles, hospital bracelets, medical equipment
+	•	Adult faces show emotional expressions (smiling, holding baby)
+
+Reinforcement signals:
+	•	Timestamp shortly after known pregnancy photos
+	•	Captions: “born,” “welcome,” “our baby,” “home from hospital”
+
+⸻
+
+2. Wedding / Marriage
+
+High-confidence rule:
+	•	Two adults dressed in formal attire, one in wedding gown, one in suit/tux
+	•	Presence of veil, bouquet, ring exchange, altar, arch, officiant
+	•	Group photos with formal clothing and staged poses
+
+Reinforcement signals:
+	•	Burst of photos in single day
+	•	Venue: church, garden, banquet hall
+	•	Captions: “wedding,” “married,” “Mr. & Mrs.”
+
+⸻
+
+3. Funeral / Memorial
+
+High-confidence rule:
+	•	Formal dark clothing
+	•	Indoor religious or ceremonial venue
+	•	Presence of casket, urn, floral arrangements, memorial boards
+	•	People with subdued or solemn expressions
+
+Reinforcement signals:
+	•	Captions: “memorial,” “celebration of life,” “funeral”
+	•	Occurs shortly after death records or obituary-linked timeframes
+
+⸻
+
+4. Graduation
+
+High-confidence rule:
+	•	Person wearing cap and gown
+	•	Presence of diplomas, certificates, tassels
+	•	Group photos with school logos or banners
+
+Reinforcement signals:
+	•	Timestamp in late spring/early summer
+	•	Captions: “graduation,” “class of,” “commencement”
+
+⸻
+
+5. Birthday (especially milestone)
+
+High-confidence rule:
+	•	Cake with candles
+	•	Balloons, party decorations
+	•	Group gathered around one central person
+	•	Age-related number candles or banners
+
+Reinforcement signals:
+	•	Annual recurrence around same calendar date
+	•	Captions: “birthday,” “happy birthday,” age numbers
+
+⸻
+
+6. Holidays / Traditions (Christmas, Thanksgiving, etc.)
+
+High-confidence rule:
+	•	Holiday-specific decor: tree, menorah, lights, stockings, pumpkins, fireworks
+	•	Seasonal clothing (sweaters, costumes)
+	•	Group meals, gift opening, family gatherings
+
+Reinforcement signals:
+	•	Timestamp aligns with known holiday dates
+	•	Repeated annual patterns at same location with same people
+
+⸻
+
+7. Family Portraits / Multi-Generation
+
+High-confidence rule:
+	•	Group of 4+ people arranged in deliberate pose
+	•	Multiple age groups (children, adults, elderly)
+	•	Neutral or outdoor background, professional lighting
+
+Reinforcement signals:
+	•	Faces recur frequently across archive
+	•	Captions: “family,” “reunion,” “generations”
+
+⸻
+
+8. Retirement
+
+High-confidence rule:
+	•	Older adult centered in celebration
+	•	Cake or banner with “retirement,” “happy retirement”
+	•	Workplace setting or formal gathering
+
+Reinforcement signals:
+	•	Captions: “retirement,” “last day,” “after 30 years”
+	•	Occurs near known career end dates
+
+⸻
+
+9. Major Travel / Vacation
+
+High-confidence rule:
+	•	Landmark recognition (Eiffel Tower, Statue of Liberty, national parks)
+	•	Airport, airplane, cruise ship environments
+	•	Luggage, tickets, passports
+
+Reinforcement signals:
+	•	GPS far from home location
+	•	Captions: “vacation,” “trip,” destination names
+	•	Clustering over multiple days
+
+⸻
+
+10. Birth of Grandchild
+
+High-confidence rule:
+	•	Newborn photos
+	•	Presence of older adults holding infant
+	•	Multi-generation grouping
+
+Reinforcement signals:
+	•	Temporal proximity to adult child pregnancy photos
+	•	Captions: “grandson,” “granddaughter,” “our grandbaby”

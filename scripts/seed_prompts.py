@@ -26,141 +26,358 @@ logger = logging.getLogger(__name__)
 # Prompt definitions
 # =============================================================================
 
+FACE_AGE_PROMPTS = [
+    ("baby", [
+        "a photo of a baby",
+        "a photo of an infant",
+        "a newborn baby",
+        "a baby face",
+        "a small child under 1 year old"
+    ]),
+    ("child", [
+        "a photo of a child",
+        "a young kid",
+        "a school age child",
+        "a toddler or preschooler",
+        "a little boy or girl"
+    ]),
+    ("teen", [
+        "a photo of a teenager",
+        "a teen",
+        "an adolescent",
+        "a high school student",
+        "a young person aged 13 to 19"
+    ]),
+    ("young_adult", [
+        "a photo of a young adult",
+        "a person in their 20s",
+        "a college student or young professional",
+        "a young man or woman",
+    ]),
+    ("adult", [
+        "a photo of an adult",
+        "a middle aged person",
+        "a person in their 30s or 40s or 50s",
+        "a mature adult face",
+    ]),
+    ("senior", [
+        "a photo of a senior citizen",
+        "an elderly person",
+        "a person over 60 years old",
+        "a grandmother or grandfather",
+        "an old person with wrinkles and grey hair"
+    ]),
+]
+
 FACE_EMOTION_PROMPTS = [
-    ("happy", "a photo of a happy smiling joyful person"),
-    ("sad", "a photo of a sad unhappy melancholic person"),
-    ("angry", "a photo of an angry frustrated irritated person"),
-    ("surprised", "a photo of a surprised shocked astonished person"),
-    ("fearful", "a photo of a fearful scared anxious person"),
-    ("disgusted", "a photo of a disgusted repulsed person"),
-    ("neutral", "a photo of a person with neutral calm expression"),
-    ("confused", "a photo of a confused puzzled person"),
-    ("excited", "a photo of an excited enthusiastic thrilled person"),
-    ("proud", "a photo of a proud confident person"),
-    ("embarrassed", "a photo of an embarrassed shy person"),
-    ("contempt", "a photo of a person showing contempt or disdain"),
+    ("happy", [
+        "a photo of a happy person",
+        "a smiling joyful face",
+        "someone looking cheerful and content",
+        "a person beaming with happiness",
+        "an expression of joy"
+    ]),
+    ("sad", [
+        "a photo of a sad person",
+        "an unhappy or melancholic face",
+        "someone looking downcast or gloomy",
+        "tearful eyes",
+        "an expression of sorrow"
+    ]),
+    ("angry", [
+        "a photo of an angry person",
+        "a furious or irritated face",
+        "someone looking mad or frustrated",
+        "clenched jaw or furrowed brow",
+        "an expression of anger"
+    ]),
+    ("surprised", [
+        "a photo of a surprised person",
+        "a shocked or astonished face",
+        "eyes wide open in surprise",
+        "jaw dropped in disbelief",
+        "an amazed expression"
+    ]),
+    ("fearful", [
+        "a photo of a fearful person",
+        "a scared or anxious face",
+        "someone looking terrified",
+        "wide eyes showing fear",
+        "an expression of panic"
+    ]),
+    ("disgusted", [
+        "a photo of a disgusted person",
+        "a repulsed or nauseated face",
+        "scrunched nose in disgust",
+        "a reaction to something gross",
+        "an expression of aversion"
+    ]),
+    ("neutral", [
+        "a photo of a person with a neutral expression",
+        "a calm face with no strong emotion",
+        "a blank stare",
+        "a passport photo style face",
+        "an expressionless face"
+    ]),
+    ("excited", [
+        "a photo of an excited person",
+        "an enthusiastic or thrilled face",
+        "someone looking very happy and energetic",
+        "an expression of eagerness"
+    ]),
 ]
 
 FACE_GAZE_PROMPTS = [
-    ("looking_at_camera", "a photo of a person looking directly at the camera"),
-    ("looking_away", "a photo of a person looking away from the camera"),
-    ("looking_down", "a photo of a person looking downward"),
-    ("looking_up", "a photo of a person looking upward"),
-    ("eyes_closed", "a photo of a person with eyes closed"),
+    ("looking_at_camera", [
+        "a photo of a person looking directly at the camera",
+        "eyes making eye contact",
+        "face turned towards the lens"
+    ]),
+    ("looking_away", [
+        "a photo of a person looking away from the camera",
+        "eyes averted",
+        "face in profile or turned aside"
+    ]),
+     ("eyes_closed", [
+        "a photo of a person with eyes closed",
+        "sleeping or resting eyes",
+        "blinking or shut eyes"
+    ]),
 ]
 
-FACE_EXPRESSION_PROMPTS = [
-    ("smiling", "a photo of a person smiling with teeth showing"),
-    ("grinning", "a photo of a person with a wide grin"),
-    ("slight_smile", "a photo of a person with a slight subtle smile"),
-    ("frowning", "a photo of a person frowning with furrowed brow"),
-    ("pouting", "a photo of a person pouting with pursed lips"),
-    ("laughing", "a photo of a person laughing with mouth open"),
-    ("crying", "a photo of a person crying with tears"),
-    ("yawning", "a photo of a person yawning with mouth wide open"),
-    ("squinting", "a photo of a person squinting with narrowed eyes"),
-    ("wide_eyed", "a photo of a person with wide open eyes"),
-    ("raised_eyebrows", "a photo of a person with raised eyebrows"),
-    ("winking", "a photo of a person winking with one eye closed"),
-    ("tongue_out", "a photo of a person sticking tongue out"),
-    ("biting_lip", "a photo of a person biting their lip"),
-    ("pensive", "a photo of a person with a thoughtful pensive look"),
-    ("serious", "a photo of a person with a serious stern expression"),
-    ("relaxed", "a photo of a person with a relaxed calm face"),
+SCENE_EVENT_PROMPTS = [
+    ("birth_newborn", [
+        "a newborn baby in a hospital bassinette",
+        "a mother holding a newborn infant in a hospital bed",
+        "a baby swaddled in blankets",
+        "birth announcement photo",
+        "parents with their new baby"
+    ]),
+    ("wedding", [
+        "a wedding ceremony",
+        "a bride and groom kissing",
+        "a woman in a white wedding dress",
+        "a couple exchanging rings",
+        "a wedding reception with cake and dancing",
+        "bridesmaids and groomsmen"
+    ]),
+    ("funeral", [
+        "a funeral or memorial service",
+        "people wearing black clothing in mourning",
+        "a casket or coffin with flowers",
+        "a hearse or cemetery scene",
+        "a church service for a funeral"
+    ]),
+    ("graduation", [
+        "a graduation ceremony",
+        "a student wearing a cap and gown",
+        "holding a diploma or degree",
+        "tossing graduation caps in the air",
+        "class of graduates posing together"
+    ]),
+    ("birthday", [
+        "a birthday party celebration",
+        "a birthday cake with lit candles",
+        "someone blowing out candles on a cake",
+        "balloons and party hats",
+        "opening birthday presents"
+    ]),
+    ("holiday", [
+        "a christmas tree with lights and ornaments",
+        "family gathering for thanksgiving dinner",
+        "halloween costumes and pumpkins",
+        "holiday decorations and festive atmosphere",
+        "hanukkah menorah or festive lighting"
+    ]),
+    ("family_portrait", [
+        "a formal family portrait",
+        "a large group photo of family members",
+        "multiple generations posing together",
+        "parents and children standing together for a photo"
+    ]),
+    ("retirement", [
+        "a retirement party",
+        "an older colleague being celebrated",
+        "a cake saying happy retirement",
+        "a farewell party at an office"
+    ]),
+    ("major_travel", [
+        "traveling with luggage and suitcases",
+        "an airport terminal or airplane cabin",
+        "a famous tourist landmark",
+        "sightseeing on vacation",
+        "a passport and tickets"
+    ]),
+    ("grandchild_birth", [
+        "grandparents holding a new baby",
+        "elderly people smiling at an infant",
+        "meeting the new grandchild",
+        "multi-generational photo with a baby"
+    ]),
 ]
 
 SCENE_MOOD_PROMPTS = [
-    ("joyful", "a joyful happy celebratory cheerful scene"),
-    ("peaceful", "a peaceful calm serene tranquil scene"),
-    ("somber", "a somber sad melancholic gloomy scene"),
-    ("tense", "a tense dramatic intense suspenseful scene"),
-    ("energetic", "an energetic exciting dynamic lively scene"),
-    ("romantic", "a romantic loving intimate scene"),
-    ("mysterious", "a mysterious intriguing enigmatic scene"),
-    ("nostalgic", "a nostalgic wistful sentimental scene"),
-    ("neutral", "an ordinary everyday neutral mundane scene"),
+    ("joyful", ["a joyful scene", "celebration and happiness", "cheerful atmosphere"]),
+    ("peaceful", ["a peaceful scene", "calm and serene environment", "tranquil quiet mood"]),
+    ("somber", ["a somber scene", "sad or gloomy atmosphere", "melancholic mood"]),
+    ("tense", ["a tense scene", "dramatic or suspenseful atmosphere", "intense mood"]),
+    ("energetic", ["an energetic scene", "lively and dynamic action", "excitement"]),
+    ("romantic", ["a romantic scene", "love and intimacy", "a couple creating a romantic mood"]),
+    ("nostalgic", ["a nostalgic scene", "vintage or retro feel", "sentimental atmosphere"]),
 ]
 
 SCENE_SETTING_PROMPTS = [
-    # Indoor
-    ("indoor_home", "a photo taken inside a home or apartment"),
-    ("indoor_office", "a photo taken in an office or workplace"),
-    ("indoor_restaurant", "a photo taken in a restaurant or cafe"),
-    ("indoor_store", "a photo taken in a store or shopping mall"),
-    ("indoor_school", "a photo taken in a school or classroom"),
-    ("indoor_gym", "a photo taken in a gym or fitness center"),
-    ("indoor_museum", "a photo taken in a museum or gallery"),
-    ("indoor_hospital", "a photo taken in a hospital or medical facility"),
-    # Outdoor natural
-    ("outdoor_beach", "a photo taken at a beach with sand and ocean"),
-    ("outdoor_mountain", "a photo taken in mountains or hills"),
-    ("outdoor_forest", "a photo taken in a forest or woods"),
-    ("outdoor_park", "a photo taken in a park or garden"),
-    ("outdoor_lake", "a photo taken at a lake or river"),
-    ("outdoor_desert", "a photo taken in a desert landscape"),
-    ("outdoor_field", "a photo taken in an open field or meadow"),
-    # Outdoor urban
-    ("outdoor_city", "a photo taken in a city with buildings"),
-    ("outdoor_street", "a photo taken on a street or road"),
-    ("outdoor_parking", "a photo taken in a parking lot"),
-    # Transportation
-    ("in_car", "a photo taken inside a car or vehicle"),
-    ("in_airplane", "a photo taken inside an airplane"),
-    ("at_airport", "a photo taken at an airport"),
-]
-
-SCENE_ACTIVITY_PROMPTS = [
-    ("celebration", "a celebration party birthday or festive event"),
-    ("wedding", "a wedding ceremony or reception"),
-    ("graduation", "a graduation ceremony"),
-    ("travel", "travel vacation or tourism"),
-    ("sports", "sports or athletic activity"),
-    ("dining", "eating food or dining together"),
-    ("working", "working or professional activity"),
-    ("relaxing", "relaxing or leisure activity"),
-    ("playing", "playing games or recreational activity"),
-    ("concert", "a concert or live music performance"),
-    ("meeting", "a meeting or gathering"),
-    ("studying", "studying or educational activity"),
-]
-
-SCENE_TIME_PROMPTS = [
-    ("daytime", "a photo taken during daytime with daylight"),
-    ("sunset", "a photo taken during sunset or golden hour"),
-    ("sunrise", "a photo taken during sunrise or dawn"),
-    ("night", "a photo taken at night or evening"),
-    ("overcast", "a photo taken on a cloudy overcast day"),
-]
-
-SCENE_WEATHER_PROMPTS = [
-    ("sunny", "a photo taken on a sunny clear day"),
-    ("cloudy", "a photo taken on a cloudy day"),
-    ("rainy", "a photo taken in rain or wet weather"),
-    ("snowy", "a photo taken in snow or winter weather"),
-    ("foggy", "a photo taken in fog or mist"),
-]
-
-SCENE_SOCIAL_PROMPTS = [
-    ("solo", "a photo of one person alone"),
-    ("couple", "a photo of a couple or two people together"),
-    ("small_group", "a photo of a small group of 3-5 people"),
-    ("large_group", "a photo of a large group or crowd of people"),
-    ("family", "a photo of a family with adults and children"),
-    ("no_people", "a photo with no people visible"),
+    ("indoor", [
+        "an indoor scene", "inside a room", "interior of a building", "indoor lighting"
+    ]),
+    ("outdoor_nature", [
+        "an outdoor nature scene", "forest, mountains, or beach", "natural landscape", "trees and sky"
+    ]),
+    ("outdoor_urban", [
+        "an outdoor urban scene", "city streets and buildings", "architecture and roads", "downtown area"
+    ]),
+    ("transportation", [
+        "inside a vehicle", "car, bus, train, or plane", "traveling in a vehicle", "cockpit or dashboard"
+    ]),
 ]
 
 PROMPT_SETS = {
+    "face_age": FACE_AGE_PROMPTS,
     "face_emotion": FACE_EMOTION_PROMPTS,
     "face_gaze": FACE_GAZE_PROMPTS,
-    "face_expression": FACE_EXPRESSION_PROMPTS,
+    "scene_event": SCENE_EVENT_PROMPTS,
     "scene_mood": SCENE_MOOD_PROMPTS,
     "scene_setting": SCENE_SETTING_PROMPTS,
-    "scene_activity": SCENE_ACTIVITY_PROMPTS,
-    "scene_time": SCENE_TIME_PROMPTS,
-    "scene_weather": SCENE_WEATHER_PROMPTS,
-    "scene_social": SCENE_SOCIAL_PROMPTS,
 }
 
+
+# =============================================================================
+# OpenAI CLIP ImageNet Zero-Shot Templates
+# Source: https://github.com/openai/CLIP/blob/main/notebooks/Prompt_Engineering_for_ImageNet.ipynb
+# =============================================================================
+IMAGENET_TEMPLATES = [
+    "a bad photo of a {}.",
+    "a photo of many {}.",
+    "a sculpture of a {}.",
+    "a photo of the hard to see {}.",
+    "a low resolution photo of the {}.",
+    "a rendering of a {}.",
+    "graffiti of a {}.",
+    "a bad photo of the {}.",
+    "a cropped photo of the {}.",
+    "a tattoo of a {}.",
+    "the embroidered {}.",
+    "a photo of a hard to see {}.",
+    "a bright photo of a {}.",
+    "a photo of a clean {}.",
+    "a photo of a dirty {}.",
+    "a dark photo of the {}.",
+    "a drawing of a {}.",
+    "a photo of my {}.",
+    "the plastic {}.",
+    "a photo of the cool {}.",
+    "a close-up photo of a {}.",
+    "a black and white photo of the {}.",
+    "a painting of the {}.",
+    "a painting of a {}.",
+    "a pixelated photo of the {}.",
+    "a sculpture of the {}.",
+    "a bright photo of the {}.",
+    "a cropped photo of a {}.",
+    "a plastic {}.",
+    "a photo of the dirty {}.",
+    "a jpeg corrupted photo of a {}.",
+    "a blurry photo of the {}.",
+    "a photo of the {}.",
+    "a good photo of the {}.",
+    "a rendering of the {}.",
+    "a {} in a video game.",
+    "a photo of one {}.",
+    "a doodle of a {}.",
+    "a close-up photo of the {}.",
+    "a photo of a {}.",
+    "the origami {}.",
+    "the {} in a video game.",
+    "a sketch of a {}.",
+    "a doodle of the {}.",
+    "a origami {}.",
+    "a low resolution photo of a {}.",
+    "the toy {}.",
+    "a rendition of the {}.",
+    "a photo of the clean {}.",
+    "a photo of a large {}.",
+    "a rendition of a {}.",
+    "a photo of a nice {}.",
+    "a photo of a weird {}.",
+    "a blurry photo of a {}.",
+    "a cartoon {}.",
+    "art of a {}.",
+    "a sketch of the {}.",
+    "a embroidered {}.",
+    "a pixelated photo of a {}.",
+    "itap of the {}.",
+    "a jpeg corrupted photo of the {}.",
+    "a good photo of a {}.",
+    "a plushie {}.",
+    "a photo of the nice {}.",
+    "a photo of the small {}.",
+    "a photo of the weird {}.",
+    "the cartoon {}.",
+    "art of the {}.",
+    "a drawing of the {}.",
+    "a photo of the large {}.",
+    "a black and white photo of a {}.",
+    "the plushie {}.",
+    "a dark photo of a {}.",
+    "itap of a {}.",
+    "graffiti of the {}.",
+    "a toy {}.",
+    "itap of my {}.",
+    "a photo of a cool {}.",
+    "a photo of a small {}.",
+    "a photo of many {}.",
+]
+
+SCENE_TEMPLATES = [
+    "a photo of a {} scene.",
+    "a photo of a {} environment.",
+    "a view of the {}.",
+    "inside a {}.",
+    "a photo of the {} location.",
+    "a picture of a {}.",
+    "looking at a {}.",
+    "a photo of a place used for {}.",
+    "a {} setting.",
+    "an outdoor {} scene.",
+    "an indoor {} scene.",
+    "a photo involving {}.",
+    "a scene depicting {}.",
+    "the atmosphere of a {}.",
+    "a vacation photo of {}.",
+    "a travel photo of {}.",
+    "a photo showing {}.",
+    "environment: {}.",
+    "location: {}.",
+    "scene: {}.",
+]
+
+SENTIMENT_TEMPLATES = [
+    "a photo of a {} face.",
+    "a {} expression.",
+    "they look {}.",
+    "a face showing the emotion: {}.",
+    "a person looking {}.",
+    "an expression of {}.",
+    "a photo of a person who is {}.",
+    "a {} mood.",
+    "feeling {}.",
+    "a look of {}.",
+    "the person is {}.",
+    "face depicting {}.",
+    "emotion: {}.",
+    "mood: {}.",
+    "sentiment: {}.",
+]
 
 def seed_prompts(repository, recompute: bool = False):
     """Seed prompts into database and compute embeddings."""
@@ -179,26 +396,63 @@ def seed_prompts(repository, recompute: bool = False):
     total_updated = 0
     skipped_categories: list[str] = []
 
-    for category_name, prompts in PROMPT_SETS.items():
+    for category_name, prompts_data in PROMPT_SETS.items():
+        # Ensure category exists or create it
         category = repository.get_prompt_category_by_name(category_name)
         if not category:
-            logger.warning(f"Category '{category_name}' not found, skipping")
-            skipped_categories.append(category_name)
-            continue
+            try:
+                category = repository.create_prompt_category(category_name)
+                logger.info(f"Created new category: {category_name}")
+            except AttributeError:
+                 logger.warning(f"Category '{category_name}' not found and creation not supported, skipping")
+                 skipped_categories.append(category_name)
+                 continue
 
-        logger.info(f"Processing category: {category_name} ({len(prompts)} prompts)")
+        logger.info(f"Processing category: {category_name} ({len(prompts_data)} labels)")
+
+        # Determine which template set to use based on category
+        if category_name in ["face_emotion", "scene_mood"]:
+            templates = SENTIMENT_TEMPLATES
+            template_name = "SENTIMENT"
+        elif category_name in ["scene_event", "scene_setting"]:
+            templates = SCENE_TEMPLATES
+            template_name = "SCENE"
+        else:
+            templates = IMAGENET_TEMPLATES
+            template_name = "IMAGENET"
+        
+        logger.info(f"  Using {template_name} templates ({len(templates)} templates)")
 
         # Get existing prompts for this category
         existing = repository.get_prompts_by_category(category.id, with_embeddings=False)
         existing_labels = {p.label for p in existing}
 
-        for label, prompt_text in prompts:
+        for label, rich_descriptions in prompts_data:
             needs_embedding = recompute or label not in existing_labels
 
             if needs_embedding:
-                # Compute embedding
+                # 1. Generate template-based prompts using the label itself
+                #    Convert underscore to space for better natural language mapping
+                clean_label = label.replace("_", " ")
+                template_prompts = [t.format(clean_label) for t in templates]
+                
+                # 2. Add the rich manually curated descriptions from PROMPT_SETS
+                #    Ensure rich_descriptions is a list
+                if isinstance(rich_descriptions, str):
+                    rich_descriptions = [rich_descriptions]
+                
+                # 3. Combine ALL prompts for massive ensemble
+                all_prompts = template_prompts + rich_descriptions
+                
+                # Compute embedding on the massive ensemble
                 try:
-                    embedding = analyzer.encode_text(prompt_text)
+                    embedding = analyzer.encode_text_ensemble(all_prompts)
+                    
+                    # Store the label as the prompt text, but maybe log the count
+                    # We can't store 80+ lines in the prompt_text field easily, so we store the rich descriptions
+                    # as the "visible" text, but the embedding represents the full ensemble.
+                    prompt_text_stored = " | ".join(rich_descriptions)
+                        
                     embedding_list = embedding.cpu().squeeze().tolist()
                 except Exception as e:
                     logger.error(f"Failed to compute embedding for '{label}': {e}")
@@ -207,7 +461,7 @@ def seed_prompts(repository, recompute: bool = False):
                 prompt = PromptEmbedding.create(
                     category_id=category.id,
                     label=label,
-                    prompt_text=prompt_text,
+                    prompt_text=prompt_text_stored[:1000], 
                     model_name=model_name,
                     embedding=embedding_list,
                 )
@@ -215,14 +469,14 @@ def seed_prompts(repository, recompute: bool = False):
 
                 if label in existing_labels:
                     total_updated += 1
-                    logger.debug(f"  Updated: {label}")
+                    logger.debug(f"  Updated: {label} (Ensemble size: {len(all_prompts)})")
                 else:
                     total_created += 1
-                    logger.debug(f"  Created: {label}")
+                    logger.debug(f"  Created: {label} (Ensemble size: {len(all_prompts)})")
 
     logger.info(f"Done: {total_created} created, {total_updated} updated")
     if skipped_categories:
-        logger.warning(f"Skipped categories (not in database): {', '.join(skipped_categories)}")
+        logger.warning(f"Skipped categories: {', '.join(skipped_categories)}")
 
 
 def main():

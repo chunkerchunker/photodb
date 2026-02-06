@@ -271,3 +271,26 @@ class MobileCLIPAnalyzer:
             embeddings = embeddings / embeddings.norm(dim=-1, keepdim=True)
 
         return embeddings
+
+    def encode_text_ensemble(self, texts: List[str]) -> torch.Tensor:
+        """
+        Encode a list of texts and average their embeddings to create a single ensemble embedding.
+
+        Args:
+            texts: List of text variations for the same concept.
+
+        Returns:
+            Normalized embedding tensor of shape (1, 512).
+        """
+        if not texts:
+            raise ValueError("Cannot compute ensemble embedding for empty text list")
+
+        embeddings = self.encode_texts(texts)
+
+        # Mean pool
+        ensemble = embeddings.mean(dim=0, keepdim=True)
+
+        # Re-normalize
+        ensemble = ensemble / ensemble.norm(dim=-1, keepdim=True)
+
+        return ensemble

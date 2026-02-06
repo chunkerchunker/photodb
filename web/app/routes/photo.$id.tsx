@@ -38,6 +38,38 @@ function formatAge(age?: number): string | null {
   return `~${Math.round(age)} years`;
 }
 
+// Helper to get consistent color for category
+function getCategoryColor(category: string): string {
+  const colors = [
+    "bg-red-50 border-red-200",
+    "bg-orange-50 border-orange-200",
+    "bg-amber-50 border-amber-200",
+    "bg-yellow-50 border-yellow-200",
+    "bg-lime-50 border-lime-200",
+    "bg-green-50 border-green-200",
+    "bg-emerald-50 border-emerald-200",
+    "bg-teal-50 border-teal-200",
+    "bg-cyan-50 border-cyan-200",
+    "bg-sky-50 border-sky-200",
+    "bg-blue-50 border-blue-200",
+    "bg-indigo-50 border-indigo-200",
+    "bg-violet-50 border-violet-200",
+    "bg-purple-50 border-purple-200",
+    "bg-fuchsia-50 border-fuchsia-200",
+    "bg-pink-50 border-pink-200",
+    "bg-rose-50 border-rose-200",
+  ];
+
+  // Simple hash function to map string to index
+  let hash = 0;
+  for (let i = 0; i < category.length; i++) {
+    hash = category.charCodeAt(i) + ((hash << 5) - hash);
+  }
+  
+  const index = Math.abs(hash) % colors.length;
+  return colors[index];
+}
+
 import { useEffect, useState } from "react";
 import { Link, useFetcher, useLocation, useNavigate } from "react-router";
 import { Breadcrumb } from "~/components/breadcrumb";
@@ -650,13 +682,7 @@ export default function PhotoDetail({ loaderData }: Route.ComponentProps) {
                                               variant="outline"
                                               className={cn(
                                                 "text-xs",
-                                                tag.category_name === "face_emotion"
-                                                  ? "bg-yellow-50 border-yellow-200"
-                                                  : tag.category_name === "face_expression"
-                                                    ? "bg-green-50 border-green-200"
-                                                    : tag.category_name === "face_gaze"
-                                                      ? "bg-purple-50 border-purple-200"
-                                                      : "",
+                                                getCategoryColor(tag.category_name)
                                               )}
                                               title={`${tag.category_name}: ${tag.prompt_text}`}
                                             >
@@ -808,7 +834,7 @@ export default function PhotoDetail({ loaderData }: Route.ComponentProps) {
                                       variant="outline"
                                       className={cn(
                                         "text-xs",
-                                        tag.rank_in_category === 1 ? "bg-blue-50 border-blue-200" : "",
+                                        getCategoryColor(tag.category_name)
                                       )}
                                       title={tag.prompt_text}
                                     >

@@ -1809,6 +1809,51 @@ class PhotoRepository:
                 row = cursor.fetchone()
                 return self._row_to_prompt_category(row) if row else None
 
+    def create_prompt_category(
+        self,
+        name: str,
+        target: Optional[str] = None,
+        selection_mode: str = "single",
+        min_confidence: float = 0.1,
+        max_results: int = 5,
+        description: Optional[str] = None,
+        display_order: int = 0,
+    ) -> PromptCategory:
+        """Create a new prompt category."""
+        # Infer target from name if not provided
+        if target is None:
+            if name.startswith("face_"):
+                target = "face"
+            else:
+                target = "scene"
+
+        with self.pool.transaction() as conn:
+            with conn.cursor() as cursor:
+                cursor.execute(
+                    """
+                    INSERT INTO prompt_category
+                    (name, target, selection_mode, min_confidence, max_results,
+                     description, display_order, is_active, created_at, updated_at)
+                    VALUES (%s, %s, %s, %s, %s, %s, %s, true, NOW(), NOW())
+                    ON CONFLICT (name) DO UPDATE SET
+                        target = EXCLUDED.target,
+                        updated_at = NOW()
+                    RETURNING id, name, target, selection_mode, min_confidence, max_results,
+                              description, display_order, is_active, created_at, updated_at
+                    """,
+                    (
+                        name,
+                        target,
+                        selection_mode,
+                        min_confidence,
+                        max_results,
+                        description,
+                        display_order,
+                    ),
+                )
+                row = cursor.fetchone()
+                return self._row_to_prompt_category(row)
+
     def _row_to_prompt_category(self, row) -> PromptCategory:
         return PromptCategory(
             id=row[0],

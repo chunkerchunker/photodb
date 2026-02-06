@@ -28,6 +28,11 @@ export function Layout({ children }: LayoutProps) {
                 <Users className="h-4 w-4" />
                 <span>Clusters</span>
               </Link>
+              <form method="post" action="/logout">
+                <button type="submit" className="text-sm text-gray-300 hover:text-white transition-colors">
+                  Sign out
+                </button>
+              </form>
             </div>
           </div>
         </div>

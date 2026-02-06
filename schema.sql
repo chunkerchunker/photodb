@@ -11,6 +11,16 @@ CREATE TABLE IF NOT EXISTS app_user(
     created_at timestamptz DEFAULT now()
 );
 
+-- Sessions table: Minimal session storage
+CREATE TABLE IF NOT EXISTS app_session(
+    id bigserial PRIMARY KEY,
+    user_id bigint NOT NULL,
+    token text NOT NULL UNIQUE,
+    created_at timestamptz DEFAULT now(),
+    expires_at timestamptz NOT NULL,
+    FOREIGN KEY (user_id) REFERENCES app_user(id) ON DELETE CASCADE
+);
+
 -- Collections table: Named groups of photos owned by users
 CREATE TABLE IF NOT EXISTS collection(
     id bigserial PRIMARY KEY,
@@ -29,6 +39,9 @@ CREATE TABLE IF NOT EXISTS collection_member(
     FOREIGN KEY (collection_id) REFERENCES collection(id) ON DELETE CASCADE,
     FOREIGN KEY (user_id) REFERENCES app_user(id) ON DELETE CASCADE
 );
+
+CREATE INDEX IF NOT EXISTS idx_app_session_user_id ON app_session(user_id);
+CREATE INDEX IF NOT EXISTS idx_app_session_expires_at ON app_session(expires_at);
 
 -- Add default collection FK after collection exists (nullable to avoid cyclic bootstrapping)
 ALTER TABLE app_user

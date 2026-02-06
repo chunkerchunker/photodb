@@ -407,6 +407,57 @@ export async function getPhotoById(photoId: number) {
   return result.rows[0] || null;
 }
 
+export type AppUser = {
+  id: number;
+  username: string;
+  password_hash: string;
+  first_name: string;
+  last_name: string;
+  default_collection_id: number | null;
+};
+
+export async function getUserByUsername(username: string): Promise<AppUser | null> {
+  await initDatabase();
+  const result = await pool.query("SELECT * FROM app_user WHERE username = $1", [username]);
+  return (result.rows[0] as AppUser) || null;
+}
+
+export async function getUserById(userId: number): Promise<AppUser | null> {
+  await initDatabase();
+  const result = await pool.query("SELECT * FROM app_user WHERE id = $1", [userId]);
+  return (result.rows[0] as AppUser) || null;
+}
+
+export async function updateUserPasswordHash(userId: number, passwordHash: string): Promise<void> {
+  await initDatabase();
+  await pool.query("UPDATE app_user SET password_hash = $1 WHERE id = $2", [passwordHash, userId]);
+}
+
+export async function createSession(userId: number, token: string, expiresAt: Date): Promise<void> {
+  await initDatabase();
+  await pool.query(
+    "INSERT INTO app_session (user_id, token, created_at, expires_at) VALUES ($1, $2, NOW(), $3)",
+    [userId, token, expiresAt],
+  );
+}
+
+export async function getUserBySessionToken(token: string): Promise<AppUser | null> {
+  await initDatabase();
+  const result = await pool.query(
+    `SELECT u.*
+     FROM app_session s
+     JOIN app_user u ON s.user_id = u.id
+     WHERE s.token = $1 AND s.expires_at > NOW()`,
+    [token],
+  );
+  return (result.rows[0] as AppUser) || null;
+}
+
+export async function deleteSession(token: string): Promise<void> {
+  await initDatabase();
+  await pool.query("DELETE FROM app_session WHERE token = $1", [token]);
+}
+
 export async function getClusters(limit = 50, offset = 0) {
   await initDatabase();
 

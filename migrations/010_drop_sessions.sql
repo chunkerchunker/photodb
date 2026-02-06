@@ -4,6 +4,8 @@ DROP INDEX IF EXISTS idx_app_session_expires_at;
 DROP INDEX IF EXISTS idx_app_session_user_id;
 DROP TABLE IF EXISTS app_session;
 
-DELETE FROM schema_migrations WHERE version = '010';
+INSERT INTO schema_migrations (version, description)
+VALUES ('010', 'Drop app sessions (cookie-only auth)')
+ON CONFLICT (version) DO NOTHING;
 
 COMMIT;

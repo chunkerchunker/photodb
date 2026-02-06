@@ -23,7 +23,7 @@ export function Layout({ children }: LayoutProps) {
               },
               {
                 key: "wall",
-                label: "3D Wall",
+                label: "Photo Wall",
                 icon: <CoverflowIcon className="h-4 w-4" />,
                 to: "/wall",
                 isActive: false,

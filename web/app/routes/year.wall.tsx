@@ -9,10 +9,7 @@ import { getMonthsInYear } from "~/lib/db.server";
 import type { Route } from "./+types/year.wall";
 
 export function meta({ params }: Route.MetaArgs) {
-  return [
-    { title: `PhotoDB - ${params.year} - 3D Wall` },
-    { name: "description", content: `Browse photos from ${params.year} in 3D wall view` },
-  ];
+  return [{ title: `PhotoDB - ${params.year} - Photo Wall` }];
 }
 
 import { dataWithViewMode } from "~/lib/cookies.server";
@@ -79,7 +76,7 @@ export default function YearWallView({ loaderData }: Route.ComponentProps) {
             },
             {
               key: "wall",
-              label: "3D Wall",
+              label: "Photo Wall",
               icon: <CoverflowIcon className="h-4 w-4" />,
               isActive: true,
             },

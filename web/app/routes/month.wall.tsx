@@ -27,10 +27,10 @@ export function meta({ params }: Route.MetaArgs) {
   const monthName = monthNames[parseInt(params.month, 10)] || params.month;
 
   return [
-    { title: `PhotoDB - ${monthName} ${params.year} - 3D Wall` },
+    { title: `PhotoDB - ${monthName} ${params.year} - Photo Wall` },
     {
       name: "description",
-      content: `Browse photos from ${monthName} ${params.year} in 3D wall view`,
+      content: `Browse photos from ${monthName} ${params.year} in Photo Wall`,
     },
   ];
 }
@@ -59,7 +59,7 @@ export async function loader({ params }: Route.LoaderArgs) {
   const monthName = monthNames[month] || `Month ${month}`;
 
   try {
-    // Load all photos for the 3D wall (up to a reasonable limit)
+    // Load all photos for the Photo Wall (up to a reasonable limit)
     const photos = await getPhotosByMonth(year, month, 500, 0);
     const totalPhotos = await getPhotoCountByMonth(year, month);
 
@@ -1172,7 +1172,7 @@ function ThreeWall({ photos, year, month, totalPhotos, monthName }: ThreeWallPro
               },
               {
                 key: "wall",
-                label: "3D Wall",
+                label: "Photo Wall",
                 icon: <CoverflowIcon className="h-4 w-4" />,
                 isActive: true,
               },
@@ -1198,7 +1198,7 @@ function ThreeWall({ photos, year, month, totalPhotos, monthName }: ThreeWallPro
         <div className="absolute inset-0 bg-black/80 flex items-center justify-center">
           <div className="flex items-center gap-3 text-white">
             <Loader2 className="h-6 w-6 animate-spin" />
-            <span>Loading 3D Wall...</span>
+            <span>Loading Photo Wall...</span>
           </div>
         </div>
       )}

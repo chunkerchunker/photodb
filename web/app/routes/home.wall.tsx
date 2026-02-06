@@ -9,10 +9,7 @@ import { getYearsWithPhotos } from "~/lib/db.server";
 import type { Route } from "./+types/home.wall";
 
 export function meta() {
-  return [
-    { title: "PhotoDB - Years - 3D Wall" },
-    { name: "description", content: "Browse your photo collection by year in 3D wall view" },
-  ];
+  return [{ title: "PhotoDB - Years - Photo Wall" }];
 }
 
 import { dataWithViewMode } from "~/lib/cookies.server";
@@ -72,7 +69,7 @@ export default function HomeWallView({ loaderData }: Route.ComponentProps) {
             },
             {
               key: "wall",
-              label: "3D Wall",
+              label: "Photo Wall",
               icon: <CoverflowIcon className="size-4" />,
               isActive: true,
             },

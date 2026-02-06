@@ -37,10 +37,10 @@ export default function YearView({ loaderData }: Route.ComponentProps) {
           <Link
             to={`/year/${year}/wall`}
             className="inline-flex items-center gap-2 px-3 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded-lg hover:bg-gray-50 hover:border-gray-400 transition-colors"
-            title="3D Wall View"
+            title="Photo Wall"
           >
             <Box className="h-4 w-4" />
-            3D Wall
+            Photo Wall
           </Link>
         </div>
 

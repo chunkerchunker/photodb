@@ -1083,7 +1083,7 @@ export function PhotoWall({ tiles, sessionKey, headerContent, onTileClick }: Pho
         <div className="absolute inset-0 bg-black/80 flex items-center justify-center">
           <div className="flex items-center gap-3 text-white">
             <Loader2 className="h-6 w-6 animate-spin" />
-            <span>Loading 3D Wall...</span>
+            <span>Loading Photo Wall...</span>
           </div>
         </div>
       )}

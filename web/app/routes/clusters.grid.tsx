@@ -208,7 +208,12 @@ export default function ClustersView({ loaderData }: Route.ComponentProps) {
       setIsLoadingPreview(true);
       setLinkPreview(null);
       fetch(`/api/clusters/link-preview?source=${sourceClusterId}&target=${targetClusterId}`)
-        .then((res) => res.json())
+        .then((res) => {
+          if (!res.ok) {
+            throw new Error(`Failed to fetch link preview: ${res.status}`);
+          }
+          return res.json();
+        })
         .then((preview) => {
           setLinkPreview(preview);
         })
@@ -420,6 +425,12 @@ export default function ClustersView({ loaderData }: Route.ComponentProps) {
                             tabIndex={0}
                             draggable
                             onClick={(e) => toggleItemSelection(item, e)}
+                            onKeyDown={(e) => {
+                              if (e.key === "Enter" || e.key === " ") {
+                                e.preventDefault();
+                                toggleItemSelection(item, e as unknown as React.MouseEvent);
+                              }
+                            }}
                             onDragStart={(e) => handleDragStart(e, item)}
                             onDragEnd={handleDragEnd}
                             onDragOver={(e) => handleDragOver(e, item)}

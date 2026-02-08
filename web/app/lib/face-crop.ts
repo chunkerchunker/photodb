@@ -35,6 +35,10 @@ export function getFaceCropStyle(
   imageHeight: number,
   containerSize = 128,
 ): FaceCropStyle {
+  if (bbox.bbox_width <= 0 || bbox.bbox_height <= 0) {
+    return { transform: "none", transformOrigin: "0 0", width: "100%", height: "100%" };
+  }
+
   const scaleX = containerSize / bbox.bbox_width;
   const scaleY = containerSize / bbox.bbox_height;
 

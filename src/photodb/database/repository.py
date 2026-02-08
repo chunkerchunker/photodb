@@ -1581,7 +1581,7 @@ class PhotoRepository:
             with conn.cursor() as cursor:
                 cursor.execute(
                     """UPDATE person_detection
-                       SET cluster_status = 'auto'
+                       SET cluster_status = 'auto', unassigned_since = NULL
                        WHERE id = %s AND cluster_status = 'unassigned'""",
                     (detection_id,),
                 )
@@ -2136,7 +2136,12 @@ class PhotoRepository:
                          AND pd.face_confidence >= %s
                          AND pd.face_bbox_width >= %s
                          AND pd.face_bbox_height >= %s""",
-                    (resolved_collection_id, MIN_FACE_CONFIDENCE, MIN_FACE_SIZE_PX, MIN_FACE_SIZE_PX),
+                    (
+                        resolved_collection_id,
+                        MIN_FACE_CONFIDENCE,
+                        MIN_FACE_SIZE_PX,
+                        MIN_FACE_SIZE_PX,
+                    ),
                 )
                 return [dict(row) for row in cursor.fetchall()]
 

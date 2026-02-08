@@ -76,9 +76,15 @@ export function SearchBox({
             placeholder={placeholder}
             className="flex-1 outline-none text-lg placeholder:text-gray-400"
             autoComplete="off"
+            aria-label="Search"
           />
           {query && (
-            <button type="button" onClick={() => onQueryChange("")} className="p-1 hover:bg-gray-100 rounded mr-2">
+            <button
+              type="button"
+              onClick={() => onQueryChange("")}
+              className="p-1 hover:bg-gray-100 rounded mr-2"
+              aria-label="Clear search"
+            >
               <X className="h-4 w-4 text-gray-400" />
             </button>
           )}

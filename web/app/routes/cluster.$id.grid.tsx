@@ -370,6 +370,15 @@ export default function ClusterDetailView({ loaderData }: Route.ComponentProps) 
     setPreviewFaceId(null);
   }, []);
 
+  // Cleanup preview timeout on unmount
+  useEffect(() => {
+    return () => {
+      if (previewTimeoutRef.current) {
+        clearTimeout(previewTimeoutRef.current);
+      }
+    };
+  }, []);
+
   // Revalidate after link completes
   useEffect(() => {
     if (fetcher.data?.success && fetcher.state === "idle") {
@@ -434,6 +443,9 @@ export default function ClusterDetailView({ loaderData }: Route.ComponentProps) 
       setIsSearching(true);
       try {
         const response = await fetch(`/api/clusters/search?q=${encodeURIComponent(query)}&exclude=${cluster.id}`);
+        if (!response.ok) {
+          throw new Error(`Search request failed: ${response.status}`);
+        }
         const data = await response.json();
         setSearchResults(data.clusters || []);
       } catch (error) {
@@ -549,6 +561,7 @@ export default function ClusterDetailView({ loaderData }: Route.ComponentProps) 
   };
 
   const handleToggleHidden = () => {
+    if (!cluster) return;
     fetcher.submit({ intent: cluster.hidden ? "unhide" : "hide" }, { method: "post" });
   };
 

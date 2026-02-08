@@ -18,6 +18,12 @@ from ..utils.hdbscan_config import (
 
 logger = logging.getLogger(__name__)
 
+# Metal/MPS k-NN parameters for GPU-accelerated HDBSCAN
+# Number of neighbors for sparse graph construction (must be large enough for connectivity)
+KNN_NEIGHBORS = 60
+# Batch size for GPU k-NN computation (balances memory vs. speed)
+KNN_BATCH_SIZE = 2000
+
 # Check for PyTorch MPS (Metal) availability
 try:
     import torch
@@ -553,10 +559,11 @@ class ClusteringStage(BaseStage):
                     (new_centroid, new_face_count, cluster_id),
                 )
 
-                # Update detection
+                # Update detection and clear unassigned status
                 cur.execute(
                     """UPDATE person_detection
-                       SET cluster_id = %s, cluster_confidence = %s, cluster_status = %s
+                       SET cluster_id = %s, cluster_confidence = %s, cluster_status = %s,
+                           unassigned_since = NULL
                        WHERE id = %s""",
                     (cluster_id, Decimal(str(confidence)), status, detection_id),
                 )
@@ -698,9 +705,6 @@ class ClusteringStage(BaseStage):
             probability is the cluster membership probability,
             and is_core indicates if the point is a core sample.
         """
-        # Lazy import to avoid dependency when not using bootstrap
-        import hdbscan
-
         # Fetch all embeddings for the collection
         embeddings_data = self.repository.get_all_embeddings_for_collection()
         if not embeddings_data:
@@ -732,10 +736,10 @@ class ClusteringStage(BaseStage):
                 logger.info("Used Metal/MPS GPU acceleration for HDBSCAN")
             except Exception as e:
                 logger.warning(f"Metal HDBSCAN failed, falling back to CPU: {e}")
-                labels, probabilities = self._run_hdbscan_cpu(embeddings, hdbscan)
+                labels, probabilities = self._run_hdbscan_cpu(embeddings)
         else:
             logger.info("Metal/MPS not available, using CPU")
-            labels, probabilities = self._run_hdbscan_cpu(embeddings, hdbscan)
+            labels, probabilities = self._run_hdbscan_cpu(embeddings)
 
         # Determine core points (high stability = high probability)
         results: Dict[int, Dict] = {}
@@ -759,7 +763,7 @@ class ClusteringStage(BaseStage):
 
         return results
 
-    def _run_hdbscan_cpu(self, embeddings: np.ndarray, hdbscan) -> Tuple[np.ndarray, np.ndarray]:
+    def _run_hdbscan_cpu(self, embeddings: np.ndarray) -> Tuple[np.ndarray, np.ndarray]:
         """Run standard HDBSCAN on CPU."""
         clusterer = create_hdbscan_clusterer(
             min_cluster_size=self.min_cluster_size,
@@ -778,27 +782,25 @@ class ClusteringStage(BaseStage):
         from scipy.sparse import csr_matrix
 
         n_samples = embeddings.shape[0]
-        k = 60  # Neighbors for sparse graph (must be large enough for connectivity)
-        batch_size = 2000
 
-        logger.info(f"Computing {k}-NN on Metal/MPS GPU...")
+        logger.info(f"Computing {KNN_NEIGHBORS}-NN on Metal/MPS GPU...")
 
         # GPU-accelerated k-NN
         device = torch.device("mps")
         X_torch = torch.from_numpy(embeddings).to(device)
 
-        knn_indices = np.zeros((n_samples, k), dtype=np.int64)
-        knn_dists = np.zeros((n_samples, k), dtype=np.float32)
+        knn_indices = np.zeros((n_samples, KNN_NEIGHBORS), dtype=np.int64)
+        knn_dists = np.zeros((n_samples, KNN_NEIGHBORS), dtype=np.float32)
 
-        for i in range(0, n_samples, batch_size):
-            end = min(i + batch_size, n_samples)
+        for i in range(0, n_samples, KNN_BATCH_SIZE):
+            end = min(i + KNN_BATCH_SIZE, n_samples)
             batch = X_torch[i:end]
 
             # Compute distances between batch and all points
             dists = torch.cdist(batch, X_torch)
 
             # Get k+1 nearest (includes self)
-            values, indices = dists.topk(k + 1, dim=1, largest=False, sorted=True)
+            values, indices = dists.topk(KNN_NEIGHBORS + 1, dim=1, largest=False, sorted=True)
 
             # Exclude self (first column)
             knn_indices[i:end] = indices[:, 1:].cpu().numpy()
@@ -807,7 +809,7 @@ class ClusteringStage(BaseStage):
         logger.info("Building symmetric sparse graph...")
 
         # Build symmetric sparse graph
-        rows = np.repeat(np.arange(n_samples), k)
+        rows = np.repeat(np.arange(n_samples), KNN_NEIGHBORS)
         cols = knn_indices.flatten()
         vals = knn_dists.flatten()
 

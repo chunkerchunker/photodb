@@ -5,7 +5,7 @@ This module provides shared HDBSCAN configuration used by both the
 ClusteringStage (for bootstrap) and MaintenanceUtilities (for pool clustering).
 """
 
-from typing import Tuple
+from typing import Any
 import numpy as np
 
 # Default HDBSCAN parameters
@@ -21,7 +21,7 @@ def create_hdbscan_clusterer(
     min_samples: int = DEFAULT_MIN_SAMPLES,
     metric: str = "euclidean",
     precomputed: bool = False,
-):
+) -> Any:
     """
     Create an HDBSCAN clusterer with consistent configuration.
 
@@ -70,12 +70,18 @@ def calculate_cluster_epsilon(
         embeddings: All embeddings array
         labels: HDBSCAN labels for all embeddings
         label: The specific cluster label to calculate epsilon for
-        percentile: Percentile of pairwise distances to use
+        percentile: Percentile of pairwise distances to use (must be between 0 and 100)
         fallback_threshold: Default epsilon for single-point clusters
 
     Returns:
         Epsilon value (distance threshold) for the cluster
+
+    Raises:
+        ValueError: If percentile is not between 0 and 100
     """
+    if not 0 <= percentile <= 100:
+        raise ValueError(f"percentile must be between 0 and 100, got {percentile}")
+
     from scipy.spatial.distance import pdist
 
     cluster_mask = labels == label
@@ -96,28 +102,3 @@ def calculate_cluster_epsilon(
     max_epsilon = fallback_threshold * 1.5
 
     return max(min_epsilon, min(epsilon, max_epsilon))
-
-
-def fit_and_extract_results(
-    clusterer,
-    embeddings: np.ndarray,
-    core_probability_threshold: float = DEFAULT_CORE_PROBABILITY_THRESHOLD,
-) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
-    """
-    Fit HDBSCAN clusterer and extract labels, probabilities, and core point mask.
-
-    Args:
-        clusterer: HDBSCAN clusterer instance
-        embeddings: Embeddings array to cluster
-        core_probability_threshold: Probability threshold to identify core points
-
-    Returns:
-        Tuple of (labels, probabilities, is_core_mask)
-    """
-    clusterer.fit(embeddings)
-
-    labels = clusterer.labels_
-    probabilities = clusterer.probabilities_
-    is_core = probabilities >= core_probability_threshold
-
-    return labels, probabilities, is_core

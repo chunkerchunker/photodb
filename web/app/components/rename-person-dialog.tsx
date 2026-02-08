@@ -1,5 +1,5 @@
 import { Loader2 } from "lucide-react";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useFetcher } from "react-router";
 import { Button } from "~/components/ui/button";
 import {
@@ -44,6 +44,7 @@ export function RenamePersonDialog({
 }: RenamePersonDialogProps): React.ReactElement {
   const [firstName, setFirstName] = useState(currentFirstName);
   const [lastName, setLastName] = useState(currentLastName);
+  const submittedValuesRef = useRef<{ first: string; last: string } | null>(null);
   const renameFetcher = useFetcher();
 
   const isSubmitting = renameFetcher.state !== "idle";
@@ -60,16 +61,21 @@ export function RenamePersonDialog({
 
   // Handle successful submission
   useEffect(() => {
-    if (renameFetcher.data?.success) {
-      onSuccess?.(firstName.trim(), lastName.trim());
+    if (renameFetcher.data?.success && submittedValuesRef.current) {
+      const { first, last } = submittedValuesRef.current;
+      submittedValuesRef.current = null;
+      onSuccess?.(first, last);
       onOpenChange(false);
     }
-  }, [renameFetcher.data, firstName, lastName, onSuccess, onOpenChange]);
+  }, [renameFetcher.data, onSuccess, onOpenChange]);
 
   function handleSubmit(): void {
-    if (firstName.trim()) {
+    const trimmedFirst = firstName.trim();
+    const trimmedLast = lastName.trim();
+    if (trimmedFirst) {
+      submittedValuesRef.current = { first: trimmedFirst, last: trimmedLast };
       renameFetcher.submit(
-        { firstName: firstName.trim(), lastName: lastName.trim() },
+        { firstName: trimmedFirst, lastName: trimmedLast },
         { method: "post", action: `/api/${apiType}/${personId}/rename` },
       );
     }
@@ -97,6 +103,7 @@ export function RenamePersonDialog({
               id="renameFirstName"
               value={firstName}
               onChange={(e) => setFirstName(e.target.value)}
+              onKeyDown={handleKeyDown}
               placeholder="First name"
               autoComplete="off"
               data-form-type="other"

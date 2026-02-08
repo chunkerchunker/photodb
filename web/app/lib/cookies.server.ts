@@ -1,4 +1,3 @@
-
 import { data } from "react-router";
 
 export function dataWithViewMode<T>(payload: T, mode: "grid" | "wall") {

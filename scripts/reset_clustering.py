@@ -43,9 +43,6 @@ def get_current_stats(pool) -> dict:
             cur.execute("SELECT COUNT(*) FROM cluster WHERE verified = true")
             stats["verified_clusters"] = cur.fetchone()[0]
 
-            cur.execute("SELECT COUNT(*) FROM must_link")
-            stats["must_links"] = cur.fetchone()[0]
-
             cur.execute("SELECT COUNT(*) FROM cannot_link")
             stats["cannot_links"] = cur.fetchone()[0]
 
@@ -77,7 +74,7 @@ def reset_clustering(
 
     Args:
         pool: Database connection pool
-        keep_constraints: If True, preserve must_link/cannot_link constraints
+        keep_constraints: If True, preserve cannot_link constraints
         keep_verified: If True, preserve verified clusters and their assignments
         dry_run: If True, show what would be done without making changes
 
@@ -127,18 +124,15 @@ def reset_clustering(
 
             # Handle constraints
             if not keep_constraints:
-                cur.execute("SELECT COUNT(*) FROM must_link")
-                ml_count = cur.fetchone()[0]
                 cur.execute("SELECT COUNT(*) FROM cannot_link")
                 cl_count = cur.fetchone()[0]
                 cur.execute("SELECT COUNT(*) FROM cluster_cannot_link")
                 ccl_count = cur.fetchone()[0]
-                results["constraints_deleted"] = ml_count + cl_count + ccl_count
+                results["constraints_deleted"] = cl_count + ccl_count
 
                 if not dry_run:
                     cur.execute("DELETE FROM cluster_cannot_link")
                     cur.execute("DELETE FROM cannot_link")
-                    cur.execute("DELETE FROM must_link")
                     logger.info(f"Deleted {results['constraints_deleted']} constraints")
             else:
                 logger.info("Keeping constraints (--keep-constraints)")
@@ -185,7 +179,7 @@ def main():
     parser.add_argument(
         "--keep-constraints",
         action="store_true",
-        help="Preserve must_link/cannot_link constraints",
+        help="Preserve cannot_link constraints",
     )
     parser.add_argument(
         "--keep-verified",
@@ -226,7 +220,6 @@ def main():
         print(f"  Unassigned:         {stats['unassigned_faces']}")
         print(f"  Clusters:           {stats['clusters']}")
         print(f"  Verified clusters:  {stats['verified_clusters']}")
-        print(f"  Must-links:         {stats['must_links']}")
         print(f"  Cannot-links:       {stats['cannot_links']}")
         print(f"  Match candidates:   {stats['match_candidates']}")
         print("=====================\n")

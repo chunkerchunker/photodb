@@ -1,4 +1,3 @@
-
 import { Link } from "react-router";
 import { cn } from "~/lib/utils";
 
@@ -22,9 +21,7 @@ export function ViewSwitcher({ modes }: ViewSwitcherProps) {
           <div
             className={cn(
               "p-1.5 rounded-md transition-all flex items-center justify-center",
-              mode.isActive
-                ? "bg-white text-black shadow-sm"
-                : "text-white hover:bg-white/10 text-white/60"
+              mode.isActive ? "bg-white text-black shadow-sm" : "text-white hover:bg-white/10 text-white/60",
             )}
             title={mode.label}
           >

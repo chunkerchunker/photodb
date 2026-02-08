@@ -1,17 +1,11 @@
-import { ArrowDownAZ, EyeOff, GitMerge, Loader2, Pencil, Search, User, Users, X } from "lucide-react";
+import { ArrowDownAZ, EyeOff, Grid, Loader2, Pencil, Search, User, Users, X } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Link, useFetcher, useNavigate, useRevalidator } from "react-router";
-import { ClusterMergeDialog } from "~/components/cluster-merge-dialog";
+import { CoverflowIcon } from "~/components/coverflow-icon";
 import { Layout } from "~/components/layout";
 import { Button } from "~/components/ui/button";
 import { Card, CardContent } from "~/components/ui/card";
-import {
-  ContextMenu,
-  ContextMenuContent,
-  ContextMenuItem,
-  ContextMenuSeparator,
-  ContextMenuTrigger,
-} from "~/components/ui/context-menu";
+import { ContextMenu, ContextMenuContent, ContextMenuItem, ContextMenuTrigger } from "~/components/ui/context-menu";
 import {
   Dialog,
   DialogContent,
@@ -21,8 +15,9 @@ import {
   DialogTitle,
 } from "~/components/ui/dialog";
 import { Input } from "~/components/ui/input";
-import { getNamedClusters, getNamedClustersCount } from "~/lib/db.server";
-import type { Route } from "./+types/people";
+import { dataWithViewMode } from "~/lib/cookies.server";
+import { getPeople, getPeopleCount } from "~/lib/db.server";
+import type { Route } from "./+types/people.grid";
 
 export function meta() {
   return [
@@ -44,26 +39,32 @@ export async function loader({ request }: Route.LoaderArgs) {
   const offset = (page - 1) * LIMIT;
 
   try {
-    const clusters = await getNamedClusters(LIMIT, offset, sort);
-    const totalClusters = await getNamedClustersCount();
-    const hasMore = offset + clusters.length < totalClusters;
+    const people = await getPeople(LIMIT, offset, sort);
+    const totalPeople = await getPeopleCount();
+    const hasMore = offset + people.length < totalPeople;
 
-    return {
-      clusters,
-      totalClusters,
-      hasMore,
-      page,
-      sort,
-    };
+    return dataWithViewMode(
+      {
+        people,
+        totalPeople,
+        hasMore,
+        page,
+        sort,
+      },
+      "grid",
+    );
   } catch (error) {
     console.error("Failed to load people:", error);
-    return {
-      clusters: [],
-      totalClusters: 0,
-      hasMore: false,
-      page,
-      sort,
-    };
+    return dataWithViewMode(
+      {
+        people: [],
+        totalPeople: 0,
+        hasMore: false,
+        page,
+        sort,
+      },
+      "grid",
+    );
   }
 }
 
@@ -94,18 +95,18 @@ function getFaceCropStyle(
   };
 }
 
-type Cluster = Route.ComponentProps["loaderData"]["clusters"][number];
+type Person = Route.ComponentProps["loaderData"]["people"][number];
 
 export default function PeopleView({ loaderData }: Route.ComponentProps) {
   const {
-    clusters: initialClusters,
-    totalClusters,
+    people: initialPeople,
+    totalPeople,
     hasMore: initialHasMore,
     page: initialPage,
     sort: initialSort,
   } = loaderData;
 
-  const [clusters, setClusters] = useState<Cluster[]>(initialClusters);
+  const [people, setPeople] = useState<Person[]>(initialPeople);
   const [page, setPage] = useState(initialPage);
   const [hasMore, setHasMore] = useState(initialHasMore);
   const [sort, setSort] = useState(initialSort);
@@ -117,9 +118,8 @@ export default function PeopleView({ loaderData }: Route.ComponentProps) {
   const searchInputRef = useRef<HTMLInputElement>(null);
 
   // Context menu state
-  const [contextCluster, setContextCluster] = useState<Cluster | null>(null);
+  const [contextPerson, setContextPerson] = useState<Person | null>(null);
   const [renameDialogOpen, setRenameDialogOpen] = useState(false);
-  const [mergeDialogOpen, setMergeDialogOpen] = useState(false);
   const [editFirstName, setEditFirstName] = useState("");
   const [editLastName, setEditLastName] = useState("");
   const renameFetcher = useFetcher();
@@ -131,11 +131,11 @@ export default function PeopleView({ loaderData }: Route.ComponentProps) {
 
   // Reset state when initial data changes
   useEffect(() => {
-    setClusters(initialClusters);
+    setPeople(initialPeople);
     setPage(initialPage);
     setHasMore(initialHasMore);
     setSort(initialSort);
-  }, [initialClusters, initialPage, initialHasMore, initialSort]);
+  }, [initialPeople, initialPage, initialHasMore, initialSort]);
 
   // Keyboard shortcut for search (Cmd+F / Ctrl+F)
   useEffect(() => {
@@ -161,13 +161,13 @@ export default function PeopleView({ loaderData }: Route.ComponentProps) {
     }
   }, [searchOpen]);
 
-  // Append new clusters when fetcher returns data
+  // Append new people when fetcher returns data
   useEffect(() => {
-    if (fetcher.data && fetcher.data.clusters.length > 0) {
-      setClusters((prev) => {
-        const existingIds = new Set(prev.map((c) => c.id));
-        const newClusters = fetcher.data!.clusters.filter((c) => !existingIds.has(c.id));
-        return [...prev, ...newClusters];
+    if (fetcher.data && fetcher.data.people.length > 0) {
+      setPeople((prev) => {
+        const existingIds = new Set(prev.map((p) => p.id));
+        const newPeople = fetcher.data!.people.filter((p) => !existingIds.has(p.id));
+        return [...prev, ...newPeople];
       });
       setPage(fetcher.data.page);
       setHasMore(fetcher.data.hasMore);
@@ -207,16 +207,16 @@ export default function PeopleView({ loaderData }: Route.ComponentProps) {
   const isLoading = fetcher.state === "loading";
 
   // Context menu handlers
-  const handleRename = (cluster: Cluster) => {
-    setContextCluster(cluster);
-    const parts = cluster.person_name?.split(" ") || [];
+  const handleRename = (person: Person) => {
+    setContextPerson(person);
+    const parts = person.person_name?.split(" ") || [];
     setEditFirstName(parts[0] || "");
     setEditLastName(parts.slice(1).join(" ") || "");
     setRenameDialogOpen(true);
   };
 
-  const handleHide = (cluster: Cluster) => {
-    hideFetcher.submit({ hidden: "true" }, { method: "post", action: `/api/cluster/${cluster.id}/hide` });
+  const handleHide = (person: Person) => {
+    hideFetcher.submit({ hidden: "true" }, { method: "post", action: `/api/person/${person.id}/hide` });
   };
 
   // Revalidate after hide completes
@@ -226,44 +226,34 @@ export default function PeopleView({ loaderData }: Route.ComponentProps) {
     }
   }, [hideFetcher.data, revalidator]);
 
-  const handleMerge = (cluster: Cluster) => {
-    setContextCluster(cluster);
-    setMergeDialogOpen(true);
-  };
-
   const handleSaveRename = () => {
-    if (contextCluster && editFirstName.trim()) {
+    if (contextPerson && editFirstName.trim()) {
       renameFetcher.submit(
         { firstName: editFirstName.trim(), lastName: editLastName.trim() },
-        { method: "post", action: `/api/cluster/${contextCluster.id}/rename` },
+        { method: "post", action: `/api/person/${contextPerson.id}/rename` },
       );
     }
   };
 
   // Update local state when rename completes
   useEffect(() => {
-    if (renameFetcher.data?.success && contextCluster) {
+    if (renameFetcher.data?.success && contextPerson) {
       const newName = editLastName.trim() ? `${editFirstName.trim()} ${editLastName.trim()}` : editFirstName.trim();
-      setClusters((prev) => prev.map((c) => (c.id === contextCluster.id ? { ...c, person_name: newName } : c)));
+      setPeople((prev) => prev.map((p) => (p.id === contextPerson.id ? { ...p, person_name: newName } : p)));
       setRenameDialogOpen(false);
-      setContextCluster(null);
+      setContextPerson(null);
     }
-  }, [renameFetcher.data, contextCluster, editFirstName, editLastName]);
+  }, [renameFetcher.data, contextPerson, editFirstName, editLastName]);
 
-  const handleMergeComplete = () => {
-    setContextCluster(null);
-    revalidator.revalidate();
-  };
-
-  // Filter clusters based on search query
-  const filteredClusters = searchQuery.trim()
-    ? clusters.filter((cluster) => {
+  // Filter people based on search query
+  const filteredPeople = searchQuery.trim()
+    ? people.filter((person) => {
         const query = searchQuery.toLowerCase().trim();
-        if (cluster.id.toString().includes(query)) return true;
-        if (cluster.person_name?.toLowerCase().includes(query)) return true;
+        if (person.id.toString().includes(query)) return true;
+        if (person.person_name?.toLowerCase().includes(query)) return true;
         return false;
       })
-    : clusters;
+    : people;
 
   return (
     <Layout>
@@ -274,13 +264,24 @@ export default function PeopleView({ loaderData }: Route.ComponentProps) {
             <h1 className="text-3xl font-bold text-gray-900">People</h1>
           </div>
           <div className="flex items-center space-x-4">
+            <div className="flex items-center rounded-lg border bg-gray-50 p-1" title="View mode">
+              <div className="flex items-center gap-1.5 px-3 py-1.5 rounded-md text-sm font-medium bg-white text-gray-900 shadow-sm">
+                <Grid className="h-4 w-4" />
+              </div>
+              <Link
+                to={`/people/wall${sort !== "name" ? `?sort=${sort}` : ""}`}
+                className="flex items-center gap-1.5 px-3 py-1.5 rounded-md text-sm font-medium text-gray-500 hover:text-gray-700 transition-colors"
+              >
+                <CoverflowIcon className="size-4" />
+              </Link>
+            </div>
             <span className="text-gray-600">
-              {totalClusters} {totalClusters === 1 ? "person" : "people"}
+              {totalPeople} {totalPeople === 1 ? "person" : "people"}
             </span>
             <div className="flex items-center rounded-lg border bg-gray-50 p-1" title="Sort order">
               <button
                 type="button"
-                onClick={() => navigate("/people?sort=photos")}
+                onClick={() => navigate("/people/grid?sort=photos")}
                 className={`flex items-center gap-1.5 px-3 py-1.5 rounded-md text-sm font-medium transition-colors ${
                   sort === "photos" ? "bg-white text-gray-900 shadow-sm" : "text-gray-500 hover:text-gray-700"
                 }`}
@@ -290,7 +291,7 @@ export default function PeopleView({ loaderData }: Route.ComponentProps) {
               </button>
               <button
                 type="button"
-                onClick={() => navigate("/people?sort=name")}
+                onClick={() => navigate("/people/grid?sort=name")}
                 className={`flex items-center gap-1.5 px-3 py-1.5 rounded-md text-sm font-medium transition-colors ${
                   sort === "name" ? "bg-white text-gray-900 shadow-sm" : "text-gray-500 hover:text-gray-700"
                 }`}
@@ -339,16 +340,16 @@ export default function PeopleView({ loaderData }: Route.ComponentProps) {
               </div>
               {searchQuery && (
                 <div className="px-4 py-2 text-xs text-gray-500 border-t">
-                  {filteredClusters.length} result{filteredClusters.length !== 1 ? "s" : ""}
+                  {filteredPeople.length} result{filteredPeople.length !== 1 ? "s" : ""}
                 </div>
               )}
             </div>
           </div>
         )}
 
-        {clusters.length > 0 ? (
+        {people.length > 0 ? (
           <>
-            {searchQuery && filteredClusters.length === 0 ? (
+            {searchQuery && filteredPeople.length === 0 ? (
               <div className="text-center py-12">
                 <Search className="h-12 w-12 text-gray-300 mx-auto mb-4" />
                 <div className="text-gray-500">No people match "{searchQuery}"</div>
@@ -363,32 +364,32 @@ export default function PeopleView({ loaderData }: Route.ComponentProps) {
             ) : (
               <>
                 <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-6 gap-4">
-                  {filteredClusters.map((cluster) => (
-                    <ContextMenu key={cluster.id}>
+                  {filteredPeople.map((person) => (
+                    <ContextMenu key={person.id}>
                       <ContextMenuTrigger asChild>
                         <div>
-                          <Link to={`/cluster/${cluster.id}`}>
+                          <Link to={`/person/${person.id}`}>
                             <Card className="hover:shadow-lg transition-all h-full">
                               <CardContent className="p-4">
                                 <div className="text-center space-y-3">
-                                  {cluster.photo_id &&
-                                  cluster.bbox_x !== null &&
-                                  cluster.normalized_width &&
-                                  cluster.normalized_height ? (
+                                  {person.photo_id &&
+                                  person.bbox_x !== null &&
+                                  person.normalized_width &&
+                                  person.normalized_height ? (
                                     <div className="relative w-32 h-32 mx-auto bg-gray-100 rounded-lg border overflow-hidden">
                                       <img
-                                        src={`/api/image/${cluster.photo_id}`}
-                                        alt={cluster.person_name || `Cluster ${cluster.id}`}
+                                        src={`/api/image/${person.photo_id}`}
+                                        alt={person.person_name || `Person ${person.id}`}
                                         className="absolute max-w-none max-h-none"
                                         style={getFaceCropStyle(
                                           {
-                                            bbox_x: cluster.bbox_x,
-                                            bbox_y: cluster.bbox_y,
-                                            bbox_width: cluster.bbox_width,
-                                            bbox_height: cluster.bbox_height,
+                                            bbox_x: person.bbox_x,
+                                            bbox_y: person.bbox_y,
+                                            bbox_width: person.bbox_width,
+                                            bbox_height: person.bbox_height,
                                           },
-                                          cluster.normalized_width,
-                                          cluster.normalized_height,
+                                          person.normalized_width,
+                                          person.normalized_height,
                                         )}
                                         loading="lazy"
                                       />
@@ -400,11 +401,14 @@ export default function PeopleView({ loaderData }: Route.ComponentProps) {
                                   )}
 
                                   <div className="space-y-1">
-                                    <div className="font-semibold text-gray-900 truncate" title={cluster.person_name}>
-                                      {cluster.person_name}
+                                    <div className="font-semibold text-gray-900 truncate" title={person.person_name}>
+                                      {person.person_name}
                                     </div>
                                     <div className="text-sm text-gray-600">
-                                      {cluster.face_count} photo{cluster.face_count !== 1 ? "s" : ""}
+                                      {person.total_face_count} photo{person.total_face_count !== 1 ? "s" : ""}
+                                      {person.cluster_count > 1 && (
+                                        <span className="text-gray-400"> · {person.cluster_count} clusters</span>
+                                      )}
                                     </div>
                                   </div>
                                 </div>
@@ -414,18 +418,13 @@ export default function PeopleView({ loaderData }: Route.ComponentProps) {
                         </div>
                       </ContextMenuTrigger>
                       <ContextMenuContent>
-                        <ContextMenuItem onClick={() => handleRename(cluster)}>
+                        <ContextMenuItem onClick={() => handleRename(person)}>
                           <Pencil className="h-4 w-4 mr-2" />
                           Rename
                         </ContextMenuItem>
-                        <ContextMenuItem onClick={() => handleHide(cluster)}>
+                        <ContextMenuItem onClick={() => handleHide(person)}>
                           <EyeOff className="h-4 w-4 mr-2" />
                           Hide
-                        </ContextMenuItem>
-                        <ContextMenuSeparator />
-                        <ContextMenuItem onClick={() => handleMerge(cluster)}>
-                          <GitMerge className="h-4 w-4 mr-2" />
-                          Merge into...
                         </ContextMenuItem>
                       </ContextMenuContent>
                     </ContextMenu>
@@ -440,7 +439,7 @@ export default function PeopleView({ loaderData }: Route.ComponentProps) {
                       <span>Loading more people...</span>
                     </div>
                   )}
-                  {!hasMore && clusters.length > 0 && !searchQuery && (
+                  {!hasMore && people.length > 0 && !searchQuery && (
                     <span className="text-gray-400 text-sm">All people loaded</span>
                   )}
                 </div>
@@ -449,9 +448,11 @@ export default function PeopleView({ loaderData }: Route.ComponentProps) {
           </>
         ) : (
           <div className="text-center py-12">
-            <Users className="h-16 w-16 text-gray-400 mx-auto mb-4" />
+            <User className="h-16 w-16 text-gray-400 mx-auto mb-4" />
             <div className="text-gray-500 text-lg">No identified people yet.</div>
-            <div className="text-gray-400 text-sm mt-2">People appear here when you assign names to face clusters.</div>
+            <div className="text-gray-400 text-sm mt-2">
+              People appear here when face clusters are named or linked together.
+            </div>
           </div>
         )}
 
@@ -459,77 +460,44 @@ export default function PeopleView({ loaderData }: Route.ComponentProps) {
         <Dialog open={renameDialogOpen} onOpenChange={setRenameDialogOpen}>
           <DialogContent className="max-w-sm">
             <DialogHeader>
-              <DialogTitle>Rename Person</DialogTitle>
-              <DialogDescription>Update the name for this person.</DialogDescription>
+              <DialogTitle>{contextPerson?.person_name ? "Rename Person" : "Set Name"}</DialogTitle>
+              <DialogDescription>Enter the person's name.</DialogDescription>
             </DialogHeader>
-            <div className="space-y-4">
-              <div className="grid grid-cols-2 gap-3">
-                <div className="space-y-1">
-                  <label htmlFor="renameFirstName" className="text-sm font-medium text-gray-700">
-                    First Name
-                  </label>
-                  <Input
-                    id="renameFirstName"
-                    placeholder="First name"
-                    value={editFirstName}
-                    onChange={(e) => setEditFirstName(e.target.value)}
-                    autoComplete="off"
-                    data-form-type="other"
-                    data-1p-ignore
-                    data-lpignore="true"
-                    autoFocus
-                  />
-                </div>
-                <div className="space-y-1">
-                  <label htmlFor="renameLastName" className="text-sm font-medium text-gray-700">
-                    Last Name
-                  </label>
-                  <Input
-                    id="renameLastName"
-                    placeholder="Last name"
-                    value={editLastName}
-                    onChange={(e) => setEditLastName(e.target.value)}
-                    onKeyDown={(e) => {
-                      if (e.key === "Enter") {
-                        handleSaveRename();
-                      }
-                    }}
-                    autoComplete="off"
-                    data-form-type="other"
-                    data-1p-ignore
-                    data-lpignore="true"
-                  />
-                </div>
+            <div className="space-y-4 py-4">
+              <div className="space-y-2">
+                <label htmlFor="firstName" className="text-sm font-medium">
+                  First Name
+                </label>
+                <Input
+                  id="firstName"
+                  value={editFirstName}
+                  onChange={(e) => setEditFirstName(e.target.value)}
+                  placeholder="First name"
+                  autoFocus
+                />
               </div>
-              <DialogFooter>
-                <Button variant="outline" onClick={() => setRenameDialogOpen(false)}>
-                  Cancel
-                </Button>
-                <Button onClick={handleSaveRename} disabled={!editFirstName.trim() || renameFetcher.state !== "idle"}>
-                  {renameFetcher.state !== "idle" ? (
-                    <>
-                      <Loader2 className="h-4 w-4 mr-1 animate-spin" />
-                      Saving...
-                    </>
-                  ) : (
-                    "Save"
-                  )}
-                </Button>
-              </DialogFooter>
+              <div className="space-y-2">
+                <label htmlFor="lastName" className="text-sm font-medium">
+                  Last Name
+                </label>
+                <Input
+                  id="lastName"
+                  value={editLastName}
+                  onChange={(e) => setEditLastName(e.target.value)}
+                  placeholder="Last name (optional)"
+                />
+              </div>
             </div>
+            <DialogFooter>
+              <Button variant="outline" onClick={() => setRenameDialogOpen(false)}>
+                Cancel
+              </Button>
+              <Button onClick={handleSaveRename} disabled={!editFirstName.trim()}>
+                Save
+              </Button>
+            </DialogFooter>
           </DialogContent>
         </Dialog>
-
-        {/* Context Menu Merge Dialog */}
-        {contextCluster && (
-          <ClusterMergeDialog
-            open={mergeDialogOpen}
-            onOpenChange={setMergeDialogOpen}
-            sourceClusterId={contextCluster.id.toString()}
-            sourceClusterName={contextCluster.person_name || `Cluster #${contextCluster.id}`}
-            onMergeComplete={handleMergeComplete}
-          />
-        )}
       </div>
     </Layout>
   );

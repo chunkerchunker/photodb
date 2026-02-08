@@ -489,6 +489,9 @@ class Cluster:
     hidden: bool
     created_at: datetime
     updated_at: datetime
+    # HDBSCAN clustering fields
+    epsilon: Optional[float] = None  # Per-cluster distance threshold
+    core_count: int = 0  # Number of core points in this cluster
 
     @classmethod
     def create(
@@ -499,6 +502,8 @@ class Cluster:
         centroid: Optional[List[float]] = None,
         medoid_detection_id: Optional[int] = None,
         person_id: Optional[int] = None,
+        epsilon: Optional[float] = None,
+        core_count: int = 0,
     ) -> "Cluster":
         """Create a new cluster record."""
         now = datetime.now(timezone.utc)
@@ -517,6 +522,8 @@ class Cluster:
             hidden=False,
             created_at=now,
             updated_at=now,
+            epsilon=epsilon,
+            core_count=core_count,
         )
 
     def to_dict(self) -> Dict[str, Any]:
@@ -535,6 +542,8 @@ class Cluster:
             "hidden": self.hidden,
             "created_at": self.created_at,
             "updated_at": self.updated_at,
+            "epsilon": self.epsilon,
+            "core_count": self.core_count,
         }
 
 

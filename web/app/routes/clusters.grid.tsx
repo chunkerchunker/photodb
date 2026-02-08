@@ -1,7 +1,8 @@
-import { EyeOff, GitMerge, Loader2, Pencil, Search, Users, X } from "lucide-react";
+import { AlertTriangle, EyeOff, Grid, Link2, Loader2, Pencil, Search, User, Users, X } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Link, useFetcher, useRevalidator } from "react-router";
-import { ClusterMergeDialog } from "~/components/cluster-merge-dialog";
+import { ClusterLinkDialog } from "~/components/cluster-merge-dialog";
+import { CoverflowIcon } from "~/components/coverflow-icon";
 import { Layout } from "~/components/layout";
 import { Button } from "~/components/ui/button";
 import { Card, CardContent } from "~/components/ui/card";
@@ -21,8 +22,9 @@ import {
   DialogTitle,
 } from "~/components/ui/dialog";
 import { Input } from "~/components/ui/input";
-import { getClusters, getClustersCount, getHiddenClustersCount } from "~/lib/db.server";
-import type { Route } from "./+types/clusters";
+import { dataWithViewMode } from "~/lib/cookies.server";
+import { getClustersGroupedByPerson, getClustersGroupedCount, getHiddenClustersCount } from "~/lib/db.server";
+import type { Route } from "./+types/clusters.grid";
 
 export function meta() {
   return [
@@ -42,27 +44,33 @@ export async function loader({ request }: Route.LoaderArgs) {
   const offset = (page - 1) * LIMIT;
 
   try {
-    const clusters = await getClusters(LIMIT, offset);
-    const totalClusters = await getClustersCount();
+    const items = await getClustersGroupedByPerson(LIMIT, offset);
+    const totalItems = await getClustersGroupedCount();
     const hiddenCount = await getHiddenClustersCount();
-    const hasMore = offset + clusters.length < totalClusters;
+    const hasMore = offset + items.length < totalItems;
 
-    return {
-      clusters,
-      totalClusters,
-      hiddenCount,
-      hasMore,
-      page,
-    };
+    return dataWithViewMode(
+      {
+        items,
+        totalItems,
+        hiddenCount,
+        hasMore,
+        page,
+      },
+      "grid",
+    );
   } catch (error) {
     console.error("Failed to load clusters:", error);
-    return {
-      clusters: [],
-      totalClusters: 0,
-      hiddenCount: 0,
-      hasMore: false,
-      page,
-    };
+    return dataWithViewMode(
+      {
+        items: [],
+        totalItems: 0,
+        hiddenCount: 0,
+        hasMore: false,
+        page,
+      },
+      "grid",
+    );
   }
 }
 
@@ -95,18 +103,12 @@ function getFaceCropStyle(
   };
 }
 
-type Cluster = Route.ComponentProps["loaderData"]["clusters"][number];
+type Item = Route.ComponentProps["loaderData"]["items"][number];
 
 export default function ClustersView({ loaderData }: Route.ComponentProps) {
-  const {
-    clusters: initialClusters,
-    totalClusters,
-    hiddenCount,
-    hasMore: initialHasMore,
-    page: initialPage,
-  } = loaderData;
+  const { items: initialItems, totalItems, hiddenCount, hasMore: initialHasMore, page: initialPage } = loaderData;
 
-  const [clusters, setClusters] = useState<Cluster[]>(initialClusters);
+  const [items, setItems] = useState<Item[]>(initialItems);
   const [page, setPage] = useState(initialPage);
   const [hasMore, setHasMore] = useState(initialHasMore);
 
@@ -115,35 +117,44 @@ export default function ClustersView({ loaderData }: Route.ComponentProps) {
   const [searchQuery, setSearchQuery] = useState("");
   const searchInputRef = useRef<HTMLInputElement>(null);
 
-  // Selection state (shift-click)
-  const [selectedClusterIds, setSelectedClusterIds] = useState<Set<number>>(new Set());
+  // Selection state (shift-click) - stores "type:id" keys for uniqueness
+  const [selectedItemKeys, setSelectedItemKeys] = useState<Set<string>>(new Set());
 
   // Context menu state
-  const [contextCluster, setContextCluster] = useState<Cluster | null>(null);
+  const [contextItem, setContextItem] = useState<Item | null>(null);
   const [renameDialogOpen, setRenameDialogOpen] = useState(false);
-  const [mergeDialogOpen, setMergeDialogOpen] = useState(false);
+  const [linkDialogOpen, setLinkDialogOpen] = useState(false);
   const [editFirstName, setEditFirstName] = useState("");
   const [editLastName, setEditLastName] = useState("");
   const [pendingHideClusterId, setPendingHideClusterId] = useState<number | null>(null);
+  const [pendingHidePersonId, setPendingHidePersonId] = useState<number | null>(null);
   const renameFetcher = useFetcher();
   const hideFetcher = useFetcher();
   const revalidator = useRevalidator();
 
-  // Drag and drop state
-  const [draggingClusterId, setDraggingClusterId] = useState<number | null>(null);
-  const [dropTargetClusterId, setDropTargetClusterId] = useState<number | null>(null);
-  const [pendingMerge, setPendingMerge] = useState<{ sourceId: number; targetId: number } | null>(null);
+  // Drag and drop state - uses item key ("person:1" or "cluster:2") for visual state
+  // but cluster IDs for actual linking operations
+  const [draggingItemKey, setDraggingItemKey] = useState<string | null>(null);
+  const [dropTargetItemKey, setDropTargetItemKey] = useState<string | null>(null);
+  // pendingLink uses cluster IDs (primary_cluster_id for persons)
+  const [pendingLink, setPendingLink] = useState<{ sourceId: number; targetId: number } | null>(null);
+  const [linkPreview, setLinkPreview] = useState<{
+    willMergePersons: boolean;
+    source?: { personName: string | null; personClusterCount: number };
+    target?: { personName: string | null; personClusterCount: number };
+  } | null>(null);
+  const [isLoadingPreview, setIsLoadingPreview] = useState(false);
 
   const fetcher = useFetcher<typeof loader>();
-  const mergeFetcher = useFetcher();
+  const linkFetcher = useFetcher();
   const loadMoreRef = useRef<HTMLDivElement>(null);
 
   // Reset state when initial data changes (e.g., navigation)
   useEffect(() => {
-    setClusters(initialClusters);
+    setItems(initialItems);
     setPage(initialPage);
     setHasMore(initialHasMore);
-  }, [initialClusters, initialPage, initialHasMore]);
+  }, [initialItems, initialPage, initialHasMore]);
 
   // Keyboard shortcut for search (Cmd+F / Ctrl+F)
   useEffect(() => {
@@ -169,13 +180,13 @@ export default function ClustersView({ loaderData }: Route.ComponentProps) {
     }
   }, [searchOpen]);
 
-  // Append new clusters when fetcher returns data
+  // Append new items when fetcher returns data
   useEffect(() => {
-    if (fetcher.data && fetcher.data.clusters.length > 0) {
-      setClusters((prev) => {
-        const existingIds = new Set(prev.map((c) => c.id));
-        const newClusters = fetcher.data!.clusters.filter((c) => !existingIds.has(c.id));
-        return [...prev, ...newClusters];
+    if (fetcher.data && fetcher.data.items.length > 0) {
+      setItems((prev) => {
+        const existingKeys = new Set(prev.map((item) => `${item.item_type}:${item.id}`));
+        const newItems = fetcher.data!.items.filter((item) => !existingKeys.has(`${item.item_type}:${item.id}`));
+        return [...prev, ...newItems];
       });
       setPage(fetcher.data.page);
       setHasMore(fetcher.data.hasMore);
@@ -212,162 +223,214 @@ export default function ClustersView({ loaderData }: Route.ComponentProps) {
   }, [loadMore]);
 
   const isLoading = fetcher.state === "loading";
-  const isMerging = mergeFetcher.state !== "idle";
+  const isLinking = linkFetcher.state !== "idle";
 
-  // Revalidate after drag-and-drop merge completes
+  // Revalidate after drag-and-drop link completes
   useEffect(() => {
-    if (mergeFetcher.data?.success && pendingMerge) {
-      setPendingMerge(null);
+    if (linkFetcher.data?.success && pendingLink) {
+      setPendingLink(null);
       revalidator.revalidate();
     }
-  }, [mergeFetcher.data, pendingMerge, revalidator]);
+  }, [linkFetcher.data, pendingLink, revalidator]);
+
+  // Helper to get item key
+  const getItemKey = (item: Item) => `${item.item_type}:${item.id}`;
 
   // Drag handlers
-  const handleDragStart = (e: React.DragEvent, clusterId: number) => {
-    setDraggingClusterId(clusterId);
+  const handleDragStart = (e: React.DragEvent, item: Item) => {
+    const itemKey = getItemKey(item);
+    setDraggingItemKey(itemKey);
     e.dataTransfer.effectAllowed = "move";
-    e.dataTransfer.setData("text/plain", clusterId.toString());
+    // Store both item key and cluster ID for the drop handler
+    e.dataTransfer.setData("text/plain", `${itemKey}|${item.primary_cluster_id}`);
   };
 
   const handleDragEnd = () => {
-    setDraggingClusterId(null);
-    setDropTargetClusterId(null);
+    setDraggingItemKey(null);
+    setDropTargetItemKey(null);
   };
 
-  const handleDragOver = (e: React.DragEvent, clusterId: number) => {
+  const handleDragOver = (e: React.DragEvent, item: Item) => {
     e.preventDefault();
-    if (draggingClusterId && draggingClusterId !== clusterId) {
+    const itemKey = getItemKey(item);
+    if (draggingItemKey && draggingItemKey !== itemKey) {
       e.dataTransfer.dropEffect = "move";
-      setDropTargetClusterId(clusterId);
+      setDropTargetItemKey(itemKey);
     }
   };
 
   const handleDragLeave = () => {
-    setDropTargetClusterId(null);
+    setDropTargetItemKey(null);
   };
 
-  const handleDrop = (e: React.DragEvent, targetClusterId: number) => {
+  const handleDrop = (e: React.DragEvent, targetItem: Item) => {
     e.preventDefault();
-    // Try dataTransfer first, fall back to draggingClusterId state
-    const dataTransferId = parseInt(e.dataTransfer.getData("text/plain"), 10);
-    const sourceClusterId = !Number.isNaN(dataTransferId) ? dataTransferId : draggingClusterId;
+    const targetItemKey = getItemKey(targetItem);
 
-    if (sourceClusterId && sourceClusterId !== targetClusterId) {
-      setPendingMerge({ sourceId: sourceClusterId, targetId: targetClusterId });
+    // Parse dataTransfer: "type:id|clusterId"
+    const data = e.dataTransfer.getData("text/plain");
+    const [sourceItemKey, sourceClusterIdStr] = data.split("|");
+    const sourceClusterId = parseInt(sourceClusterIdStr, 10);
+    const targetClusterId = targetItem.primary_cluster_id;
+
+    if (sourceItemKey && sourceItemKey !== targetItemKey && sourceClusterId && targetClusterId) {
+      setPendingLink({ sourceId: sourceClusterId, targetId: targetClusterId });
+      // Fetch preview to check if persons will be merged
+      setIsLoadingPreview(true);
+      setLinkPreview(null);
+      fetch(`/api/clusters/link-preview?source=${sourceClusterId}&target=${targetClusterId}`)
+        .then((res) => res.json())
+        .then((preview) => {
+          setLinkPreview(preview);
+        })
+        .catch((err) => {
+          console.error("Failed to fetch link preview:", err);
+        })
+        .finally(() => {
+          setIsLoadingPreview(false);
+        });
     }
-    setDraggingClusterId(null);
-    setDropTargetClusterId(null);
+    setDraggingItemKey(null);
+    setDropTargetItemKey(null);
   };
 
-  const confirmMerge = () => {
-    if (pendingMerge) {
-      mergeFetcher.submit(
+  const confirmLink = () => {
+    if (pendingLink) {
+      linkFetcher.submit(
         {
-          sourceClusterId: pendingMerge.sourceId.toString(),
-          targetClusterId: pendingMerge.targetId.toString(),
+          sourceClusterId: pendingLink.sourceId.toString(),
+          targetClusterId: pendingLink.targetId.toString(),
         },
         { method: "post", action: "/api/clusters/merge" },
       );
     }
   };
 
-  const cancelMerge = () => {
-    setPendingMerge(null);
+  const cancelLink = () => {
+    setPendingLink(null);
+    setLinkPreview(null);
   };
 
-  // Helper to get cluster display name
-  const getClusterName = (clusterId: number) => {
-    const cluster = clusters.find((c) => c.id === clusterId);
-    return cluster?.person_name || `Cluster #${clusterId}`;
+  // Helper to get item display name from cluster ID
+  const getItemNameByClusterId = (clusterId: number) => {
+    // Find the item that has this cluster ID as its primary_cluster_id
+    const item = items.find((i) => i.primary_cluster_id === clusterId);
+    if (!item) return `Cluster #${clusterId}`;
+    return item.person_name || `Cluster #${clusterId}`;
   };
 
   // Context menu handlers
-  const handleRename = (cluster: Cluster) => {
-    setContextCluster(cluster);
+  const handleRename = (item: Item) => {
+    setContextItem(item);
     // Parse existing name into first/last
-    const parts = cluster.person_name?.split(" ") || [];
+    const parts = item.person_name?.split(" ") || [];
     setEditFirstName(parts[0] || "");
     setEditLastName(parts.slice(1).join(" ") || "");
     setRenameDialogOpen(true);
   };
 
-  const handleHide = (cluster: Cluster) => {
-    setPendingHideClusterId(cluster.id);
-    hideFetcher.submit({ hidden: "true" }, { method: "post", action: `/api/cluster/${cluster.id}/hide` });
+  const handleHide = (item: Item) => {
+    if (item.item_type === "person") {
+      // Hide all clusters for this person
+      setPendingHidePersonId(item.id);
+      hideFetcher.submit({ hidden: "true" }, { method: "post", action: `/api/person/${item.id}/hide` });
+    } else {
+      // Hide single cluster
+      setPendingHideClusterId(item.id);
+      hideFetcher.submit({ hidden: "true" }, { method: "post", action: `/api/cluster/${item.id}/hide` });
+    }
   };
 
   // Revalidate after hide completes and remove from local state
   useEffect(() => {
-    if (hideFetcher.data?.success && pendingHideClusterId !== null) {
-      // Remove the hidden cluster from local state immediately
-      // This ensures the UI updates even if the cluster was loaded via infinite scroll
-      setClusters((prev) => prev.filter((c) => c.id !== pendingHideClusterId));
-      setPendingHideClusterId(null);
+    if (hideFetcher.data?.success) {
+      if (pendingHideClusterId !== null) {
+        // Remove the hidden cluster from local state immediately
+        setItems((prev) => prev.filter((item) => !(item.item_type === "cluster" && item.id === pendingHideClusterId)));
+        setPendingHideClusterId(null);
+      }
+      if (pendingHidePersonId !== null) {
+        // Remove the hidden person from local state immediately
+        setItems((prev) => prev.filter((item) => !(item.item_type === "person" && item.id === pendingHidePersonId)));
+        setPendingHidePersonId(null);
+      }
       // Reset pagination state since total count changed
       setPage(1);
       setHasMore(true);
       revalidator.revalidate();
     }
-  }, [hideFetcher.data, pendingHideClusterId, revalidator]);
+  }, [hideFetcher.data, pendingHideClusterId, pendingHidePersonId, revalidator]);
 
-  const handleMerge = (cluster: Cluster) => {
-    setContextCluster(cluster);
-    setMergeDialogOpen(true);
+  const handleLink = (item: Item) => {
+    setContextItem(item);
+    setLinkDialogOpen(true);
   };
 
   const handleSaveRename = () => {
-    if (contextCluster && editFirstName.trim()) {
+    if (contextItem && editFirstName.trim()) {
+      const action =
+        contextItem.item_type === "person"
+          ? `/api/person/${contextItem.id}/rename`
+          : `/api/cluster/${contextItem.id}/rename`;
       renameFetcher.submit(
         { firstName: editFirstName.trim(), lastName: editLastName.trim() },
-        { method: "post", action: `/api/cluster/${contextCluster.id}/rename` },
+        { method: "post", action },
       );
     }
   };
 
   // Update local state when rename completes
   useEffect(() => {
-    if (renameFetcher.data?.success && contextCluster) {
+    if (renameFetcher.data?.success && contextItem) {
       const newName = editLastName.trim() ? `${editFirstName.trim()} ${editLastName.trim()}` : editFirstName.trim();
-      setClusters((prev) => prev.map((c) => (c.id === contextCluster.id ? { ...c, person_name: newName } : c)));
+      setItems((prev) =>
+        prev.map((item) =>
+          item.item_type === contextItem.item_type && item.id === contextItem.id
+            ? { ...item, person_name: newName }
+            : item,
+        ),
+      );
       setRenameDialogOpen(false);
-      setContextCluster(null);
+      setContextItem(null);
     }
-  }, [renameFetcher.data, contextCluster, editFirstName, editLastName]);
+  }, [renameFetcher.data, contextItem, editFirstName, editLastName]);
 
-  const handleMergeComplete = () => {
-    setContextCluster(null);
+  const handleLinkComplete = () => {
+    setContextItem(null);
     revalidator.revalidate();
   };
 
-  // Toggle cluster selection (shift-click)
-  const toggleClusterSelection = (clusterId: number, e: React.MouseEvent) => {
+  // Toggle item selection (shift-click)
+  const toggleItemSelection = (item: Item, e: React.MouseEvent) => {
     if (e.shiftKey) {
       e.preventDefault();
-      setSelectedClusterIds((prev) => {
+      const itemKey = getItemKey(item);
+      setSelectedItemKeys((prev) => {
         const next = new Set(prev);
-        if (next.has(clusterId)) {
-          next.delete(clusterId);
+        if (next.has(itemKey)) {
+          next.delete(itemKey);
         } else {
-          next.add(clusterId);
+          next.add(itemKey);
         }
         return next;
       });
     }
   };
 
-  // Filter clusters based on search query, always including selected clusters
-  const filteredClusters = searchQuery.trim()
-    ? clusters.filter((cluster) => {
-        // Always include selected clusters
-        if (selectedClusterIds.has(cluster.id)) return true;
+  // Filter items based on search query, always including selected items
+  const filteredItems = searchQuery.trim()
+    ? items.filter((item) => {
+        const itemKey = getItemKey(item);
+        // Always include selected items
+        if (selectedItemKeys.has(itemKey)) return true;
         const query = searchQuery.toLowerCase().trim();
-        // Match cluster ID
-        if (cluster.id.toString().includes(query)) return true;
-        // Match person name (first or last)
-        if (cluster.person_name?.toLowerCase().includes(query)) return true;
+        // Match ID
+        if (item.id.toString().includes(query)) return true;
+        // Match person name
+        if (item.person_name?.toLowerCase().includes(query)) return true;
         return false;
       })
-    : clusters;
+    : items;
 
   return (
     <Layout>
@@ -378,6 +441,17 @@ export default function ClustersView({ loaderData }: Route.ComponentProps) {
             <h1 className="text-3xl font-bold text-gray-900">Face Clusters</h1>
           </div>
           <div className="flex items-center space-x-4">
+            <div className="flex items-center rounded-lg border bg-gray-50 p-1">
+              <div className="flex items-center gap-1.5 px-3 py-1.5 rounded-md text-sm font-medium bg-white text-gray-900 shadow-sm">
+                <Grid className="h-4 w-4" />
+              </div>
+              <Link
+                to="/clusters/wall"
+                className="flex items-center gap-1.5 px-3 py-1.5 rounded-md text-sm font-medium text-gray-500 hover:text-gray-700 transition-colors"
+              >
+                <CoverflowIcon className="size-4" />
+              </Link>
+            </div>
             {hiddenCount > 0 && (
               <Link to="/clusters/hidden">
                 <Button variant="outline" size="sm">
@@ -387,7 +461,7 @@ export default function ClustersView({ loaderData }: Route.ComponentProps) {
               </Link>
             )}
             <span className="text-gray-600">
-              {totalClusters} cluster{totalClusters !== 1 ? "s" : ""}
+              {totalItems} item{totalItems !== 1 ? "s" : ""}
             </span>
           </div>
         </div>
@@ -429,19 +503,19 @@ export default function ClustersView({ loaderData }: Route.ComponentProps) {
               </div>
               {searchQuery && (
                 <div className="px-4 py-2 text-xs text-gray-500 border-t">
-                  {filteredClusters.length} result{filteredClusters.length !== 1 ? "s" : ""}
+                  {filteredItems.length} result{filteredItems.length !== 1 ? "s" : ""}
                 </div>
               )}
             </div>
           </div>
         )}
 
-        {clusters.length > 0 ? (
+        {items.length > 0 ? (
           <>
-            {searchQuery && filteredClusters.length === 0 ? (
+            {searchQuery && filteredItems.length === 0 ? (
               <div className="text-center py-12">
                 <Search className="h-12 w-12 text-gray-300 mx-auto mb-4" />
-                <div className="text-gray-500">No clusters match "{searchQuery}"</div>
+                <div className="text-gray-500">No results match "{searchQuery}"</div>
                 <button
                   type="button"
                   onClick={() => setSearchQuery("")}
@@ -453,28 +527,31 @@ export default function ClustersView({ loaderData }: Route.ComponentProps) {
             ) : (
               <>
                 <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-6 gap-4">
-                  {filteredClusters.map((cluster) => {
-                    const isDragging = draggingClusterId === cluster.id;
-                    const isDropTarget = dropTargetClusterId === cluster.id;
-                    const isSelected = selectedClusterIds.has(cluster.id);
+                  {filteredItems.map((item) => {
+                    const itemKey = getItemKey(item);
+                    const isDragging = draggingItemKey === itemKey;
+                    const isDropTarget = dropTargetItemKey === itemKey;
+                    const isSelected = selectedItemKeys.has(itemKey);
+                    const isPerson = item.item_type === "person";
+                    const linkTo = isPerson ? `/person/${item.id}` : `/cluster/${item.id}`;
 
                     return (
-                      <ContextMenu key={cluster.id}>
+                      <ContextMenu key={itemKey}>
                         <ContextMenuTrigger asChild>
                           <div
                             role="button"
                             tabIndex={0}
                             draggable
-                            onClick={(e) => toggleClusterSelection(cluster.id, e)}
-                            onDragStart={(e) => handleDragStart(e, cluster.id)}
+                            onClick={(e) => toggleItemSelection(item, e)}
+                            onDragStart={(e) => handleDragStart(e, item)}
                             onDragEnd={handleDragEnd}
-                            onDragOver={(e) => handleDragOver(e, cluster.id)}
+                            onDragOver={(e) => handleDragOver(e, item)}
                             onDragLeave={handleDragLeave}
-                            onDrop={(e) => handleDrop(e, cluster.id)}
+                            onDrop={(e) => handleDrop(e, item)}
                             className={`transition-all ${isDragging ? "opacity-50" : ""}`}
                           >
                             <Link
-                              to={`/cluster/${cluster.id}`}
+                              to={linkTo}
                               draggable={false}
                               onClick={(e) => {
                                 if (e.shiftKey) e.preventDefault();
@@ -491,46 +568,54 @@ export default function ClustersView({ loaderData }: Route.ComponentProps) {
                               >
                                 <CardContent className="p-4">
                                   <div className="text-center space-y-3">
-                                    {cluster.photo_id &&
-                                    cluster.bbox_x !== null &&
-                                    cluster.normalized_width &&
-                                    cluster.normalized_height ? (
+                                    {item.photo_id &&
+                                    item.bbox_x !== null &&
+                                    item.normalized_width &&
+                                    item.normalized_height ? (
                                       <div className="relative w-32 h-32 mx-auto bg-gray-100 rounded-lg border overflow-hidden">
                                         <img
-                                          src={`/api/image/${cluster.photo_id}`}
-                                          alt={`Cluster ${cluster.id}`}
+                                          src={`/api/image/${item.photo_id}`}
+                                          alt={
+                                            isPerson ? item.person_name || `Person ${item.id}` : `Cluster ${item.id}`
+                                          }
                                           className="absolute max-w-none max-h-none"
                                           style={getFaceCropStyle(
                                             {
-                                              bbox_x: cluster.bbox_x,
-                                              bbox_y: cluster.bbox_y,
-                                              bbox_width: cluster.bbox_width,
-                                              bbox_height: cluster.bbox_height,
+                                              bbox_x: item.bbox_x,
+                                              bbox_y: item.bbox_y,
+                                              bbox_width: item.bbox_width,
+                                              bbox_height: item.bbox_height,
                                             },
-                                            cluster.normalized_width,
-                                            cluster.normalized_height,
+                                            item.normalized_width,
+                                            item.normalized_height,
                                           )}
                                           loading="lazy"
                                         />
                                       </div>
                                     ) : (
                                       <div className="w-full h-32 bg-gray-200 rounded-lg flex items-center justify-center">
-                                        <Users className="h-8 w-8 text-gray-400" />
+                                        {isPerson ? (
+                                          <User className="h-8 w-8 text-gray-400" />
+                                        ) : (
+                                          <Users className="h-8 w-8 text-gray-400" />
+                                        )}
                                       </div>
                                     )}
 
                                     <div className="space-y-1">
                                       <div
                                         className={`font-semibold truncate ${
-                                          cluster.person_name ? "text-gray-900" : "text-blue-600"
+                                          item.person_name ? "text-gray-900" : "text-blue-600"
                                         }`}
-                                        title={cluster.person_name || `Cluster #${cluster.id}`}
+                                        title={item.person_name || `Cluster #${item.id}`}
                                       >
-                                        {cluster.person_name || `Cluster #${cluster.id}`}
+                                        {item.person_name || `Cluster #${item.id}`}
                                       </div>
                                       <div className="text-sm text-gray-600">
-                                        {cluster.face_count} face{cluster.face_count !== 1 ? "s" : ""}
-                                        {cluster.person_name && <span className="text-gray-400"> · #{cluster.id}</span>}
+                                        {item.face_count} photo{item.face_count !== 1 ? "s" : ""}
+                                        {isPerson && item.cluster_count > 1 && (
+                                          <span className="text-gray-400"> · {item.cluster_count} clusters</span>
+                                        )}
                                       </div>
                                     </div>
                                   </div>
@@ -540,19 +625,23 @@ export default function ClustersView({ loaderData }: Route.ComponentProps) {
                           </div>
                         </ContextMenuTrigger>
                         <ContextMenuContent>
-                          <ContextMenuItem onClick={() => handleRename(cluster)}>
+                          <ContextMenuItem onClick={() => handleRename(item)}>
                             <Pencil className="h-4 w-4 mr-2" />
                             Rename
                           </ContextMenuItem>
-                          <ContextMenuItem onClick={() => handleHide(cluster)}>
+                          <ContextMenuItem onClick={() => handleHide(item)}>
                             <EyeOff className="h-4 w-4 mr-2" />
-                            Hide
+                            Hide{isPerson ? " All" : ""}
                           </ContextMenuItem>
-                          <ContextMenuSeparator />
-                          <ContextMenuItem onClick={() => handleMerge(cluster)}>
-                            <GitMerge className="h-4 w-4 mr-2" />
-                            Merge into...
-                          </ContextMenuItem>
+                          {!isPerson && (
+                            <>
+                              <ContextMenuSeparator />
+                              <ContextMenuItem onClick={() => handleLink(item)}>
+                                <Link2 className="h-4 w-4 mr-2" />
+                                Same Person...
+                              </ContextMenuItem>
+                            </>
+                          )}
                         </ContextMenuContent>
                       </ContextMenu>
                     );
@@ -564,11 +653,11 @@ export default function ClustersView({ loaderData }: Route.ComponentProps) {
                   {isLoading && (
                     <div className="flex items-center space-x-2 text-gray-500">
                       <Loader2 className="h-5 w-5 animate-spin" />
-                      <span>Loading more clusters...</span>
+                      <span>Loading more...</span>
                     </div>
                   )}
-                  {!hasMore && clusters.length > 0 && !searchQuery && (
-                    <span className="text-gray-400 text-sm">All clusters loaded</span>
+                  {!hasMore && items.length > 0 && !searchQuery && (
+                    <span className="text-gray-400 text-sm">All items loaded</span>
                   )}
                 </div>
               </>
@@ -584,38 +673,65 @@ export default function ClustersView({ loaderData }: Route.ComponentProps) {
           </div>
         )}
 
-        {/* Drag-and-drop Merge Confirmation Dialog */}
-        <Dialog open={pendingMerge !== null} onOpenChange={(open) => !open && cancelMerge()}>
-          <DialogContent showCloseButton={false} className="max-w-sm">
+        {/* Drag-and-drop Link Confirmation Dialog */}
+        <Dialog open={pendingLink !== null} onOpenChange={(open) => !open && cancelLink()}>
+          <DialogContent showCloseButton={false} className="max-w-md">
             <DialogHeader>
               <DialogTitle className="flex items-center gap-2">
-                <GitMerge className="h-5 w-5" />
-                Merge Clusters
+                <Link2 className="h-5 w-5" />
+                Link as Same Person
               </DialogTitle>
               <DialogDescription>
-                {pendingMerge && (
+                {pendingLink && (
                   <>
-                    Merge <strong>{getClusterName(pendingMerge.sourceId)}</strong> into{" "}
-                    <strong>{getClusterName(pendingMerge.targetId)}</strong>?
-                    <br />
-                    <br />
-                    All faces will be moved to the target cluster.
+                    Link <strong>{getItemNameByClusterId(pendingLink.sourceId)}</strong> and{" "}
+                    <strong>{getItemNameByClusterId(pendingLink.targetId)}</strong> as the same person?
                   </>
                 )}
               </DialogDescription>
             </DialogHeader>
+
+            {isLoadingPreview ? (
+              <div className="flex items-center justify-center py-4 text-gray-500">
+                <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                Loading...
+              </div>
+            ) : linkPreview?.willMergePersons ? (
+              <div className="flex items-start gap-2 p-3 bg-amber-50 border border-amber-200 rounded-lg text-amber-800 text-sm">
+                <AlertTriangle className="h-5 w-5 mt-0.5 flex-shrink-0" />
+                <div>
+                  <strong>Person records will be merged.</strong>
+                  <br />"{linkPreview.source?.personName}" will be merged into "{linkPreview.target?.personName}
+                  ".
+                  {(linkPreview.source?.personClusterCount ?? 0) > 1 && (
+                    <>
+                      <br />
+                      All {linkPreview.source?.personClusterCount} clusters of "{linkPreview.source?.personName}" will
+                      be reassigned.
+                    </>
+                  )}
+                </div>
+              </div>
+            ) : (
+              <p className="text-sm text-gray-600">
+                Both clusters will be preserved and assigned to the same identity.
+              </p>
+            )}
+
             <DialogFooter>
-              <Button variant="outline" onClick={cancelMerge} disabled={isMerging}>
+              <Button variant="outline" onClick={cancelLink} disabled={isLinking}>
                 Cancel
               </Button>
-              <Button onClick={confirmMerge} disabled={isMerging}>
-                {isMerging ? (
+              <Button onClick={confirmLink} disabled={isLinking || isLoadingPreview}>
+                {isLinking ? (
                   <>
                     <Loader2 className="h-4 w-4 mr-1 animate-spin" />
-                    Merging...
+                    {linkPreview?.willMergePersons ? "Merging..." : "Linking..."}
                   </>
+                ) : linkPreview?.willMergePersons ? (
+                  "Merge Persons"
                 ) : (
-                  "Merge"
+                  "Link"
                 )}
               </Button>
             </DialogFooter>
@@ -626,7 +742,11 @@ export default function ClustersView({ loaderData }: Route.ComponentProps) {
         <Dialog open={renameDialogOpen} onOpenChange={setRenameDialogOpen}>
           <DialogContent className="max-w-sm">
             <DialogHeader>
-              <DialogTitle>{contextCluster?.person_name ? "Rename Cluster" : "Set Name"}</DialogTitle>
+              <DialogTitle>
+                {contextItem?.person_name
+                  ? `Rename ${contextItem.item_type === "person" ? "Person" : "Cluster"}`
+                  : "Set Name"}
+              </DialogTitle>
               <DialogDescription>Enter a name for this person.</DialogDescription>
             </DialogHeader>
             <div className="space-y-4">
@@ -687,14 +807,14 @@ export default function ClustersView({ loaderData }: Route.ComponentProps) {
           </DialogContent>
         </Dialog>
 
-        {/* Context Menu Merge Dialog */}
-        {contextCluster && (
-          <ClusterMergeDialog
-            open={mergeDialogOpen}
-            onOpenChange={setMergeDialogOpen}
-            sourceClusterId={contextCluster.id.toString()}
-            sourceClusterName={contextCluster.person_name || `Cluster #${contextCluster.id}`}
-            onMergeComplete={handleMergeComplete}
+        {/* Context Menu Link Dialog - only for clusters, not persons */}
+        {contextItem && contextItem.item_type === "cluster" && (
+          <ClusterLinkDialog
+            open={linkDialogOpen}
+            onOpenChange={setLinkDialogOpen}
+            sourceClusterId={contextItem.id.toString()}
+            sourceClusterName={contextItem.person_name || `Cluster #${contextItem.id}`}
+            onLinkComplete={handleLinkComplete}
           />
         )}
       </div>

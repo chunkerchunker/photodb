@@ -859,8 +859,6 @@ class PhotoRepository:
                         (new_cluster_id,),
                     )
 
-                conn.commit()
-
         return deleted_cluster_id
 
     def remove_face_from_cluster(
@@ -927,8 +925,6 @@ class PhotoRepository:
                         deleted_cluster_id = old_cluster_id
                         logger.info(f"Deleted empty cluster {old_cluster_id}")
 
-                conn.commit()
-
         return deleted_cluster_id
 
     def set_cluster_representative(self, cluster_id: int, face_id: int) -> bool:
@@ -986,7 +982,10 @@ class PhotoRepository:
                     """INSERT INTO face_match_candidate 
                        (face_id, cluster_id, collection_id, similarity, status, created_at)
                        VALUES (%s, %s, %s, %s, 'pending', NOW())""",
-                    [(face_id, cluster_id, self.collection_id, similarity) for face_id, cluster_id, similarity in candidates],
+                    [
+                        (face_id, cluster_id, self.collection_id, similarity)
+                        for face_id, cluster_id, similarity in candidates
+                    ],
                 )
 
     def get_cluster_by_id(self, cluster_id: int) -> Optional[Cluster]:
@@ -1052,22 +1051,6 @@ class PhotoRepository:
                 )
                 return [dict(row) for row in cursor.fetchall()]
 
-    def get_must_linked_faces(self, face_id: int) -> List[Dict[str, Any]]:
-        """Get faces that must be in same cluster as this face."""
-        with self.pool.get_connection() as conn:
-            with conn.cursor(row_factory=dict_row) as cursor:
-                cursor.execute(
-                    """SELECT f.id, f.cluster_id
-                       FROM face f
-                       JOIN (
-                           SELECT face_id_2 AS linked_id FROM must_link WHERE face_id_1 = %s
-                           UNION
-                           SELECT face_id_1 AS linked_id FROM must_link WHERE face_id_2 = %s
-                       ) ml ON f.id = ml.linked_id""",
-                    (face_id, face_id),
-                )
-                return [dict(row) for row in cursor.fetchall()]
-
     def get_cannot_linked_faces(self, face_id: int) -> List[Dict[str, Any]]:
         """Get faces that cannot be in same cluster as this face."""
         with self.pool.get_connection() as conn:
@@ -1083,31 +1066,6 @@ class PhotoRepository:
                     (face_id, face_id),
                 )
                 return [dict(row) for row in cursor.fetchall()]
-
-    def add_must_link(
-        self, face_id_1: int, face_id_2: int, created_by: str = "human"
-    ) -> Optional[int]:
-        """
-        Add must-link constraint between two faces.
-
-        If both faces are already in different clusters, triggers a merge.
-        Returns the constraint ID or None if already exists.
-        """
-        # Canonical ordering
-        if face_id_1 > face_id_2:
-            face_id_1, face_id_2 = face_id_2, face_id_1
-
-        with self.pool.transaction() as conn:
-            with conn.cursor() as cursor:
-                cursor.execute(
-                    """INSERT INTO must_link (face_id_1, face_id_2, collection_id, created_by)
-                       VALUES (%s, %s, %s, %s)
-                       ON CONFLICT (face_id_1, face_id_2) DO NOTHING
-                       RETURNING id""",
-                    (face_id_1, face_id_2, self.collection_id, created_by),
-                )
-                result = cursor.fetchone()
-                return result[0] if result else None
 
     def add_cannot_link(
         self, face_id_1: int, face_id_2: int, created_by: str = "human"
@@ -1280,9 +1238,6 @@ class PhotoRepository:
         """Get statistics about constraints in the system."""
         with self.pool.get_connection() as conn:
             with conn.cursor() as cursor:
-                cursor.execute("SELECT COUNT(*) FROM must_link")
-                must_link_count = cursor.fetchone()[0]
-
                 cursor.execute("SELECT COUNT(*) FROM cannot_link")
                 cannot_link_count = cursor.fetchone()[0]
 
@@ -1296,7 +1251,6 @@ class PhotoRepository:
                 unassigned_faces = cursor.fetchone()[0]
 
                 return {
-                    "must_link_count": must_link_count,
                     "cannot_link_count": cannot_link_count,
                     "cluster_cannot_link_count": cluster_cannot_link_count,
                     "verified_clusters": verified_clusters,
@@ -1516,27 +1470,6 @@ class PhotoRepository:
                 )
                 return [dict(row) for row in cursor.fetchall()]
 
-    def get_must_linked_detections(self, detection_id: int) -> List[Dict[str, Any]]:
-        """Get detections that must be in same cluster as this detection."""
-        with self.pool.get_connection() as conn:
-            with conn.cursor(row_factory=dict_row) as cursor:
-                cursor.execute(
-                    """SELECT pd.id, pd.cluster_id
-                       FROM person_detection pd
-                       JOIN (
-                           SELECT detection_id_2 AS linked_id
-                           FROM must_link
-                           WHERE detection_id_1 = %s AND collection_id = %s
-                           UNION
-                           SELECT detection_id_1 AS linked_id
-                           FROM must_link
-                           WHERE detection_id_2 = %s AND collection_id = %s
-                        ) ml ON pd.id = ml.linked_id
-                       WHERE pd.collection_id = %s""",
-                    (detection_id, self.collection_id, detection_id, self.collection_id, self.collection_id),
-                )
-                return [dict(row) for row in cursor.fetchall()]
-
     def get_cannot_linked_detections(self, detection_id: int) -> List[Dict[str, Any]]:
         """Get detections that cannot be in same cluster as this detection."""
         with self.pool.get_connection() as conn:
@@ -1554,7 +1487,13 @@ class PhotoRepository:
                            WHERE detection_id_2 = %s AND collection_id = %s
                         ) cl ON pd.id = cl.linked_id
                        WHERE pd.collection_id = %s""",
-                    (detection_id, self.collection_id, detection_id, self.collection_id, self.collection_id),
+                    (
+                        detection_id,
+                        self.collection_id,
+                        detection_id,
+                        self.collection_id,
+                        self.collection_id,
+                    ),
                 )
                 return [dict(row) for row in cursor.fetchall()]
 
@@ -1780,8 +1719,6 @@ class PhotoRepository:
                         )
                         deleted_cluster_id = old_cluster_id
                         logger.info(f"Deleted empty cluster {old_cluster_id}")
-
-                conn.commit()
 
         return deleted_cluster_id
 
@@ -2169,3 +2106,277 @@ class PhotoRepository:
                 )
                 analysis.id = cursor.fetchone()[0]
         return analysis
+
+    # HDBSCAN clustering methods
+
+    def get_all_embeddings_for_collection(
+        self, collection_id: Optional[int] = None
+    ) -> List[Dict[str, Any]]:
+        """Fetch all embeddings with their detection IDs and cluster info for HDBSCAN bootstrap.
+
+        Only returns detections with face bounding boxes that are:
+        - Large enough (MIN_FACE_SIZE_PX)
+        - High enough confidence (MIN_FACE_CONFIDENCE)
+
+        Args:
+            collection_id: Optional collection ID to filter by. Uses instance default if not provided.
+
+        Returns:
+            List of dicts with detection_id, cluster_id, cluster_status, embedding
+        """
+        resolved_collection_id = self._resolve_collection_id(collection_id)
+        with self.pool.get_connection() as conn:
+            with conn.cursor(row_factory=dict_row) as cursor:
+                cursor.execute(
+                    """SELECT pd.id AS detection_id, pd.cluster_id, pd.cluster_status, fe.embedding
+                       FROM person_detection pd
+                       JOIN face_embedding fe ON pd.id = fe.person_detection_id
+                       WHERE pd.collection_id = %s
+                         AND pd.face_confidence >= %s
+                         AND pd.face_bbox_width >= %s
+                         AND pd.face_bbox_height >= %s""",
+                    (resolved_collection_id, MIN_FACE_CONFIDENCE, MIN_FACE_SIZE_PX, MIN_FACE_SIZE_PX),
+                )
+                return [dict(row) for row in cursor.fetchall()]
+
+    def mark_detection_as_core(self, detection_id: int, is_core: bool = True) -> None:
+        """Set the is_core flag on a detection.
+
+        Args:
+            detection_id: ID of the detection to update
+            is_core: Whether this detection is a core point
+        """
+        with self.pool.transaction() as conn:
+            with conn.cursor() as cursor:
+                cursor.execute(
+                    """UPDATE person_detection SET is_core = %s WHERE id = %s""",
+                    (is_core, detection_id),
+                )
+
+    def mark_detections_as_core(self, detection_ids: List[int], is_core: bool = True) -> None:
+        """Bulk set is_core flag for multiple detections.
+
+        Args:
+            detection_ids: List of detection IDs to update
+            is_core: Whether these detections are core points
+        """
+        if not detection_ids:
+            return
+        with self.pool.transaction() as conn:
+            with conn.cursor() as cursor:
+                cursor.execute(
+                    """UPDATE person_detection SET is_core = %s WHERE id = ANY(%s)""",
+                    (is_core, detection_ids),
+                )
+
+    def find_neighbors_within_epsilon(
+        self, embedding, epsilon: float, collection_id: Optional[int] = None
+    ) -> List[Dict[str, Any]]:
+        """Find all detections within epsilon distance of the given embedding.
+
+        Uses pgvector's distance operators for epsilon-ball queries.
+
+        Args:
+            embedding: Query embedding vector
+            epsilon: Maximum cosine distance threshold
+            collection_id: Optional collection ID to filter by. Uses instance default if not provided.
+
+        Returns:
+            List of dicts with id, cluster_id, distance, is_core
+        """
+        resolved_collection_id = self._resolve_collection_id(collection_id)
+        with self.pool.get_connection() as conn:
+            with conn.cursor(row_factory=dict_row) as cursor:
+                cursor.execute(
+                    """SELECT pd.id, pd.cluster_id, fe.embedding <=> %s AS distance, pd.is_core
+                       FROM person_detection pd
+                       JOIN face_embedding fe ON pd.id = fe.person_detection_id
+                       WHERE pd.collection_id = %s
+                         AND fe.embedding <=> %s < %s
+                       ORDER BY distance""",
+                    (embedding, resolved_collection_id, embedding, epsilon),
+                )
+                return [dict(row) for row in cursor.fetchall()]
+
+    def get_cluster_epsilon(self, cluster_id: int) -> Optional[float]:
+        """Get the epsilon value for a cluster.
+
+        Args:
+            cluster_id: ID of the cluster
+
+        Returns:
+            The epsilon value, or None if not set or cluster not found
+        """
+        with self.pool.get_connection() as conn:
+            with conn.cursor() as cursor:
+                cursor.execute(
+                    """SELECT epsilon FROM cluster WHERE id = %s""",
+                    (cluster_id,),
+                )
+                row = cursor.fetchone()
+                return row[0] if row else None
+
+    def update_cluster_epsilon(self, cluster_id: int, epsilon: float, core_count: int) -> None:
+        """Update a cluster's epsilon and core_count values.
+
+        Args:
+            cluster_id: ID of the cluster to update
+            epsilon: The epsilon value (max intra-cluster distance)
+            core_count: Number of core points in this cluster
+        """
+        with self.pool.transaction() as conn:
+            with conn.cursor() as cursor:
+                cursor.execute(
+                    """UPDATE cluster SET epsilon = %s, core_count = %s, updated_at = NOW()
+                       WHERE id = %s""",
+                    (epsilon, core_count, cluster_id),
+                )
+
+    def get_clusters_with_epsilon(
+        self, collection_id: Optional[int] = None
+    ) -> List[Dict[str, Any]]:
+        """Get all clusters with their epsilon values for incremental assignment.
+
+        Returns all clusters regardless of whether epsilon is set (epsilon may be NULL
+        for clusters created before HDBSCAN was implemented). The caller should use
+        a fallback threshold for clusters without epsilon.
+
+        Args:
+            collection_id: Optional collection ID to filter by. Uses instance default if not provided.
+
+        Returns:
+            List of dicts with id, epsilon (may be None), centroid
+        """
+        resolved_collection_id = self._resolve_collection_id(collection_id)
+        with self.pool.get_connection() as conn:
+            with conn.cursor(row_factory=dict_row) as cursor:
+                cursor.execute(
+                    """SELECT id, epsilon, centroid
+                       FROM cluster
+                       WHERE collection_id = %s AND centroid IS NOT NULL""",
+                    (resolved_collection_id,),
+                )
+                return [dict(row) for row in cursor.fetchall()]
+
+    def create_cluster_with_epsilon(
+        self,
+        centroid,
+        representative_detection_id: int,
+        medoid_detection_id: int,
+        face_count: int = 1,
+        epsilon: Optional[float] = None,
+        core_count: int = 0,
+    ) -> int:
+        """Create a new cluster with epsilon and core_count values (for HDBSCAN bootstrap).
+
+        Args:
+            centroid: Cluster centroid embedding
+            representative_detection_id: Detection ID for display photo
+            medoid_detection_id: Detection ID closest to centroid
+            face_count: Number of faces in this cluster
+            epsilon: Maximum intra-cluster distance threshold
+            core_count: Number of core points in this cluster
+
+        Returns:
+            The newly created cluster ID
+        """
+        with self.pool.transaction() as conn:
+            with conn.cursor() as cursor:
+                cursor.execute(
+                    """INSERT INTO cluster
+                       (collection_id, face_count, face_count_at_last_medoid, representative_detection_id,
+                        centroid, medoid_detection_id, epsilon, core_count, created_at, updated_at)
+                       VALUES (
+                           (SELECT collection_id FROM person_detection WHERE id = %s),
+                           %s, %s, %s, %s, %s, %s, %s, NOW(), NOW()
+                       )
+                       RETURNING id""",
+                    (
+                        representative_detection_id,
+                        face_count,
+                        face_count,
+                        representative_detection_id,
+                        centroid,
+                        medoid_detection_id,
+                        epsilon,
+                        core_count,
+                    ),
+                )
+                return cursor.fetchone()[0]
+
+    def force_update_detection_cluster(
+        self,
+        detection_id: int,
+        cluster_id: int,
+        cluster_confidence: float,
+        cluster_status: str,
+    ) -> None:
+        """
+        Force update detection cluster assignment (bypasses race condition check).
+
+        This is used during bootstrap operations where we control the entire process
+        and don't need to worry about concurrent updates.
+
+        Args:
+            detection_id: Detection to update
+            cluster_id: Cluster to assign to
+            cluster_confidence: Confidence score
+            cluster_status: Status string (e.g., 'hdbscan', 'hdbscan_core')
+        """
+        with self.pool.transaction() as conn:
+            with conn.cursor() as cursor:
+                cursor.execute(
+                    """UPDATE person_detection
+                       SET cluster_id = %s,
+                           cluster_confidence = %s,
+                           cluster_status = %s
+                       WHERE id = %s""",
+                    (cluster_id, cluster_confidence, cluster_status, detection_id),
+                )
+
+    def get_clusters_without_epsilon(
+        self, min_faces: int = 3, collection_id: Optional[int] = None
+    ) -> List[Dict[str, Any]]:
+        """Get clusters with NULL epsilon that have at least min_faces faces.
+
+        These are clusters that need epsilon calculation, typically manual clusters
+        created before HDBSCAN was implemented.
+
+        Args:
+            min_faces: Minimum number of faces required (default 3)
+            collection_id: Optional collection ID to filter by
+
+        Returns:
+            List of dicts with id, face_count, centroid
+        """
+        resolved_collection_id = self._resolve_collection_id(collection_id)
+        with self.pool.get_connection() as conn:
+            with conn.cursor(row_factory=dict_row) as cursor:
+                cursor.execute(
+                    """SELECT id, face_count, centroid
+                       FROM cluster
+                       WHERE collection_id = %s
+                         AND epsilon IS NULL
+                         AND face_count >= %s
+                         AND centroid IS NOT NULL""",
+                    (resolved_collection_id, min_faces),
+                )
+                return [dict(row) for row in cursor.fetchall()]
+
+    def update_cluster_epsilon_only(self, cluster_id: int, epsilon: float) -> None:
+        """Update only a cluster's epsilon value (not core_count).
+
+        Used for calculating epsilon for manual clusters where core_count
+        is not applicable.
+
+        Args:
+            cluster_id: ID of the cluster to update
+            epsilon: The epsilon value (max intra-cluster distance)
+        """
+        with self.pool.transaction() as conn:
+            with conn.cursor() as cursor:
+                cursor.execute(
+                    """UPDATE cluster SET epsilon = %s, updated_at = NOW()
+                       WHERE id = %s""",
+                    (epsilon, cluster_id),
+                )

@@ -1,4 +1,3 @@
-
 import { cn } from "~/lib/utils";
 
 export function CoverflowIcon({ className }: { className?: string }) {

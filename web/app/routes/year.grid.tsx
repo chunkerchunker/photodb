@@ -4,7 +4,7 @@ import { Breadcrumb } from "~/components/breadcrumb";
 import { Layout } from "~/components/layout";
 import { Card, CardContent } from "~/components/ui/card";
 import { getMonthsInYear } from "~/lib/db.server";
-import type { Route } from "./+types/year";
+import type { Route } from "./+types/year.grid";
 
 export function meta({ params }: Route.MetaArgs) {
   return [{ title: `PhotoDB - ${params.year}` }, { name: "description", content: `Browse photos from ${params.year}` }];

@@ -3,14 +3,14 @@
 -- Use this to re-run clustering from scratch
 --
 -- PRESERVED:
---   - face records (id, photo_id, bbox_*, confidence)
+--   - person_detection records (id, photo_id, bbox_*, confidence)
 --   - face_embedding records
---   - processing_status for 'faces' stage
+--   - processing_status for 'detection' stage
 --
 -- CLEARED:
---   - face clustering fields (cluster_id, cluster_status, cluster_confidence, unassigned_since)
+--   - person_detection clustering fields (cluster_id, cluster_status, cluster_confidence, unassigned_since)
 --   - cluster table (all clusters deleted)
---   - must_link, cannot_link, cluster_cannot_link constraints
+--   - cannot_link, cluster_cannot_link constraints
 --   - face_match_candidate records
 --   - processing_status for 'clustering' stage
 
@@ -22,40 +22,37 @@ BEGIN;
 
 DO $$
 DECLARE
-    v_faces int;
-    v_clustered_faces int;
+    v_detections int;
+    v_clustered_detections int;
     v_clusters int;
-    v_must_links int;
     v_cannot_links int;
     v_candidates int;
 BEGIN
-    SELECT COUNT(*) INTO v_faces FROM face;
-    SELECT COUNT(*) INTO v_clustered_faces FROM face WHERE cluster_id IS NOT NULL;
+    SELECT COUNT(*) INTO v_detections FROM person_detection;
+    SELECT COUNT(*) INTO v_clustered_detections FROM person_detection WHERE cluster_id IS NOT NULL;
     SELECT COUNT(*) INTO v_clusters FROM cluster;
-    SELECT COUNT(*) INTO v_must_links FROM must_link;
     SELECT COUNT(*) INTO v_cannot_links FROM cannot_link;
     SELECT COUNT(*) INTO v_candidates FROM face_match_candidate;
 
     RAISE NOTICE '=== Current State ===';
-    RAISE NOTICE 'Total faces: %', v_faces;
-    RAISE NOTICE 'Clustered faces: %', v_clustered_faces;
+    RAISE NOTICE 'Total detections: %', v_detections;
+    RAISE NOTICE 'Clustered detections: %', v_clustered_detections;
     RAISE NOTICE 'Clusters: %', v_clusters;
-    RAISE NOTICE 'Must-link constraints: %', v_must_links;
     RAISE NOTICE 'Cannot-link constraints: %', v_cannot_links;
     RAISE NOTICE 'Match candidates: %', v_candidates;
     RAISE NOTICE '=====================';
 END $$;
 
 -- ============================================================================
--- 2. Clear face clustering assignments
+-- 2. Clear person_detection clustering assignments
 -- ============================================================================
 
-UPDATE face
+UPDATE person_detection
 SET cluster_id = NULL,
     cluster_status = NULL,
     cluster_confidence = 0,
     unassigned_since = NULL,
-    person_id = NULL;
+    is_core = false;
 
 -- ============================================================================
 -- 3. Clear face match candidates
@@ -69,7 +66,6 @@ DELETE FROM face_match_candidate;
 
 DELETE FROM cluster_cannot_link;
 DELETE FROM cannot_link;
-DELETE FROM must_link;
 
 -- ============================================================================
 -- 5. Clear clusters
@@ -105,20 +101,20 @@ END $$;
 
 DO $$
 DECLARE
-    v_faces int;
+    v_detections int;
     v_embeddings int;
     v_clusters int;
 BEGIN
-    SELECT COUNT(*) INTO v_faces FROM face;
+    SELECT COUNT(*) INTO v_detections FROM person_detection;
     SELECT COUNT(*) INTO v_embeddings FROM face_embedding;
     SELECT COUNT(*) INTO v_clusters FROM cluster;
 
     RAISE NOTICE '=== After Reset ===';
-    RAISE NOTICE 'Faces preserved: %', v_faces;
+    RAISE NOTICE 'Detections preserved: %', v_detections;
     RAISE NOTICE 'Embeddings preserved: %', v_embeddings;
     RAISE NOTICE 'Clusters remaining: % (should be 0)', v_clusters;
     RAISE NOTICE '===================';
-    RAISE NOTICE 'Ready for re-clustering with: uv run process-local /path --stage clustering';
+    RAISE NOTICE 'Ready for re-clustering with: uv run python scripts/migrate_to_hdbscan.py';
 END $$;
 
 COMMIT;

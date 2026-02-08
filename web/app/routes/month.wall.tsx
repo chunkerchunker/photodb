@@ -63,22 +63,28 @@ export async function loader({ params }: Route.LoaderArgs) {
     const photos = await getPhotosByMonth(year, month, 500, 0);
     const totalPhotos = await getPhotoCountByMonth(year, month);
 
-    return dataWithViewMode({
-      photos,
-      totalPhotos,
-      year: params.year,
-      month: params.month,
-      monthName,
-    }, "wall");
+    return dataWithViewMode(
+      {
+        photos,
+        totalPhotos,
+        year: params.year,
+        month: params.month,
+        monthName,
+      },
+      "wall",
+    );
   } catch (error) {
     console.error(`Failed to load photos for ${year}-${month}:`, error);
-    return dataWithViewMode({
-      photos: [],
-      totalPhotos: 0,
-      year: params.year,
-      month: params.month,
-      monthName,
-    }, "wall");
+    return dataWithViewMode(
+      {
+        photos: [],
+        totalPhotos: 0,
+        year: params.year,
+        month: params.month,
+        monthName,
+      },
+      "wall",
+    );
   }
 }
 
@@ -1153,10 +1159,7 @@ function ThreeWall({ photos, year, month, totalPhotos, monthName }: ThreeWallPro
       {/* Header overlay */}
       <Header
         homeTo="/wall"
-        breadcrumbs={[
-          { label: year.toString(), to: `/year/${year}/wall` },
-          { label: monthName },
-        ]}
+        breadcrumbs={[{ label: year.toString(), to: `/year/${year}/wall` }, { label: monthName }]}
         viewAction={
           <ViewSwitcher
             modes={[

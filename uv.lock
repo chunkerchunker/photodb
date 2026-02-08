@@ -603,6 +603,22 @@ wheels = [
 ]
 
 [[package]]
+name = "hdbscan"
+version = "0.8.41"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "joblib" },
+    { name = "numpy" },
+    { name = "scikit-learn" },
+    { name = "scipy" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/0c/22/32a66dd4ce72145ec1b792c794b98897be467bdf18c10aa8b48275530b11/hdbscan-0.8.41.tar.gz", hash = "sha256:e41e823e5bb21ff2173f252d226266b1dda82bdbba5d89106eafb251429dff3d", size = 7091384, upload-time = "2025-12-12T15:48:30.807Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/90/51/0befb66e11c5989b7ec419da2bc652023d30113d4bf4df09cf42a42494d8/hdbscan-0.8.41-cp313-cp313-macosx_10_13_universal2.whl", hash = "sha256:8c2f0111395bd1beba1c095edf6b123ec529c8ebd7f4ccd02aaabd6b016454de", size = 1385747, upload-time = "2025-12-12T15:49:25.195Z" },
+    { url = "https://files.pythonhosted.org/packages/37/a6/e208ef8bb6e9e97e4b274951160a5bb754f20a79d5673563222d79b00461/hdbscan-0.8.41-cp313-cp313-win_amd64.whl", hash = "sha256:e90f6b9e2fcc94f9ac09d537f8b414191d1a837d62a355edd78e12820b63f0e2", size = 671718, upload-time = "2025-12-12T15:51:39.379Z" },
+]
+
+[[package]]
 name = "hf-xet"
 version = "1.2.0"
 source = { registry = "https://pypi.org/simple" }
@@ -1611,6 +1627,7 @@ dependencies = [
     { name = "click" },
     { name = "coremltools" },
     { name = "exif" },
+    { name = "hdbscan" },
     { name = "insightface" },
     { name = "instructor" },
     { name = "mivolo" },
@@ -1663,6 +1680,7 @@ requires-dist = [
     { name = "coremltools", specifier = ">=7.0" },
     { name = "coremltools", marker = "extra == 'macos'", specifier = ">=7.0" },
     { name = "exif", specifier = ">=1.6.0" },
+    { name = "hdbscan", specifier = ">=0.8.33" },
     { name = "insightface", specifier = ">=0.7.3" },
     { name = "instructor", specifier = ">=1.0.0" },
     { name = "mivolo", git = "https://github.com/WildChlamydia/MiVOLO.git" },

@@ -423,6 +423,123 @@ export async function getClustersCount() {
   return parseInt(result.rows[0].count, 10);
 }
 
+/**
+ * Get a unified list of people (with aggregated clusters) and unassigned clusters.
+ * People are represented by their aggregated face count across all their clusters.
+ * Unassigned clusters (no person_id) are shown individually.
+ * Sorted by face count descending.
+ */
+export async function getClustersGroupedByPerson(limit = 50, offset = 0) {
+  const collectionId = getCollectionId();
+
+  const query = `
+    WITH person_aggregates AS (
+      -- Aggregate clusters by person
+      SELECT
+        'person' as item_type,
+        per.id as id,
+        per.id as person_id,
+        SUM(c.face_count)::integer as face_count,
+        COUNT(c.id)::integer as cluster_count,
+        TRIM(CONCAT(per.first_name, ' ', COALESCE(per.last_name, ''))) as person_name,
+        -- Get the largest cluster ID for drag-drop operations
+        (SELECT c2.id FROM cluster c2
+         WHERE c2.person_id = per.id
+           AND c2.face_count > 0
+           AND (c2.hidden = false OR c2.hidden IS NULL)
+         ORDER BY c2.face_count DESC
+         LIMIT 1) as primary_cluster_id,
+        -- Get representative detection (person's or fallback to largest cluster's)
+        COALESCE(
+          per.representative_detection_id,
+          (SELECT c2.representative_detection_id FROM cluster c2
+           WHERE c2.person_id = per.id
+             AND c2.representative_detection_id IS NOT NULL
+             AND (c2.hidden = false OR c2.hidden IS NULL)
+           ORDER BY c2.face_count DESC
+           LIMIT 1)
+        ) as representative_detection_id
+      FROM person per
+      INNER JOIN cluster c ON c.person_id = per.id
+      WHERE c.face_count > 0
+        AND (c.hidden = false OR c.hidden IS NULL)
+        AND c.collection_id = $1
+      GROUP BY per.id, per.first_name, per.last_name, per.representative_detection_id
+    ),
+    unassigned_clusters AS (
+      -- Individual clusters without a person
+      SELECT
+        'cluster' as item_type,
+        c.id as id,
+        NULL::bigint as person_id,
+        c.face_count::integer as face_count,
+        1 as cluster_count,
+        NULL as person_name,
+        c.id as primary_cluster_id,
+        c.representative_detection_id
+      FROM cluster c
+      WHERE c.face_count > 0
+        AND (c.hidden = false OR c.hidden IS NULL)
+        AND c.collection_id = $1
+        AND c.person_id IS NULL
+    ),
+    combined AS (
+      SELECT * FROM person_aggregates
+      UNION ALL
+      SELECT * FROM unassigned_clusters
+    )
+    SELECT
+      combined.*,
+      pd.face_bbox_x as bbox_x,
+      pd.face_bbox_y as bbox_y,
+      pd.face_bbox_width as bbox_width,
+      pd.face_bbox_height as bbox_height,
+      p.id as photo_id,
+      p.normalized_width,
+      p.normalized_height
+    FROM combined
+    LEFT JOIN person_detection pd ON combined.representative_detection_id = pd.id
+    LEFT JOIN photo p ON pd.photo_id = p.id
+    ORDER BY combined.face_count DESC, combined.id
+    LIMIT $2 OFFSET $3
+  `;
+
+  const result = await pool.query(query, [collectionId, limit, offset]);
+  return result.rows;
+}
+
+/**
+ * Get count of items for the grouped clusters view.
+ * Counts distinct people + unassigned clusters.
+ */
+export async function getClustersGroupedCount() {
+  const collectionId = getCollectionId();
+
+  const query = `
+    SELECT
+      (
+        -- Count distinct people with visible clusters
+        SELECT COUNT(DISTINCT c.person_id)
+        FROM cluster c
+        WHERE c.face_count > 0
+          AND (c.hidden = false OR c.hidden IS NULL)
+          AND c.collection_id = $1
+          AND c.person_id IS NOT NULL
+      ) + (
+        -- Count unassigned clusters
+        SELECT COUNT(*)
+        FROM cluster c
+        WHERE c.face_count > 0
+          AND (c.hidden = false OR c.hidden IS NULL)
+          AND c.collection_id = $1
+          AND c.person_id IS NULL
+      ) as count
+  `;
+
+  const result = await pool.query(query, [collectionId]);
+  return parseInt(result.rows[0].count, 10);
+}
+
 export async function getHiddenClusters(limit = 50, offset = 0) {
   const collectionId = getCollectionId();
 
@@ -505,6 +622,276 @@ export async function getNamedClustersCount() {
   return parseInt(result.rows[0].count, 10);
 }
 
+/**
+ * Get people with aggregated cluster data.
+ * Groups clusters by person_id and sums face counts.
+ * Uses person.representative_detection_id if set, otherwise falls back to largest cluster's representative.
+ */
+export async function getPeople(limit = 50, offset = 0, sort: "photos" | "name" = "name") {
+  const collectionId = getCollectionId();
+
+  const orderBy =
+    sort === "photos"
+      ? "total_face_count DESC, per.first_name, per.last_name, per.id"
+      : "per.first_name, per.last_name, per.id";
+
+  const query = `
+    WITH person_stats AS (
+      SELECT
+        c.person_id,
+        SUM(c.face_count)::integer as total_face_count,
+        COUNT(c.id)::integer as cluster_count,
+        -- Fallback: get the representative from the largest cluster
+        (SELECT c2.representative_detection_id
+         FROM cluster c2
+         WHERE c2.person_id = c.person_id
+           AND c2.representative_detection_id IS NOT NULL
+           AND (c2.hidden = false OR c2.hidden IS NULL)
+         ORDER BY c2.face_count DESC
+         LIMIT 1) as fallback_representative_detection_id
+      FROM cluster c
+      WHERE c.face_count > 0
+        AND (c.hidden = false OR c.hidden IS NULL)
+        AND c.collection_id = $1
+        AND c.person_id IS NOT NULL
+      GROUP BY c.person_id
+    )
+    SELECT
+      per.id,
+      TRIM(CONCAT(per.first_name, ' ', COALESCE(per.last_name, ''))) as person_name,
+      ps.total_face_count,
+      ps.cluster_count,
+      -- Use person's representative if set, otherwise use fallback from largest cluster
+      COALESCE(per.representative_detection_id, ps.fallback_representative_detection_id) as representative_detection_id,
+      pd.face_bbox_x as bbox_x,
+      pd.face_bbox_y as bbox_y,
+      pd.face_bbox_width as bbox_width,
+      pd.face_bbox_height as bbox_height,
+      p.id as photo_id,
+      p.normalized_path,
+      p.filename,
+      p.normalized_width,
+      p.normalized_height
+    FROM person per
+    INNER JOIN person_stats ps ON per.id = ps.person_id
+    LEFT JOIN person_detection pd ON COALESCE(per.representative_detection_id, ps.fallback_representative_detection_id) = pd.id
+    LEFT JOIN photo p ON pd.photo_id = p.id
+    WHERE per.collection_id = $1
+    ORDER BY ${orderBy}
+    LIMIT $2 OFFSET $3
+  `;
+
+  const result = await pool.query(query, [collectionId, limit, offset]);
+  return result.rows;
+}
+
+/**
+ * Get count of unique people (not clusters).
+ */
+export async function getPeopleCount() {
+  const collectionId = getCollectionId();
+
+  const query = `
+    SELECT COUNT(DISTINCT c.person_id) as count
+    FROM cluster c
+    WHERE c.face_count > 0
+      AND (c.hidden = false OR c.hidden IS NULL)
+      AND c.collection_id = $1
+      AND c.person_id IS NOT NULL
+  `;
+
+  const result = await pool.query(query, [collectionId]);
+  return parseInt(result.rows[0].count, 10);
+}
+
+/**
+ * Get a person by ID with aggregated cluster data.
+ * Uses person.representative_detection_id if set, otherwise falls back to largest cluster's representative.
+ */
+export async function getPersonById(personId: string) {
+  const collectionId = getCollectionId();
+
+  const query = `
+    WITH person_stats AS (
+      SELECT
+        c.person_id,
+        SUM(c.face_count)::integer as total_face_count,
+        COUNT(c.id)::integer as cluster_count,
+        -- Fallback: get the representative from the largest cluster
+        (SELECT c2.representative_detection_id
+         FROM cluster c2
+         WHERE c2.person_id = c.person_id
+           AND c2.representative_detection_id IS NOT NULL
+           AND (c2.hidden = false OR c2.hidden IS NULL)
+         ORDER BY c2.face_count DESC
+         LIMIT 1) as fallback_representative_detection_id
+      FROM cluster c
+      WHERE c.face_count > 0
+        AND (c.hidden = false OR c.hidden IS NULL)
+        AND c.collection_id = $2
+        AND c.person_id = $1
+      GROUP BY c.person_id
+    )
+    SELECT
+      per.id,
+      per.first_name,
+      per.last_name,
+      TRIM(CONCAT(per.first_name, ' ', COALESCE(per.last_name, ''))) as person_name,
+      COALESCE(ps.total_face_count, 0)::integer as total_face_count,
+      COALESCE(ps.cluster_count, 0)::integer as cluster_count,
+      COALESCE(per.representative_detection_id, ps.fallback_representative_detection_id) as representative_detection_id,
+      pd.face_bbox_x as bbox_x,
+      pd.face_bbox_y as bbox_y,
+      pd.face_bbox_width as bbox_width,
+      pd.face_bbox_height as bbox_height,
+      p.id as photo_id,
+      p.normalized_width,
+      p.normalized_height
+    FROM person per
+    LEFT JOIN person_stats ps ON per.id = ps.person_id
+    LEFT JOIN person_detection pd ON COALESCE(per.representative_detection_id, ps.fallback_representative_detection_id) = pd.id
+    LEFT JOIN photo p ON pd.photo_id = p.id
+    WHERE per.id = $1 AND per.collection_id = $2
+  `;
+
+  const result = await pool.query(query, [personId, collectionId]);
+  return result.rows[0] || null;
+}
+
+/**
+ * Get all clusters belonging to a person.
+ */
+export async function getClustersByPerson(personId: string) {
+  const collectionId = getCollectionId();
+
+  const query = `
+    SELECT c.id, c.face_count::integer as face_count, c.representative_detection_id, c.hidden, c.verified,
+           pd.face_bbox_x as bbox_x, pd.face_bbox_y as bbox_y,
+           pd.face_bbox_width as bbox_width, pd.face_bbox_height as bbox_height,
+           p.id as photo_id, p.normalized_path, p.filename,
+           p.normalized_width, p.normalized_height
+    FROM cluster c
+    LEFT JOIN person_detection pd ON c.representative_detection_id = pd.id
+    LEFT JOIN photo p ON pd.photo_id = p.id
+    WHERE c.person_id = $1 AND c.collection_id = $2 AND c.face_count > 0
+    ORDER BY c.face_count DESC, c.id
+  `;
+
+  const result = await pool.query(query, [personId, collectionId]);
+  return result.rows;
+}
+
+/**
+ * Rename a person directly.
+ */
+export async function setPersonName(personId: string, firstName: string, lastName?: string) {
+  const collectionId = getCollectionId();
+
+  const query = `
+    UPDATE person
+    SET first_name = $1, last_name = $2, updated_at = NOW()
+    WHERE id = $3 AND collection_id = $4
+    RETURNING id
+  `;
+
+  const result = await pool.query(query, [firstName, lastName || null, personId, collectionId]);
+  return {
+    success: result.rows.length > 0,
+    message: result.rows.length > 0 ? "Person renamed" : "Person not found",
+  };
+}
+
+/**
+ * Hide or unhide all clusters belonging to a person.
+ */
+export async function setPersonHidden(personId: string, hidden: boolean) {
+  const collectionId = getCollectionId();
+
+  const query = `
+    UPDATE cluster
+    SET hidden = $1, updated_at = NOW()
+    WHERE person_id = $2 AND collection_id = $3
+    RETURNING id
+  `;
+
+  const result = await pool.query(query, [hidden, personId, collectionId]);
+  const count = result.rowCount || 0;
+  return {
+    success: count > 0,
+    message: hidden ? `Hidden ${count} cluster(s)` : `Unhidden ${count} cluster(s)`,
+    count,
+  };
+}
+
+/**
+ * Unlink a cluster from its person (set person_id to NULL).
+ */
+export async function unlinkClusterFromPerson(clusterId: string) {
+  const collectionId = getCollectionId();
+
+  const query = `
+    UPDATE cluster
+    SET person_id = NULL, updated_at = NOW()
+    WHERE id = $1 AND collection_id = $2
+    RETURNING id
+  `;
+
+  const result = await pool.query(query, [clusterId, collectionId]);
+  return {
+    success: result.rows.length > 0,
+    message: result.rows.length > 0 ? "Cluster unlinked from person" : "Cluster not found",
+  };
+}
+
+/**
+ * Set a person's representative detection from a cluster.
+ * Uses the cluster's representative_detection_id.
+ */
+export async function setPersonRepresentative(personId: string, clusterId: string) {
+  const collectionId = getCollectionId();
+
+  const client = await pool.connect();
+  try {
+    // Get the cluster's representative detection and verify it belongs to this person
+    const clusterQuery = `
+      SELECT c.representative_detection_id, c.person_id
+      FROM cluster c
+      WHERE c.id = $1 AND c.collection_id = $2
+    `;
+    const clusterResult = await client.query(clusterQuery, [clusterId, collectionId]);
+
+    if (clusterResult.rows.length === 0) {
+      return { success: false, message: "Cluster not found" };
+    }
+
+    const cluster = clusterResult.rows[0];
+    if (cluster.person_id?.toString() !== personId) {
+      return { success: false, message: "Cluster does not belong to this person" };
+    }
+
+    if (!cluster.representative_detection_id) {
+      return { success: false, message: "Cluster has no representative detection" };
+    }
+
+    // Update the person's representative
+    const updateQuery = `
+      UPDATE person
+      SET representative_detection_id = $1, updated_at = NOW()
+      WHERE id = $2 AND collection_id = $3
+      RETURNING id
+    `;
+    const updateResult = await client.query(updateQuery, [cluster.representative_detection_id, personId, collectionId]);
+
+    if (updateResult.rows.length === 0) {
+      return { success: false, message: "Person not found" };
+    }
+
+    return { success: true, message: "Person representative updated" };
+  } finally {
+    client.release();
+  }
+}
+
 export async function setClusterHidden(clusterId: string, hidden: boolean) {
   const collectionId = getCollectionId();
 
@@ -530,10 +917,10 @@ export async function setClusterPersonName(clusterId: string, firstName: string,
     await client.query("BEGIN");
 
     // Check if cluster already has a person_id
-    const clusterResult = await client.query(
-      "SELECT person_id FROM cluster WHERE id = $1 AND collection_id = $2",
-      [clusterId, collectionId],
-    );
+    const clusterResult = await client.query("SELECT person_id FROM cluster WHERE id = $1 AND collection_id = $2", [
+      clusterId,
+      collectionId,
+    ]);
     if (clusterResult.rows.length === 0) {
       await client.query("ROLLBACK");
       return { success: false, message: "Cluster not found" };
@@ -773,10 +1160,10 @@ export async function dissociateFacesFromCluster(
   try {
     await client.query("BEGIN");
 
-    const clusterCheck = await client.query(
-      "SELECT id FROM cluster WHERE id = $1 AND collection_id = $2",
-      [clusterId, collectionId],
-    );
+    const clusterCheck = await client.query("SELECT id FROM cluster WHERE id = $1 AND collection_id = $2", [
+      clusterId,
+      collectionId,
+    ]);
     if (clusterCheck.rows.length === 0) {
       await client.query("ROLLBACK");
       return { success: false, message: "Cluster not found", removedCount: 0 };
@@ -913,94 +1300,209 @@ export async function searchClusters(query: string, excludeClusterId?: string, l
     LIMIT $3
   `;
 
-  const result = await pool.query(searchQuery, [
-    query || null,
-    excludeClusterId || null,
-    limit,
-    collectionId,
-  ]);
+  const result = await pool.query(searchQuery, [query || null, excludeClusterId || null, limit, collectionId]);
   return result.rows;
 }
 
-export async function mergeClusters(sourceClusterId: string, targetClusterId: string) {
+/**
+ * Preview what will happen when linking two clusters.
+ * Returns info about both clusters' person associations.
+ */
+export async function previewClusterLink(sourceClusterId: string, targetClusterId: string) {
+  const collectionId = getCollectionId();
+
+  const query = `
+    SELECT
+      c.id as cluster_id,
+      c.person_id,
+      TRIM(CONCAT(p.first_name, ' ', COALESCE(p.last_name, ''))) as person_name,
+      p.first_name,
+      p.last_name,
+      (SELECT COUNT(*) FROM cluster c2 WHERE c2.person_id = c.person_id) as person_cluster_count
+    FROM cluster c
+    LEFT JOIN person p ON c.person_id = p.id
+    WHERE c.id = ANY($1) AND c.collection_id = $2
+  `;
+
+  const result = await pool.query(query, [[sourceClusterId, targetClusterId], collectionId]);
+
+  const sourceInfo = result.rows.find((r) => r.cluster_id.toString() === sourceClusterId);
+  const targetInfo = result.rows.find((r) => r.cluster_id.toString() === targetClusterId);
+
+  if (!sourceInfo || !targetInfo) {
+    return { found: false };
+  }
+
+  // Check if both have different person records
+  const willMergePersons =
+    sourceInfo.person_id && targetInfo.person_id && sourceInfo.person_id !== targetInfo.person_id;
+
+  return {
+    found: true,
+    source: {
+      clusterId: sourceClusterId,
+      personId: sourceInfo.person_id,
+      personName: sourceInfo.person_name || null,
+      personClusterCount: parseInt(sourceInfo.person_cluster_count) || 0,
+    },
+    target: {
+      clusterId: targetClusterId,
+      personId: targetInfo.person_id,
+      personName: targetInfo.person_name || null,
+      personClusterCount: parseInt(targetInfo.person_cluster_count) || 0,
+    },
+    willMergePersons,
+    // If merging persons, source person will be deleted and all their clusters moved to target person
+    sourcePersonWillBeDeleted: willMergePersons,
+  };
+}
+
+/**
+ * Link two clusters to the same person.
+ *
+ * This does NOT merge clusters (move faces, delete cluster).
+ * Instead, it assigns both clusters to the same person_id,
+ * creating a new Person if neither cluster has one.
+ *
+ * If both clusters belong to different persons, ALL clusters from the
+ * source person are moved to the target person, and the source person
+ * record is deleted.
+ *
+ * This preserves cluster integrity while establishing identity linkage.
+ */
+export async function linkClustersToSamePerson(sourceClusterId: string, targetClusterId: string) {
   const collectionId = getCollectionId();
 
   if (sourceClusterId === targetClusterId) {
-    return { success: false, message: "Cannot merge a cluster with itself" };
+    return { success: false, message: "Cannot link a cluster with itself" };
   }
 
   const client = await pool.connect();
   try {
     await client.query("BEGIN");
 
-    // Get source cluster info
-    const sourceQuery = `SELECT id, face_count, person_id FROM cluster WHERE id = $1 AND collection_id = $2`;
+    // Get source cluster info with person details
+    const sourceQuery = `
+      SELECT c.id, c.face_count, c.person_id, c.representative_detection_id,
+             TRIM(CONCAT(p.first_name, ' ', COALESCE(p.last_name, ''))) as person_name
+      FROM cluster c
+      LEFT JOIN person p ON c.person_id = p.id
+      WHERE c.id = $1 AND c.collection_id = $2
+    `;
     const sourceResult = await client.query(sourceQuery, [sourceClusterId, collectionId]);
     if (sourceResult.rows.length === 0) {
       await client.query("ROLLBACK");
       return { success: false, message: "Source cluster not found" };
     }
+    const sourceCluster = sourceResult.rows[0];
 
-    // Get target cluster info
-    const targetQuery = `SELECT id, face_count, person_id FROM cluster WHERE id = $1 AND collection_id = $2`;
+    // Get target cluster info with person details
+    const targetQuery = `
+      SELECT c.id, c.face_count, c.person_id, c.representative_detection_id,
+             TRIM(CONCAT(p.first_name, ' ', COALESCE(p.last_name, ''))) as person_name
+      FROM cluster c
+      LEFT JOIN person p ON c.person_id = p.id
+      WHERE c.id = $1 AND c.collection_id = $2
+    `;
     const targetResult = await client.query(targetQuery, [targetClusterId, collectionId]);
     if (targetResult.rows.length === 0) {
       await client.query("ROLLBACK");
       return { success: false, message: "Target cluster not found" };
     }
+    const targetCluster = targetResult.rows[0];
 
-    // Move all detections from source to target cluster
-    const moveDetectionsQuery = `
-      UPDATE person_detection
-      SET cluster_id = $1,
-          cluster_status = 'manual'
-      WHERE cluster_id = $2 AND collection_id = $3
-      RETURNING id
-    `;
-    const moveResult = await client.query(moveDetectionsQuery, [
-      targetClusterId,
-      sourceClusterId,
-      collectionId,
-    ]);
-    const movedCount = moveResult.rowCount || 0;
+    let personId: number;
+    let mergedPersons = false;
+    let deletedPersonId: number | null = null;
+    let deletedPersonName: string | null = null;
 
-    // Update target cluster face count
-    await client.query(
-      `UPDATE cluster SET face_count = face_count + $1, updated_at = NOW() WHERE id = $2 AND collection_id = $3`,
-      [movedCount, targetClusterId, collectionId],
-    );
+    // Check if both clusters have different person records
+    if (sourceCluster.person_id && targetCluster.person_id && sourceCluster.person_id !== targetCluster.person_id) {
+      // Both have different persons - merge source person into target person
+      personId = targetCluster.person_id;
+      deletedPersonId = sourceCluster.person_id;
+      deletedPersonName = sourceCluster.person_name;
+      mergedPersons = true;
 
-    // Recompute target cluster centroid
-    const centroidQuery = `
-      UPDATE cluster
-      SET centroid = (
-        SELECT AVG(fe.embedding)::vector(512)
-        FROM person_detection pd
-        JOIN face_embedding fe ON pd.id = fe.person_detection_id
-        WHERE pd.cluster_id = $1
-      )
-      WHERE id = $1 AND collection_id = $2
-    `;
-    await client.query(centroidQuery, [targetClusterId, collectionId]);
+      // Move ALL clusters from source person to target person
+      await client.query(
+        `UPDATE cluster SET person_id = $1, updated_at = NOW()
+         WHERE person_id = $2 AND collection_id = $3`,
+        [personId, sourceCluster.person_id, collectionId],
+      );
 
-    // Delete the source cluster
-    await client.query(`DELETE FROM cluster WHERE id = $1 AND collection_id = $2`, [
-      sourceClusterId,
-      collectionId,
-    ]);
+      // Delete the now-orphaned source person record
+      await client.query(`DELETE FROM person WHERE id = $1 AND collection_id = $2`, [
+        sourceCluster.person_id,
+        collectionId,
+      ]);
+    } else if (targetCluster.person_id) {
+      // Target already has a person - use that
+      personId = targetCluster.person_id;
+
+      // Update source cluster to use target's person
+      await client.query(`UPDATE cluster SET person_id = $1, updated_at = NOW() WHERE id = $2 AND collection_id = $3`, [
+        personId,
+        sourceClusterId,
+        collectionId,
+      ]);
+    } else if (sourceCluster.person_id) {
+      // Source has a person - use that
+      personId = sourceCluster.person_id;
+
+      // Update target cluster to use source's person
+      await client.query(`UPDATE cluster SET person_id = $1, updated_at = NOW() WHERE id = $2 AND collection_id = $3`, [
+        personId,
+        targetClusterId,
+        collectionId,
+      ]);
+    } else {
+      // Neither has a person - create a new one with placeholder name
+      // Use the target cluster's representative as the person's representative (prefer target, fallback to source)
+      const representativeDetectionId =
+        targetCluster.representative_detection_id || sourceCluster.representative_detection_id || null;
+
+      const createPersonResult = await client.query(
+        `INSERT INTO person (collection_id, first_name, representative_detection_id, created_at)
+         VALUES ($1, 'Unknown', $2, NOW()) RETURNING id`,
+        [collectionId, representativeDetectionId],
+      );
+      personId = createPersonResult.rows[0].id;
+
+      // Update both clusters to use the new person
+      await client.query(`UPDATE cluster SET person_id = $1, updated_at = NOW() WHERE id = $2 AND collection_id = $3`, [
+        personId,
+        sourceClusterId,
+        collectionId,
+      ]);
+      await client.query(`UPDATE cluster SET person_id = $1, updated_at = NOW() WHERE id = $2 AND collection_id = $3`, [
+        personId,
+        targetClusterId,
+        collectionId,
+      ]);
+    }
 
     await client.query("COMMIT");
 
+    let message = `Linked clusters as same person`;
+    if (mergedPersons) {
+      message = `Merged "${deletedPersonName}" into "${targetCluster.person_name}"`;
+    }
+
     return {
       success: true,
-      message: `Merged ${movedCount} detections into cluster ${targetClusterId}`,
-      movedCount,
+      message,
+      personId,
+      sourceClusterId,
       targetClusterId,
+      mergedPersons,
+      deletedPersonId,
+      deletedPersonName,
     };
   } catch (error) {
     await client.query("ROLLBACK");
-    console.error("Failed to merge clusters:", error);
-    return { success: false, message: "Failed to merge clusters" };
+    console.error("Failed to link clusters:", error);
+    return { success: false, message: "Failed to link clusters" };
   } finally {
     client.release();
   }
@@ -1129,11 +1631,7 @@ export async function createClusterFromFaces(detectionIds: number[]) {
       WHERE id = ANY($2) AND cluster_id IS NULL AND collection_id = $3
       RETURNING id
     `;
-    const assignResult = await client.query(assignDetectionsQuery, [
-      clusterId,
-      detectionIds,
-      collectionId,
-    ]);
+    const assignResult = await client.query(assignDetectionsQuery, [clusterId, detectionIds, collectionId]);
     const assignedCount = assignResult.rowCount || 0;
 
     // Step 3: Update the cluster face count to match actual assigned
@@ -1236,13 +1734,7 @@ export async function getSimilarFaces(detectionId: number, limit = 12, similarit
     LIMIT $4
   `;
 
-  const result = await pool.query(query, [
-    detectionId,
-    distanceThreshold,
-    overfetchLimit,
-    limit,
-    collectionId,
-  ]);
+  const result = await pool.query(query, [detectionId, distanceThreshold, overfetchLimit, limit, collectionId]);
   return result.rows;
 }
 
@@ -1253,10 +1745,10 @@ export async function dissociateFaceWithConfidenceCutoff(clusterId: string, dete
   try {
     await client.query("BEGIN");
 
-    const clusterCheck = await client.query(
-      "SELECT id FROM cluster WHERE id = $1 AND collection_id = $2",
-      [clusterId, collectionId],
-    );
+    const clusterCheck = await client.query("SELECT id FROM cluster WHERE id = $1 AND collection_id = $2", [
+      clusterId,
+      collectionId,
+    ]);
     if (clusterCheck.rows.length === 0) {
       await client.query("ROLLBACK");
       return { success: false, message: "Cluster not found", constrainedCount: 0, cutoffCount: 0 };
@@ -1394,11 +1886,7 @@ export async function removeFaceFromClusterWithConstraint(detectionId: number) {
       WHERE cluster_id = $1 AND id != $2 AND collection_id = $3
       LIMIT 1
     `;
-    const remainingResult = await client.query(remainingDetectionQuery, [
-      clusterId,
-      detectionId,
-      collectionId,
-    ]);
+    const remainingResult = await client.query(remainingDetectionQuery, [clusterId, detectionId, collectionId]);
 
     // Remove detection from cluster
     await client.query(

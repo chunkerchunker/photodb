@@ -2,7 +2,8 @@ import {
   Check,
   Eye,
   EyeOff,
-  GitMerge,
+  Grid,
+  Link2,
   Loader2,
   Pencil,
   ScanFace,
@@ -18,6 +19,7 @@ import {
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Link, redirect, useFetcher, useNavigate } from "react-router";
 import { Breadcrumb } from "~/components/breadcrumb";
+import { CoverflowIcon } from "~/components/coverflow-icon";
 import { Layout } from "~/components/layout";
 import { Badge } from "~/components/ui/badge";
 import { Button } from "~/components/ui/button";
@@ -32,6 +34,7 @@ import {
   DialogTrigger,
 } from "~/components/ui/dialog";
 import { Input } from "~/components/ui/input";
+import { dataWithViewMode } from "~/lib/cookies.server";
 import {
   deleteCluster,
   dissociateFacesFromCluster,
@@ -39,13 +42,13 @@ import {
   getClusterDetails,
   getClusterFaces,
   getClusterFacesCount,
-  mergeClusters,
+  linkClustersToSamePerson,
   setClusterHidden,
   setClusterPersonName,
   setClusterRepresentative,
 } from "~/lib/db.server";
 import { cn } from "~/lib/utils";
-import type { Route } from "./+types/cluster.$id";
+import type { Route } from "./+types/cluster.$id.grid";
 
 export function meta({ params }: Route.MetaArgs) {
   return [
@@ -119,21 +122,13 @@ export async function action({ request, params }: Route.ActionArgs) {
     return { success: false, message: "Invalid face ID" };
   }
 
-  if (intent === "merge") {
+  if (intent === "link") {
     const targetClusterId = formData.get("targetClusterId") as string;
     if (!targetClusterId || !clusterId) {
       return { success: false, message: "Invalid cluster IDs" };
     }
 
-    const result = await mergeClusters(clusterId, targetClusterId);
-    if (result.success) {
-      // Return redirectTo so client can navigate with replace (removes deleted cluster from history)
-      return {
-        success: true,
-        message: result.message,
-        redirectTo: `/cluster/${targetClusterId}`,
-      };
-    }
+    const result = await linkClustersToSamePerson(clusterId, targetClusterId);
     return result;
   }
 
@@ -169,25 +164,31 @@ export async function loader({ params, request }: Route.LoaderArgs) {
     const totalFaces = await getClusterFacesCount(clusterId);
     const hasMore = offset + faces.length < totalFaces;
 
-    return {
-      cluster,
-      faces,
-      totalFaces,
-      hasMore,
-      page,
-    };
+    return dataWithViewMode(
+      {
+        cluster,
+        faces,
+        totalFaces,
+        hasMore,
+        page,
+      },
+      "grid",
+    );
   } catch (error) {
     console.error(`Failed to load cluster ${clusterId}:`, error);
     if (error instanceof Response && error.status === 404) {
       throw error;
     }
-    return {
-      cluster: null,
-      faces: [],
-      totalFaces: 0,
-      hasMore: false,
-      page,
-    };
+    return dataWithViewMode(
+      {
+        cluster: null,
+        faces: [],
+        totalFaces: 0,
+        hasMore: false,
+        page,
+      },
+      "grid",
+    );
   }
 }
 
@@ -363,14 +364,14 @@ const FaceCard = memo(function FaceCard({
 export default function ClusterDetailView({ loaderData }: Route.ComponentProps) {
   const { cluster, faces: initialFaces, totalFaces, hasMore: initialHasMore, page: initialPage } = loaderData;
   const [selectedFaces, setSelectedFaces] = useState<number[]>([]);
-  const [mergeModalOpen, setMergeModalOpen] = useState(false);
+  const [linkModalOpen, setLinkModalOpen] = useState(false);
   const [nameModalOpen, setNameModalOpen] = useState(false);
   const [editFirstName, setEditFirstName] = useState("");
   const [editLastName, setEditLastName] = useState("");
   const [searchQuery, setSearchQuery] = useState("");
   const [searchResults, setSearchResults] = useState<SearchCluster[]>([]);
   const [isSearching, setIsSearching] = useState(false);
-  const [pendingMergeClusterId, setPendingMergeClusterId] = useState<string | null>(null);
+  const [pendingLinkClusterId, setPendingLinkClusterId] = useState<string | null>(null);
   const [deleteConfirmOpen, setDeleteConfirmOpen] = useState(false);
   const [previewFaceId, setPreviewFaceId] = useState<number | null>(null);
   const previewTimeoutRef = useRef<NodeJS.Timeout | null>(null);
@@ -394,12 +395,12 @@ export default function ClusterDetailView({ loaderData }: Route.ComponentProps) 
     setPreviewFaceId(null);
   }, []);
 
-  // Handle redirect after merge (with replace to remove deleted cluster from history)
+  // Revalidate after link completes
   useEffect(() => {
-    if (fetcher.data?.redirectTo) {
-      navigate(fetcher.data.redirectTo, { replace: true });
+    if (fetcher.data?.success && fetcher.state === "idle") {
+      setLinkModalOpen(false);
     }
-  }, [fetcher.data, navigate]);
+  }, [fetcher.data, fetcher.state]);
 
   // Infinite scroll state
   const [faces, setFaces] = useState<Face[]>(initialFaces);
@@ -488,26 +489,26 @@ export default function ClusterDetailView({ loaderData }: Route.ComponentProps) 
   );
 
   useEffect(() => {
-    if (mergeModalOpen) {
+    if (linkModalOpen) {
       const timer = setTimeout(() => {
         searchClusters(searchQuery);
       }, 300);
       return () => clearTimeout(timer);
     }
-  }, [searchQuery, mergeModalOpen, searchClusters]);
+  }, [searchQuery, linkModalOpen, searchClusters]);
 
-  const handleMergeClick = (targetClusterId: string) => {
-    setPendingMergeClusterId(targetClusterId);
+  const handleLinkClick = (targetClusterId: string) => {
+    setPendingLinkClusterId(targetClusterId);
   };
 
-  const confirmMerge = (targetClusterId: string) => {
-    fetcher.submit({ intent: "merge", targetClusterId }, { method: "post" });
-    setMergeModalOpen(false);
-    setPendingMergeClusterId(null);
+  const confirmLink = (targetClusterId: string) => {
+    fetcher.submit({ intent: "link", targetClusterId }, { method: "post" });
+    setLinkModalOpen(false);
+    setPendingLinkClusterId(null);
   };
 
-  const cancelMerge = () => {
-    setPendingMergeClusterId(null);
+  const cancelLink = () => {
+    setPendingLinkClusterId(null);
   };
 
   const handleSaveName = () => {
@@ -730,21 +731,32 @@ export default function ClusterDetailView({ loaderData }: Route.ComponentProps) 
             </Dialog>
           </div>
           <div className="flex items-center space-x-4">
+            <div className="flex items-center rounded-lg border bg-gray-50 p-1" title="View mode">
+              <div className="flex items-center gap-1.5 px-3 py-1.5 rounded-md text-sm font-medium bg-white text-gray-900 shadow-sm">
+                <Grid className="h-4 w-4" />
+              </div>
+              <Link
+                to={`/cluster/${cluster.id}/wall`}
+                className="flex items-center gap-1.5 px-3 py-1.5 rounded-md text-sm font-medium text-gray-500 hover:text-gray-700 transition-colors"
+              >
+                <CoverflowIcon className="size-4" />
+              </Link>
+            </div>
             <span className="text-gray-600">
               {totalFaces} face{totalFaces !== 1 ? "s" : ""}
             </span>
-            <Dialog open={mergeModalOpen} onOpenChange={setMergeModalOpen}>
+            <Dialog open={linkModalOpen} onOpenChange={setLinkModalOpen}>
               <DialogTrigger asChild>
                 <Button variant="outline" size="sm" disabled={isSubmitting}>
-                  <GitMerge className="h-4 w-4 mr-1" />
-                  Merge
+                  <Link2 className="h-4 w-4 mr-1" />
+                  Same Person
                 </Button>
               </DialogTrigger>
               <DialogContent className="max-w-lg">
                 <DialogHeader>
-                  <DialogTitle>Merge into another cluster</DialogTitle>
+                  <DialogTitle>Link as Same Person</DialogTitle>
                   <DialogDescription>
-                    Search for a cluster to merge this one into. All faces will be moved to the target cluster.
+                    Search for another cluster of the same person. Both clusters will be linked to the same identity.
                   </DialogDescription>
                 </DialogHeader>
                 <div className="space-y-4">
@@ -762,7 +774,7 @@ export default function ClusterDetailView({ loaderData }: Route.ComponentProps) 
                       <div className="text-center py-4 text-gray-500">Searching...</div>
                     ) : searchResults.length > 0 ? (
                       searchResults.map((result) => {
-                        const isPending = pendingMergeClusterId === result.id;
+                        const isPending = pendingLinkClusterId === result.id;
                         const targetName = result.person_name || `Cluster ${result.id}`;
 
                         return (
@@ -800,7 +812,7 @@ export default function ClusterDetailView({ loaderData }: Route.ComponentProps) 
                               )}
                               <div>
                                 {isPending ? (
-                                  <div className="font-medium text-amber-800">Merge into "{targetName}"?</div>
+                                  <div className="font-medium text-amber-800">Link with "{targetName}"?</div>
                                 ) : (
                                   <>
                                     <div className="font-medium">{targetName}</div>
@@ -814,10 +826,10 @@ export default function ClusterDetailView({ loaderData }: Route.ComponentProps) 
                             </div>
                             {isPending ? (
                               <div className="flex items-center space-x-2">
-                                <Button variant="outline" size="sm" onClick={cancelMerge}>
+                                <Button variant="outline" size="sm" onClick={cancelLink}>
                                   Cancel
                                 </Button>
-                                <Button size="sm" onClick={() => confirmMerge(result.id)}>
+                                <Button size="sm" onClick={() => confirmLink(result.id)}>
                                   Confirm
                                 </Button>
                               </div>
@@ -825,9 +837,9 @@ export default function ClusterDetailView({ loaderData }: Route.ComponentProps) 
                               <button
                                 type="button"
                                 className="text-sm text-blue-600 hover:text-blue-800"
-                                onClick={() => handleMergeClick(result.id)}
+                                onClick={() => handleLinkClick(result.id)}
                               >
-                                Merge into
+                                Same Person
                               </button>
                             )}
                           </div>

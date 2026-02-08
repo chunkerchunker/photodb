@@ -1,6 +1,6 @@
 import logging
 from pathlib import Path
-from typing import List, Optional, Set
+from typing import Dict, List, Optional, Set, Tuple
 import numpy as np
 from decimal import Decimal
 
@@ -9,14 +9,28 @@ from ..database.models import Photo
 
 logger = logging.getLogger(__name__)
 
+# Check for PyTorch MPS (Metal) availability
+try:
+    import torch
+    HAS_TORCH = True
+    HAS_MPS = torch.backends.mps.is_available()
+except ImportError:
+    HAS_TORCH = False
+    HAS_MPS = False
+
 
 class ClusteringStage(BaseStage):
     """
-    Constrained incremental clustering stage for face embeddings.
+    Hybrid HDBSCAN clustering stage for face embeddings.
 
-    Implements the alternative clustering approach with:
-    - Must-link/cannot-link constraint support
-    - K-neighbor based confidence scoring
+    Implements a two-mode clustering approach:
+    1. Bootstrap mode: Uses HDBSCAN for initial batch clustering
+    2. Incremental mode: Uses epsilon-ball assignment for new detections
+
+    Features:
+    - Cannot-link constraint support
+    - Per-cluster epsilon thresholds from HDBSCAN
+    - Core point identification for cluster stability
     - Unassigned pool for outliers
     - Verified cluster protection
 
@@ -37,11 +51,21 @@ class ClusteringStage(BaseStage):
         self.unassigned_threshold = int(config.get("UNASSIGNED_CLUSTER_THRESHOLD", 5))
         self.verified_threshold_multiplier = float(config.get("VERIFIED_THRESHOLD_MULTIPLIER", 0.8))
         self.medoid_recompute_threshold = float(config.get("MEDOID_RECOMPUTE_THRESHOLD", 0.25))
+
+        # HDBSCAN configuration
+        self.min_cluster_size = int(config.get("HDBSCAN_MIN_CLUSTER_SIZE", 3))
+        self.min_samples = int(config.get("HDBSCAN_MIN_SAMPLES", 2))
+        self.epsilon_percentile = float(config.get("EPSILON_PERCENTILE", 90))
+        self.core_probability_threshold = float(config.get("CORE_PROBABILITY_THRESHOLD", 0.8))
+        self.bootstrap_mode = False  # Set externally when bootstrap is requested
+
         logger.debug(
             f"Initialized ClusteringStage with threshold={self.clustering_threshold}, "
             f"pool_threshold={self.pool_clustering_threshold}, "
             f"k_neighbors={self.k_neighbors}, unassigned_threshold={self.unassigned_threshold}, "
-            f"medoid_recompute_threshold={self.medoid_recompute_threshold}"
+            f"medoid_recompute_threshold={self.medoid_recompute_threshold}, "
+            f"min_cluster_size={self.min_cluster_size}, min_samples={self.min_samples}, "
+            f"epsilon_percentile={self.epsilon_percentile}"
         )
 
     def should_process(self, file_path: Path, force: bool = False) -> bool:
@@ -156,14 +180,14 @@ class ClusteringStage(BaseStage):
 
     def _cluster_single_detection(self, detection: dict) -> None:
         """
-        Cluster a single detection using constrained incremental clustering.
+        Cluster a single detection using epsilon-ball approach.
 
         Decision flow:
-        1. Check must-link constraints first
-        2. Find K nearest neighbors
-        3. Calculate core distance confidence
-        4. Filter by cannot-link constraints
-        5. Apply decision rules (assign, create, or mark unassigned)
+        1. Get all clusters with centroids (epsilon may be NULL for legacy clusters)
+        2. Check if detection falls within epsilon-ball of any cluster centroid
+           - Uses cluster.epsilon if set, otherwise falls back to self.clustering_threshold
+        3. Filter by cannot-link constraints
+        4. Apply decision rules (assign, review, or add to unassigned pool)
         """
         detection_id = detection["id"]
         embedding = self._normalize_embedding(detection.get("embedding"))
@@ -172,91 +196,81 @@ class ClusteringStage(BaseStage):
             logger.warning(f"No valid embedding for detection {detection_id} - skipping clustering")
             return
 
-        # Step 1: Check must-link constraints first
-        must_link_cluster = self._check_must_link_constraints(detection_id)
-        if must_link_cluster is not None:
-            logger.debug(f"Detection {detection_id} has must-link to cluster {must_link_cluster}")
-            self._assign_to_cluster(
-                detection_id,
-                must_link_cluster,
-                confidence=1.0,
-                embedding=embedding,
-                status="constrained",
-            )
-            return
+        # Step 1: Get all clusters with centroids (epsilon may be NULL for legacy clusters)
+        clusters_with_epsilon = self.repository.get_clusters_with_epsilon()
 
-        # Step 2: Find K nearest neighbors (detections, not just clusters)
-        neighbors = self.repository.find_nearest_detections(embedding, limit=self.k_neighbors)
+        # Step 2: Find clusters within epsilon-ball
+        # Use cosine distance: 1 - dot(embedding, centroid)
+        clusters_within_epsilon: Dict[int, float] = {}
+        for cluster_data in clusters_with_epsilon:
+            cluster_id = cluster_data["id"]
+            centroid = cluster_data.get("centroid")
+            epsilon = cluster_data.get("epsilon")
 
-        # Step 3: Calculate core distance confidence
-        if neighbors:
-            distances = [n["distance"] for n in neighbors]
-            core_distance = np.mean(distances)
-            confidence = float(max(0.0, 1.0 - core_distance))
-        else:
-            core_distance = float("inf")
-            confidence = 0.0
+            if centroid is None:
+                continue
 
-        # Step 4: Filter by threshold and get cluster assignments
-        valid_neighbors = [n for n in neighbors if n["distance"] < self.clustering_threshold]
+            # Normalize centroid if needed
+            centroid_arr = self._normalize_embedding(centroid)
+            if centroid_arr is None:
+                continue
 
-        if not valid_neighbors:
+            # Use fallback threshold if cluster doesn't have epsilon yet
+            effective_epsilon = epsilon if epsilon is not None else self.clustering_threshold
+
+            # Cosine distance
+            distance = float(1.0 - np.dot(embedding, centroid_arr))
+
+            if distance < effective_epsilon:
+                clusters_within_epsilon[cluster_id] = distance
+                logger.debug(
+                    f"Detection {detection_id}: within epsilon of cluster {cluster_id} "
+                    f"(dist={distance:.4f}, epsilon={effective_epsilon:.4f})"
+                )
+
+        # Step 3: Filter out cannot-link clusters
+        allowed_clusters = self._filter_cannot_link_clusters(
+            detection_id, list(clusters_within_epsilon.keys())
+        )
+
+        if not allowed_clusters:
+            if clusters_within_epsilon:
+                logger.debug(
+                    f"Detection {detection_id}: all nearby clusters forbidden by constraints"
+                )
             # No close matches -> add to unassigned pool
             self._add_to_unassigned_pool(detection_id, embedding)
             return
 
-        # Step 5: Get unique clusters from neighbors
-        neighbor_clusters: dict = {}
-        for n in valid_neighbors:
-            cid = n.get("cluster_id")
-            if cid:
-                if cid not in neighbor_clusters:
-                    neighbor_clusters[cid] = []
-                neighbor_clusters[cid].append(n["distance"])
+        # Calculate confidence from distance (closer = higher confidence)
+        allowed_distances = {cid: clusters_within_epsilon[cid] for cid in allowed_clusters}
+        min_distance = min(allowed_distances.values())
+        confidence = float(max(0.0, 1.0 - min_distance))
 
-        # Step 6: Filter out cannot-link clusters
-        allowed_clusters = self._filter_cannot_link_clusters(
-            detection_id, list(neighbor_clusters.keys())
-        )
-
-        if not allowed_clusters:
-            # All nearby clusters are forbidden -> unassigned
-            logger.debug(f"Detection {detection_id}: all nearby clusters forbidden by constraints")
-            self._add_to_unassigned_pool(detection_id, embedding)
-            return
-
-        # Step 7: Apply decision rules
+        # Step 4: Apply decision rules
         if len(allowed_clusters) == 1:
             # Single valid cluster
             cluster_id = allowed_clusters[0]
             cluster = self.repository.get_cluster_by_id(cluster_id)
 
             if cluster and cluster.verified:
-                # Verified cluster: use stricter threshold
-                min_dist = min(neighbor_clusters[cluster_id])
-                strict_threshold = self.clustering_threshold * self.verified_threshold_multiplier
-                if min_dist < strict_threshold:
+                # Verified cluster: use stricter threshold (multiply epsilon by multiplier)
+                cluster_epsilon = cluster.epsilon if cluster.epsilon else self.clustering_threshold
+                strict_threshold = cluster_epsilon * self.verified_threshold_multiplier
+                dist = allowed_distances[cluster_id]
+                if dist < strict_threshold:
                     self._assign_to_cluster(detection_id, cluster_id, confidence, embedding)
                 else:
                     logger.debug(
                         f"Detection {detection_id}: too far from verified cluster {cluster_id} "
-                        f"(dist={min_dist:.3f}, threshold={strict_threshold:.3f})"
+                        f"(dist={dist:.3f}, threshold={strict_threshold:.3f})"
                     )
                     self._add_to_unassigned_pool(detection_id, embedding)
             else:
                 self._assign_to_cluster(detection_id, cluster_id, confidence, embedding)
         else:
             # Multiple valid clusters -> mark for review
-            self._mark_for_review(detection_id, allowed_clusters, neighbor_clusters)
-
-    def _check_must_link_constraints(self, detection_id: int) -> Optional[int]:
-        """Check if detection has must-link constraint to an already-clustered detection."""
-        linked_detections = self.repository.get_must_linked_detections(detection_id)
-        for linked_detection in linked_detections:
-            cluster_id = linked_detection.get("cluster_id")
-            if cluster_id:
-                return cluster_id
-        return None
+            self._mark_for_review(detection_id, allowed_clusters, allowed_distances)
 
     def _filter_cannot_link_clusters(self, detection_id: int, cluster_ids: List[int]) -> List[int]:
         """Remove clusters that have cannot-link constraints with this detection."""
@@ -542,15 +556,21 @@ class ClusteringStage(BaseStage):
                 )
 
     def _mark_for_review(
-        self, detection_id: int, cluster_ids: List[int], neighbor_clusters: dict
+        self, detection_id: int, cluster_ids: List[int], cluster_distances: Dict[int, float]
     ) -> None:
-        """Mark detection for manual review with multiple potential clusters."""
+        """Mark detection for manual review with multiple potential clusters.
+
+        Args:
+            detection_id: ID of the detection to mark
+            cluster_ids: List of cluster IDs that are candidates
+            cluster_distances: Dict mapping cluster_id to distance (float)
+        """
         # Create candidate records for each potential cluster
         candidates = []
         for cluster_id in cluster_ids:
-            if cluster_id in neighbor_clusters:
-                min_distance = min(neighbor_clusters[cluster_id])
-                similarity = 1.0 - min_distance
+            if cluster_id in cluster_distances:
+                distance = cluster_distances[cluster_id]
+                similarity = 1.0 - distance
                 candidates.append((detection_id, cluster_id, similarity))
 
         self.repository.create_detection_match_candidates(candidates)
@@ -610,3 +630,370 @@ class ClusteringStage(BaseStage):
         )
 
         logger.debug(f"Recomputed medoid for cluster {cluster_id}: detection {medoid_detection_id}")
+
+    # =========================================================================
+    # HDBSCAN Bootstrap Methods
+    # =========================================================================
+
+    def run_bootstrap(self) -> bool:
+        """
+        Run HDBSCAN bootstrap clustering on all embeddings in the collection.
+
+        This method:
+        1. Fetches all embeddings from the collection
+        2. Runs HDBSCAN to identify initial clusters
+        3. Creates clusters with computed epsilon values
+        4. Assigns detections with core point identification
+
+        Returns:
+            True if bootstrap succeeded, False otherwise
+        """
+        self.bootstrap_mode = True
+        try:
+            logger.info("Starting HDBSCAN bootstrap clustering...")
+
+            # Run HDBSCAN on all embeddings
+            bootstrap_results = self._run_hdbscan_bootstrap()
+            if not bootstrap_results:
+                logger.warning("HDBSCAN bootstrap returned no results")
+                return False
+
+            # Group and assign clusters
+            self._assign_bootstrap_clusters(bootstrap_results)
+
+            logger.info("HDBSCAN bootstrap clustering completed successfully")
+            return True
+        except Exception as e:
+            logger.error(f"HDBSCAN bootstrap failed: {e}")
+            raise
+        finally:
+            self.bootstrap_mode = False
+
+    def _run_hdbscan_bootstrap(self) -> Dict[int, Dict]:
+        """
+        Run HDBSCAN clustering on all embeddings in the collection.
+
+        Uses Metal/MPS GPU acceleration on Apple Silicon when available,
+        falling back to standard CPU implementation otherwise.
+
+        Returns:
+            Dict mapping detection_id to {label, probability, is_core}
+            where label is the HDBSCAN cluster label (-1 for noise),
+            probability is the cluster membership probability,
+            and is_core indicates if the point is a core sample.
+        """
+        # Lazy import to avoid dependency when not using bootstrap
+        import hdbscan
+
+        # Fetch all embeddings for the collection
+        embeddings_data = self.repository.get_all_embeddings_for_collection()
+        if not embeddings_data:
+            logger.warning("No embeddings found for HDBSCAN bootstrap")
+            return {}
+
+        # Extract detection IDs and embeddings
+        detection_ids = [d["detection_id"] for d in embeddings_data]
+        embeddings_list = []
+        for d in embeddings_data:
+            emb = self._normalize_embedding(d["embedding"])
+            if emb is not None:
+                embeddings_list.append(emb)
+            else:
+                # Invalid embedding - will be treated as noise
+                embeddings_list.append(np.zeros(512))
+
+        embeddings = np.array(embeddings_list, dtype=np.float32)
+
+        logger.info(
+            f"Running HDBSCAN on {len(detection_ids)} embeddings "
+            f"(min_cluster_size={self.min_cluster_size}, min_samples={self.min_samples})"
+        )
+
+        # Try Metal/MPS acceleration first, fall back to CPU
+        if HAS_MPS:
+            try:
+                labels, probabilities = self._run_hdbscan_metal(embeddings)
+                logger.info("Used Metal/MPS GPU acceleration for HDBSCAN")
+            except Exception as e:
+                logger.warning(f"Metal HDBSCAN failed, falling back to CPU: {e}")
+                labels, probabilities = self._run_hdbscan_cpu(embeddings, hdbscan)
+        else:
+            logger.info("Metal/MPS not available, using CPU")
+            labels, probabilities = self._run_hdbscan_cpu(embeddings, hdbscan)
+
+        # Determine core points (high stability = high probability)
+        results: Dict[int, Dict] = {}
+        for i, detection_id in enumerate(detection_ids):
+            is_core = bool(probabilities[i] >= self.core_probability_threshold)
+            results[detection_id] = {
+                "label": int(labels[i]),
+                "probability": float(probabilities[i]),
+                "is_core": is_core,
+            }
+
+        # Log statistics
+        unique_labels = set(labels)
+        n_clusters = len(unique_labels) - (1 if -1 in unique_labels else 0)
+        n_noise = int(np.sum(labels == -1))
+        n_core = sum(1 for r in results.values() if r["is_core"])
+
+        logger.info(
+            f"HDBSCAN found {n_clusters} clusters, {n_noise} noise points, {n_core} core points"
+        )
+
+        return results
+
+    def _run_hdbscan_cpu(self, embeddings: np.ndarray, hdbscan) -> Tuple[np.ndarray, np.ndarray]:
+        """Run standard HDBSCAN on CPU."""
+        clusterer = hdbscan.HDBSCAN(
+            min_cluster_size=self.min_cluster_size,
+            min_samples=self.min_samples,
+            metric="euclidean",
+            cluster_selection_method="eom",
+            core_dist_n_jobs=-1,
+        )
+        clusterer.fit(embeddings)
+        return clusterer.labels_, clusterer.probabilities_
+
+    def _run_hdbscan_metal(self, embeddings: np.ndarray) -> Tuple[np.ndarray, np.ndarray]:
+        """
+        Run HDBSCAN with Metal/MPS GPU acceleration.
+
+        Uses GPU for k-NN search, then sparse graph HDBSCAN on CPU.
+        Typically 8x faster than standard CPU on Apple Silicon.
+        """
+        import hdbscan
+        from scipy.sparse import csr_matrix
+
+        n_samples = embeddings.shape[0]
+        k = 60  # Neighbors for sparse graph (must be large enough for connectivity)
+        batch_size = 2000
+
+        logger.info(f"Computing {k}-NN on Metal/MPS GPU...")
+
+        # GPU-accelerated k-NN
+        device = torch.device("mps")
+        X_torch = torch.from_numpy(embeddings).to(device)
+
+        knn_indices = np.zeros((n_samples, k), dtype=np.int64)
+        knn_dists = np.zeros((n_samples, k), dtype=np.float32)
+
+        for i in range(0, n_samples, batch_size):
+            end = min(i + batch_size, n_samples)
+            batch = X_torch[i:end]
+
+            # Compute distances between batch and all points
+            dists = torch.cdist(batch, X_torch)
+
+            # Get k+1 nearest (includes self)
+            values, indices = dists.topk(k + 1, dim=1, largest=False, sorted=True)
+
+            # Exclude self (first column)
+            knn_indices[i:end] = indices[:, 1:].cpu().numpy()
+            knn_dists[i:end] = values[:, 1:].cpu().numpy()
+
+        logger.info("Building symmetric sparse graph...")
+
+        # Build symmetric sparse graph
+        rows = np.repeat(np.arange(n_samples), k)
+        cols = knn_indices.flatten()
+        vals = knn_dists.flatten()
+
+        sparse = csr_matrix((vals, (rows, cols)), shape=(n_samples, n_samples))
+        sparse_t = sparse.T
+
+        # Make symmetric: minimum where both exist, keep value where only one exists
+        symmetric = sparse.minimum(sparse_t)
+        mask = (sparse > 0) != (sparse_t > 0)
+        symmetric = symmetric + sparse.multiply(mask) + sparse_t.multiply(mask.T)
+
+        logger.info("Running HDBSCAN on sparse graph...")
+
+        # Run HDBSCAN on precomputed sparse graph
+        clusterer = hdbscan.HDBSCAN(
+            min_cluster_size=self.min_cluster_size,
+            min_samples=self.min_samples,
+            metric="precomputed",
+            cluster_selection_method="eom",
+        )
+        clusterer.fit(symmetric)
+
+        return clusterer.labels_, clusterer.probabilities_
+
+    def _calculate_cluster_epsilon(
+        self, embeddings: np.ndarray, labels: np.ndarray, label: int
+    ) -> float:
+        """
+        Calculate the epsilon threshold for a specific cluster.
+
+        Uses the percentile of pairwise distances between core points
+        to determine the cluster's natural spread.
+
+        Args:
+            embeddings: All embeddings array
+            labels: HDBSCAN labels for all embeddings
+            label: The specific cluster label to calculate epsilon for
+
+        Returns:
+            Epsilon value (distance threshold) for the cluster
+        """
+        from scipy.spatial.distance import pdist
+
+        # Get embeddings for this cluster
+        cluster_mask = labels == label
+        cluster_embeddings = embeddings[cluster_mask]
+
+        if len(cluster_embeddings) < 2:
+            # Single point cluster - use default threshold
+            return self.clustering_threshold
+
+        # Calculate pairwise distances
+        pairwise_distances = pdist(cluster_embeddings, metric="euclidean")
+
+        if len(pairwise_distances) == 0:
+            return self.clustering_threshold
+
+        # Use percentile of distances as epsilon
+        epsilon = float(np.percentile(pairwise_distances, self.epsilon_percentile))
+
+        # Ensure epsilon is within reasonable bounds
+        min_epsilon = 0.1  # Minimum to avoid too tight clusters
+        max_epsilon = self.clustering_threshold * 1.5  # Maximum to avoid too loose clusters
+
+        return max(min_epsilon, min(epsilon, max_epsilon))
+
+    def _assign_bootstrap_clusters(self, bootstrap_results: Dict[int, Dict]) -> None:
+        """
+        Create clusters and assign detections based on HDBSCAN bootstrap results.
+
+        Preserves manual assignments (cluster_status = 'manual') - these are not
+        reassigned during bootstrap.
+
+        Args:
+            bootstrap_results: Dict mapping detection_id to {label, probability, is_core}
+        """
+        # Fetch all embeddings for epsilon calculation
+        embeddings_data = self.repository.get_all_embeddings_for_collection()
+        detection_to_idx = {d["detection_id"]: i for i, d in enumerate(embeddings_data)}
+
+        # Build set of manual detection IDs to preserve
+        manual_detection_ids = {
+            d["detection_id"]
+            for d in embeddings_data
+            if d.get("cluster_status") == "manual"
+        }
+        if manual_detection_ids:
+            logger.info(f"Preserving {len(manual_detection_ids)} manual assignments")
+
+        # Group detections by HDBSCAN label (excluding manual assignments)
+        labels_to_detections: Dict[int, List[int]] = {}
+        for detection_id, result in bootstrap_results.items():
+            if detection_id in manual_detection_ids:
+                continue  # Skip manual assignments
+            label = result["label"]
+            if label not in labels_to_detections:
+                labels_to_detections[label] = []
+            labels_to_detections[label].append(detection_id)
+
+        embeddings_list = []
+        for d in embeddings_data:
+            emb = self._normalize_embedding(d["embedding"])
+            embeddings_list.append(emb if emb is not None else np.zeros(512))
+        embeddings = np.array(embeddings_list)
+
+        # Create labels array matching embeddings order
+        labels_array = np.array(
+            [bootstrap_results.get(d["detection_id"], {}).get("label", -1) for d in embeddings_data]
+        )
+
+        # Process each cluster (label >= 0)
+        for label, detection_ids in labels_to_detections.items():
+            if label == -1:
+                # Noise points - mark as unassigned (manual already excluded above)
+                for detection_id in detection_ids:
+                    self.repository.update_detection_unassigned(detection_id)
+                logger.debug(f"Marked {len(detection_ids)} noise detections as unassigned")
+                continue
+
+            # Calculate epsilon for this cluster
+            epsilon = self._calculate_cluster_epsilon(embeddings, labels_array, label)
+
+            # Get embeddings for this cluster to compute centroid
+            cluster_embeddings = []
+            valid_detection_ids = []
+            for detection_id in detection_ids:
+                if detection_id in detection_to_idx:
+                    idx = detection_to_idx[detection_id]
+                    emb = embeddings[idx]
+                    if np.any(emb):  # Skip zero embeddings
+                        cluster_embeddings.append(emb)
+                        valid_detection_ids.append(detection_id)
+
+            if not cluster_embeddings:
+                logger.warning(f"No valid embeddings for HDBSCAN cluster {label}")
+                continue
+
+            cluster_embeddings_arr = np.array(cluster_embeddings)
+
+            # Compute centroid
+            centroid = np.mean(cluster_embeddings_arr, axis=0)
+            centroid_norm = np.linalg.norm(centroid)
+            if centroid_norm > 0:
+                centroid = centroid / centroid_norm
+
+            # Find medoid (closest to centroid)
+            distances_to_centroid = np.linalg.norm(cluster_embeddings_arr - centroid, axis=1)
+            medoid_idx = int(np.argmin(distances_to_centroid))
+            medoid_detection_id = valid_detection_ids[medoid_idx]
+
+            # Identify core points
+            core_detection_ids = [
+                did for did in valid_detection_ids if bootstrap_results[did]["is_core"]
+            ]
+
+            # Create cluster with epsilon
+            cluster_id = self.repository.create_cluster_with_epsilon(
+                centroid=centroid,
+                representative_detection_id=medoid_detection_id,
+                medoid_detection_id=medoid_detection_id,
+                face_count=len(valid_detection_ids),
+                epsilon=epsilon,
+                core_count=len(core_detection_ids),
+            )
+
+            logger.info(
+                f"Created cluster {cluster_id} from HDBSCAN label {label} with "
+                f"{len(valid_detection_ids)} detections, epsilon={epsilon:.4f}, "
+                f"{len(core_detection_ids)} core points"
+            )
+
+            # Assign detections to cluster
+            for detection_id in valid_detection_ids:
+                result = bootstrap_results[detection_id]
+                confidence = result["probability"]
+                status = "hdbscan_core" if result["is_core"] else "hdbscan"
+
+                # Remove from any existing cluster first
+                self.repository.remove_detection_from_cluster(
+                    detection_id, delete_empty_cluster=True
+                )
+
+                # Assign to new cluster (bypassing the normal race condition check for bootstrap)
+                self.repository.force_update_detection_cluster(
+                    detection_id=detection_id,
+                    cluster_id=cluster_id,
+                    cluster_confidence=confidence,
+                    cluster_status=status,
+                )
+
+            # Mark core points
+            if core_detection_ids:
+                self.repository.mark_detections_as_core(core_detection_ids)
+
+        # Log summary
+        n_clusters = len([label for label in labels_to_detections.keys() if label >= 0])
+        n_noise = len(labels_to_detections.get(-1, []))
+        logger.info(
+            f"Bootstrap complete: created {n_clusters} clusters, "
+            f"{n_noise} detections marked as unassigned"
+        )

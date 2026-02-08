@@ -5,7 +5,6 @@ This module provides utility methods for periodic maintenance tasks
 that should be run on schedules to keep the database optimized.
 
 Includes support for constrained clustering:
-- Must-link/cannot-link constraint propagation
 - Constraint violation detection
 - Verified cluster protection
 """
@@ -13,9 +12,10 @@ Includes support for constrained clustering:
 import logging
 from typing import Dict, Any, List
 import numpy as np
+import hdbscan
 
 from ..database.connection import ConnectionPool
-from ..database.repository import PhotoRepository
+from ..database.repository import PhotoRepository, MIN_FACE_SIZE_PX, MIN_FACE_CONFIDENCE
 
 logger = logging.getLogger(__name__)
 
@@ -30,25 +30,26 @@ class MaintenanceUtilities:
     def recompute_all_centroids(self) -> int:
         """
         Recompute centroids for all clusters based on current member faces.
-        
+
         This should be run daily to correct for centroid drift as faces
         are added or removed from clusters.
-        
+
         Returns:
             Number of clusters updated
         """
         logger.info("Starting centroid recomputation for all clusters")
         updated_count = 0
-        
+
         with self.pool.transaction() as conn:
             with conn.cursor() as cursor:
                 # Get all cluster IDs
                 cursor.execute("SELECT id FROM cluster WHERE id > 0")
                 cluster_ids = [row[0] for row in cursor.fetchall()]
-                
+
                 for cluster_id in cluster_ids:
                     # Compute average embedding for all faces in cluster
-                    cursor.execute("""
+                    cursor.execute(
+                        """
                         UPDATE cluster
                         SET centroid = (
                             SELECT AVG(fe.embedding)::vector(512)
@@ -63,29 +64,31 @@ class MaintenanceUtilities:
                             JOIN face_embedding fe ON pd.id = fe.person_detection_id
                             WHERE pd.cluster_id = %s
                           )
-                    """, (cluster_id, cluster_id))
-                    
+                    """,
+                        (cluster_id, cluster_id),
+                    )
+
                     if cursor.rowcount > 0:
                         updated_count += 1
-        
+
         logger.info(f"Recomputed centroids for {updated_count} clusters")
         return updated_count
 
     def update_all_medoids(self) -> int:
         """
         Update medoid and representative face for all clusters.
-        
+
         The medoid is the face closest to the cluster centroid, which
         serves as the best visual representation of the cluster.
-        
+
         This should be run weekly.
-        
+
         Returns:
             Number of clusters updated
         """
         logger.info("Starting medoid update for all clusters")
         updated_count = 0
-        
+
         with self.pool.get_connection() as conn:
             with conn.cursor() as cursor:
                 # Get all clusters with centroids
@@ -95,34 +98,37 @@ class MaintenanceUtilities:
                     WHERE centroid IS NOT NULL
                 """)
                 clusters = cursor.fetchall()
-                
+
                 for cluster_id, centroid in clusters:
                     if self._update_cluster_medoid(cluster_id, centroid):
                         updated_count += 1
-        
+
         logger.info(f"Updated medoids for {updated_count} clusters")
         return updated_count
 
     def _update_cluster_medoid(self, cluster_id: int, centroid) -> bool:
         """
         Update medoid for a single cluster.
-        
+
         Args:
             cluster_id: ID of the cluster to update
             centroid: Current centroid embedding
-            
+
         Returns:
             True if cluster was updated
         """
         with self.pool.transaction() as conn:
             with conn.cursor() as cursor:
                 # Get all faces in this cluster with embeddings
-                cursor.execute("""
+                cursor.execute(
+                    """
                     SELECT pd.id, fe.embedding
                     FROM person_detection pd
                     JOIN face_embedding fe ON pd.id = fe.person_detection_id
                     WHERE pd.cluster_id = %s
-                """, (cluster_id,))
+                """,
+                    (cluster_id,),
+                )
 
                 rows = cursor.fetchall()
                 if not rows:
@@ -142,166 +148,19 @@ class MaintenanceUtilities:
 
                 # Update cluster with medoid and reset tracking counter
                 # Note: Only update representative_detection_id if it's NULL (not user-set)
-                cursor.execute("""
+                cursor.execute(
+                    """
                     UPDATE cluster
                     SET medoid_detection_id = %s,
                         representative_detection_id = COALESCE(representative_detection_id, %s),
                         face_count_at_last_medoid = face_count,
                         updated_at = NOW()
                     WHERE id = %s
-                """, (medoid_detection_id, medoid_detection_id, cluster_id))
+                """,
+                    (medoid_detection_id, medoid_detection_id, cluster_id),
+                )
 
                 return cursor.rowcount > 0
-
-    def find_and_merge_similar_clusters(
-        self, similarity_threshold: float = 0.3, respect_verified: bool = True
-    ) -> int:
-        """
-        Find and merge clusters that are too similar.
-
-        This helps consolidate clusters that have drifted together or
-        were initially created as separate but represent the same person.
-
-        This should be run weekly.
-
-        Args:
-            similarity_threshold: Maximum distance to consider clusters similar (default 0.3)
-            respect_verified: If True, skip merging verified clusters (default True)
-
-        Returns:
-            Number of clusters merged
-        """
-        logger.info(f"Finding similar clusters with threshold {similarity_threshold}")
-        merged_count = 0
-
-        with self.pool.get_connection() as conn:
-            with conn.cursor() as cursor:
-                # Find cluster pairs with high similarity
-                # Exclude verified clusters if respect_verified is True
-                verified_filter = "AND c1.verified = false AND c2.verified = false" if respect_verified else ""
-
-                cursor.execute(f"""
-                    WITH cluster_pairs AS (
-                        SELECT c1.id as cluster1_id,
-                               c2.id as cluster2_id,
-                               c1.centroid <=> c2.centroid as distance,
-                               (SELECT COUNT(*) FROM person_detection WHERE cluster_id = c1.id) as count1,
-                               (SELECT COUNT(*) FROM person_detection WHERE cluster_id = c2.id) as count2
-                        FROM cluster c1
-                        CROSS JOIN cluster c2
-                        WHERE c1.id < c2.id  -- Avoid duplicates
-                          AND c1.centroid IS NOT NULL
-                          AND c2.centroid IS NOT NULL
-                          AND c1.centroid <=> c2.centroid < %s
-                          {verified_filter}
-                    )
-                    SELECT cluster1_id, cluster2_id, distance, count1, count2
-                    FROM cluster_pairs
-                    ORDER BY distance
-                """, (similarity_threshold,))
-
-                similar_pairs = cursor.fetchall()
-
-                # Track which clusters have been merged to avoid conflicts
-                merged_clusters = set()
-
-                for cluster1_id, cluster2_id, distance, count1, count2 in similar_pairs:
-                    # Skip if either cluster was already merged
-                    if cluster1_id in merged_clusters or cluster2_id in merged_clusters:
-                        continue
-
-                    # Check for cannot-link constraint between clusters
-                    if self.repo.has_cluster_cannot_link(cluster1_id, cluster2_id):
-                        logger.debug(
-                            f"Skipping merge of clusters {cluster1_id} and {cluster2_id}: "
-                            "cannot-link constraint exists"
-                        )
-                        continue
-
-                    # Check for cannot-link constraints between faces in the clusters
-                    if self._has_face_cannot_link_between_clusters(cluster1_id, cluster2_id):
-                        logger.debug(
-                            f"Skipping merge of clusters {cluster1_id} and {cluster2_id}: "
-                            "face-level cannot-link constraint exists"
-                        )
-                        continue
-
-                    # Merge smaller cluster into larger one
-                    if count1 >= count2:
-                        keep_id, merge_id = cluster1_id, cluster2_id
-                    else:
-                        keep_id, merge_id = cluster2_id, cluster1_id
-
-                    logger.info(f"Merging cluster {merge_id} into {keep_id} (distance: {distance:.3f})")
-
-                    if self._merge_clusters(keep_id, merge_id):
-                        merged_clusters.add(merge_id)
-                        merged_count += 1
-
-        logger.info(f"Merged {merged_count} similar clusters")
-        return merged_count
-
-    def _has_face_cannot_link_between_clusters(
-        self, cluster_id_1: int, cluster_id_2: int
-    ) -> bool:
-        """Check if any faces between two clusters have cannot-link constraints."""
-        with self.pool.get_connection() as conn:
-            with conn.cursor() as cursor:
-                cursor.execute("""
-                    SELECT 1 FROM cannot_link cl
-                    JOIN person_detection pd1 ON (cl.detection_id_1 = pd1.id OR cl.detection_id_2 = pd1.id)
-                    JOIN person_detection pd2 ON (cl.detection_id_1 = pd2.id OR cl.detection_id_2 = pd2.id)
-                    WHERE pd1.id != pd2.id
-                      AND pd1.cluster_id = %s
-                      AND pd2.cluster_id = %s
-                    LIMIT 1
-                """, (cluster_id_1, cluster_id_2))
-                return cursor.fetchone() is not None
-
-    def _merge_clusters(self, keep_cluster_id: int, merge_cluster_id: int) -> bool:
-        """
-        Merge one cluster into another.
-
-        Args:
-            keep_cluster_id: ID of cluster to keep
-            merge_cluster_id: ID of cluster to merge and delete
-
-        Returns:
-            True if merge was successful
-        """
-        with self.pool.transaction() as conn:
-            with conn.cursor() as cursor:
-                # Reassign all faces from merge cluster to keep cluster
-                cursor.execute("""
-                    UPDATE person_detection
-                    SET cluster_id = %s,
-                        cluster_confidence = cluster_confidence * 0.9  -- Slightly reduce confidence
-                    WHERE cluster_id = %s
-                """, (keep_cluster_id, merge_cluster_id))
-
-                faces_moved = cursor.rowcount
-
-                # Delete the merged cluster
-                cursor.execute("DELETE FROM cluster WHERE id = %s", (merge_cluster_id,))
-
-                # Recompute centroid for the keeper cluster
-                cursor.execute("""
-                    UPDATE cluster
-                    SET centroid = (
-                        SELECT AVG(fe.embedding)::vector(512)
-                        FROM person_detection pd
-                        JOIN face_embedding fe ON pd.id = fe.person_detection_id
-                        WHERE pd.cluster_id = %s
-                    ),
-                    face_count = (
-                        SELECT COUNT(*) FROM person_detection WHERE cluster_id = %s
-                    ),
-                    updated_at = NOW()
-                    WHERE id = %s
-                """, (keep_cluster_id, keep_cluster_id, keep_cluster_id))
-
-                logger.debug(f"Moved {faces_moved} faces from cluster {merge_cluster_id} to {keep_cluster_id}")
-                return faces_moved > 0
 
     def cleanup_empty_clusters(self) -> int:
         """
@@ -379,15 +238,15 @@ class MaintenanceUtilities:
             with conn.cursor() as cursor:
                 # Total clusters
                 cursor.execute("SELECT COUNT(*) FROM cluster")
-                stats['total_clusters'] = cursor.fetchone()[0]
+                stats["total_clusters"] = cursor.fetchone()[0]
 
                 # Clusters without centroids
                 cursor.execute("SELECT COUNT(*) FROM cluster WHERE centroid IS NULL")
-                stats['clusters_without_centroids'] = cursor.fetchone()[0]
+                stats["clusters_without_centroids"] = cursor.fetchone()[0]
 
                 # Clusters without medoids
                 cursor.execute("SELECT COUNT(*) FROM cluster WHERE medoid_detection_id IS NULL")
-                stats['clusters_without_medoids'] = cursor.fetchone()[0]
+                stats["clusters_without_medoids"] = cursor.fetchone()[0]
 
                 # Empty clusters
                 cursor.execute("""
@@ -398,7 +257,7 @@ class MaintenanceUtilities:
                         WHERE cluster_id IS NOT NULL
                     )
                 """)
-                stats['empty_clusters'] = cursor.fetchone()[0]
+                stats["empty_clusters"] = cursor.fetchone()[0]
 
                 # Average cluster size
                 cursor.execute("""
@@ -407,74 +266,55 @@ class MaintenanceUtilities:
                     WHERE face_count > 0
                 """)
                 avg_size, min_size, max_size = cursor.fetchone()
-                stats['avg_cluster_size'] = float(avg_size) if avg_size else 0
-                stats['min_cluster_size'] = min_size or 0
-                stats['max_cluster_size'] = max_size or 0
+                stats["avg_cluster_size"] = float(avg_size) if avg_size else 0
+                stats["min_cluster_size"] = min_size or 0
+                stats["max_cluster_size"] = max_size or 0
 
                 # Unclustered faces
                 cursor.execute(
                     "SELECT COUNT(*) FROM person_detection WHERE cluster_id IS NULL AND face_bbox_x IS NOT NULL"
                 )
-                stats['unclustered_faces'] = cursor.fetchone()[0]
+                stats["unclustered_faces"] = cursor.fetchone()[0]
 
                 # Total faces
-                cursor.execute("SELECT COUNT(*) FROM person_detection WHERE face_bbox_x IS NOT NULL")
-                stats['total_faces'] = cursor.fetchone()[0]
+                cursor.execute(
+                    "SELECT COUNT(*) FROM person_detection WHERE face_bbox_x IS NOT NULL"
+                )
+                stats["total_faces"] = cursor.fetchone()[0]
 
                 # Constraint stats
-                cursor.execute("SELECT COUNT(*) FROM must_link")
-                stats['must_link_count'] = cursor.fetchone()[0]
-
                 cursor.execute("SELECT COUNT(*) FROM cannot_link")
-                stats['cannot_link_count'] = cursor.fetchone()[0]
+                stats["cannot_link_count"] = cursor.fetchone()[0]
 
                 cursor.execute("SELECT COUNT(*) FROM cluster WHERE verified = true")
-                stats['verified_clusters'] = cursor.fetchone()[0]
+                stats["verified_clusters"] = cursor.fetchone()[0]
 
                 cursor.execute(
                     "SELECT COUNT(*) FROM person_detection WHERE cluster_status = 'unassigned'"
                 )
-                stats['unassigned_pool_size'] = cursor.fetchone()[0]
+                stats["unassigned_pool_size"] = cursor.fetchone()[0]
+
+                # Multi-cluster person stats
+                cursor.execute("""
+                    SELECT COUNT(*) FROM (
+                        SELECT person_id, COUNT(*) as cluster_count
+                        FROM cluster
+                        WHERE person_id IS NOT NULL
+                        GROUP BY person_id
+                        HAVING COUNT(*) > 1
+                    ) multi_cluster_persons
+                """)
+                stats["persons_with_multiple_clusters"] = cursor.fetchone()[0]
+
+                cursor.execute("""
+                    SELECT COUNT(*) FROM cluster WHERE person_id IS NOT NULL
+                """)
+                stats["clusters_with_person"] = cursor.fetchone()[0]
+
+                cursor.execute("SELECT COUNT(*) FROM person")
+                stats["total_persons"] = cursor.fetchone()[0]
 
         return stats
-
-    def propagate_must_link_constraints(self) -> int:
-        """
-        Propagate must-link constraints through transitive closure.
-
-        If A~B and B~C, then A~C should also exist.
-        This should be run periodically to maintain constraint consistency.
-
-        Returns:
-            Number of new constraints added
-        """
-        logger.info("Propagating must-link constraints")
-        total_added = 0
-
-        with self.pool.transaction() as conn:
-            with conn.cursor() as cursor:
-                # Keep adding transitive links until no new ones are found
-                while True:
-                    cursor.execute("""
-                        INSERT INTO must_link (detection_id_1, detection_id_2, created_by)
-                        SELECT DISTINCT
-                            LEAST(m1.detection_id_1, m2.detection_id_2),
-                            GREATEST(m1.detection_id_1, m2.detection_id_2),
-                            'system'
-                        FROM must_link m1
-                        JOIN must_link m2 ON m1.detection_id_2 = m2.detection_id_1
-                        WHERE m1.detection_id_1 != m2.detection_id_2
-                          AND LEAST(m1.detection_id_1, m2.detection_id_2) < GREATEST(m1.detection_id_1, m2.detection_id_2)
-                        ON CONFLICT (detection_id_1, detection_id_2) DO NOTHING
-                    """)
-                    added = cursor.rowcount
-                    if added == 0:
-                        break
-                    total_added += added
-                    logger.debug(f"Added {added} transitive must-link constraints")
-
-        logger.info(f"Propagated {total_added} must-link constraints")
-        return total_added
 
     def find_constraint_violations(self) -> List[Dict[str, Any]]:
         """
@@ -519,68 +359,6 @@ class MaintenanceUtilities:
 
         return violations
 
-    def merge_must_linked_clusters(self) -> int:
-        """
-        Merge clusters where faces have must-link constraints.
-
-        If face A in cluster X has a must-link with face B in cluster Y,
-        clusters X and Y should be merged.
-
-        Returns:
-            Number of cluster merges performed
-        """
-        logger.info("Merging clusters with must-link constraints")
-        merge_count = 0
-
-        with self.pool.get_connection() as conn:
-            with conn.cursor() as cursor:
-                # Find cluster pairs that should be merged due to must-link constraints
-                cursor.execute("""
-                    SELECT DISTINCT
-                        pd1.cluster_id as cluster1,
-                        pd2.cluster_id as cluster2,
-                        (SELECT COUNT(*) FROM person_detection WHERE cluster_id = pd1.cluster_id) as count1,
-                        (SELECT COUNT(*) FROM person_detection WHERE cluster_id = pd2.cluster_id) as count2
-                    FROM must_link ml
-                    JOIN person_detection pd1 ON ml.detection_id_1 = pd1.id
-                    JOIN person_detection pd2 ON ml.detection_id_2 = pd2.id
-                    WHERE pd1.cluster_id IS NOT NULL
-                      AND pd2.cluster_id IS NOT NULL
-                      AND pd1.cluster_id != pd2.cluster_id
-                """)
-
-                pairs_to_merge = cursor.fetchall()
-
-                merged_clusters = set()
-                for cluster1, cluster2, count1, count2 in pairs_to_merge:
-                    if cluster1 in merged_clusters or cluster2 in merged_clusters:
-                        continue
-
-                    # Check for cannot-link conflicts
-                    if self._has_face_cannot_link_between_clusters(cluster1, cluster2):
-                        logger.warning(
-                            f"Cannot merge clusters {cluster1} and {cluster2}: "
-                            "conflicting cannot-link constraint"
-                        )
-                        continue
-
-                    # Merge smaller into larger
-                    if count1 >= count2:
-                        keep_id, merge_id = cluster1, cluster2
-                    else:
-                        keep_id, merge_id = cluster2, cluster1
-
-                    logger.info(
-                        f"Merging cluster {merge_id} into {keep_id} due to must-link constraint"
-                    )
-
-                    if self._merge_clusters(keep_id, merge_id):
-                        merged_clusters.add(merge_id)
-                        merge_count += 1
-
-        logger.info(f"Merged {merge_count} clusters due to must-link constraints")
-        return merge_count
-
     def cleanup_unassigned_pool(self, max_age_days: int = 30) -> int:
         """
         Create singleton clusters for old unassigned faces.
@@ -599,13 +377,16 @@ class MaintenanceUtilities:
 
         with self.pool.get_connection() as conn:
             with conn.cursor() as cursor:
-                cursor.execute("""
+                cursor.execute(
+                    """
                     SELECT pd.id, fe.embedding
                     FROM person_detection pd
                     JOIN face_embedding fe ON pd.id = fe.person_detection_id
                     WHERE pd.cluster_status = 'unassigned'
                       AND pd.unassigned_since < NOW() - INTERVAL '%s days'
-                """, (max_age_days,))
+                """,
+                    (max_age_days,),
+                )
 
                 old_faces = cursor.fetchall()
 
@@ -635,13 +416,198 @@ class MaintenanceUtilities:
                     self.repo.update_cluster_face_count(cluster_id, 1)
                     self.repo.clear_detection_unassigned(detection_id)
                     created += 1
-                    logger.debug(f"Created singleton cluster {cluster_id} for detection {detection_id}")
+                    logger.debug(
+                        f"Created singleton cluster {cluster_id} for detection {detection_id}"
+                    )
                 else:
                     # Face was assigned elsewhere, delete empty cluster
                     self.repo.delete_cluster(cluster_id)
 
         logger.info(f"Created {created} singleton clusters from old unassigned faces")
         return created
+
+    def cluster_unassigned_pool(self, min_cluster_size: int = 3) -> int:
+        """
+        Run HDBSCAN clustering on the unassigned pool to find new clusters.
+
+        This finds faces in the unassigned pool that can form new clusters
+        based on density-based clustering.
+
+        Args:
+            min_cluster_size: Minimum faces to form a cluster (default 3)
+
+        Returns:
+            Number of new clusters created
+        """
+        logger.info("Clustering unassigned pool with HDBSCAN")
+
+        # Get all unassigned detections with embeddings (filtered by size/confidence)
+        with self.pool.get_connection() as conn:
+            with conn.cursor() as cursor:
+                cursor.execute(
+                    """SELECT pd.id, fe.embedding
+                       FROM person_detection pd
+                       JOIN face_embedding fe ON pd.id = fe.person_detection_id
+                       WHERE pd.cluster_id IS NULL
+                         AND pd.cluster_status = 'unassigned'
+                         AND pd.face_confidence >= %s
+                         AND pd.face_bbox_width >= %s
+                         AND pd.face_bbox_height >= %s""",
+                    (MIN_FACE_CONFIDENCE, MIN_FACE_SIZE_PX, MIN_FACE_SIZE_PX),
+                )
+                rows = cursor.fetchall()
+
+        if len(rows) < min_cluster_size:
+            logger.info(
+                f"Not enough unassigned detections to cluster ({len(rows)} < {min_cluster_size})"
+            )
+            return 0
+
+        # Extract detection IDs and embeddings
+        detection_ids = []
+        embeddings_list = []
+        for detection_id, embedding in rows:
+            if embedding is not None:
+                # Normalize embedding
+                emb_array = np.array(embedding)
+                norm = np.linalg.norm(emb_array)
+                if norm > 0:
+                    emb_array = emb_array / norm
+                    detection_ids.append(detection_id)
+                    embeddings_list.append(emb_array)
+
+        if len(detection_ids) < min_cluster_size:
+            logger.info(
+                f"Not enough valid embeddings to cluster "
+                f"({len(detection_ids)} < {min_cluster_size})"
+            )
+            return 0
+
+        embeddings = np.array(embeddings_list)
+
+        logger.info(
+            f"Running HDBSCAN on {len(detection_ids)} unassigned detections "
+            f"(min_cluster_size={min_cluster_size})"
+        )
+
+        # Run HDBSCAN with same params as bootstrap
+        clusterer = hdbscan.HDBSCAN(
+            min_cluster_size=min_cluster_size,
+            min_samples=2,
+            metric="euclidean",
+            cluster_selection_method="eom",
+            core_dist_n_jobs=-1,
+        )
+        clusterer.fit(embeddings)
+
+        labels = clusterer.labels_
+        probabilities = clusterer.probabilities_
+
+        # Count clusters found
+        unique_labels = set(labels)
+        n_clusters = len(unique_labels) - (1 if -1 in unique_labels else 0)
+        n_noise = int(np.sum(labels == -1))
+
+        logger.info(
+            f"HDBSCAN found {n_clusters} clusters, {n_noise} noise points in unassigned pool"
+        )
+
+        if n_clusters == 0:
+            return 0
+
+        # Group detections by label
+        label_to_detections: Dict[int, List[int]] = {}
+        label_to_embeddings: Dict[int, List[np.ndarray]] = {}
+        label_to_probabilities: Dict[int, List[float]] = {}
+
+        for i, detection_id in enumerate(detection_ids):
+            label = int(labels[i])
+            if label == -1:
+                continue  # Skip noise points
+
+            if label not in label_to_detections:
+                label_to_detections[label] = []
+                label_to_embeddings[label] = []
+                label_to_probabilities[label] = []
+
+            label_to_detections[label].append(detection_id)
+            label_to_embeddings[label].append(embeddings[i])
+            label_to_probabilities[label].append(float(probabilities[i]))
+
+        # Create clusters
+        clusters_created = 0
+        core_probability_threshold = 0.8
+
+        for label, cluster_detection_ids in label_to_detections.items():
+            cluster_embeddings = np.array(label_to_embeddings[label])
+            cluster_probabilities = label_to_probabilities[label]
+
+            # Calculate centroid
+            centroid = np.mean(cluster_embeddings, axis=0)
+            centroid_norm = np.linalg.norm(centroid)
+            if centroid_norm > 0:
+                centroid = centroid / centroid_norm
+
+            # Calculate epsilon (90th percentile of pairwise distances)
+            if len(cluster_embeddings) >= 2:
+                from scipy.spatial.distance import pdist
+
+                pairwise_distances = pdist(cluster_embeddings, metric="euclidean")
+                epsilon = float(np.percentile(pairwise_distances, 90))
+                # Clamp to reasonable bounds
+                epsilon = max(0.1, min(epsilon, 0.675))  # 0.675 = 0.45 * 1.5
+            else:
+                epsilon = 0.45  # Default threshold
+
+            # Find medoid (closest to centroid)
+            distances_to_centroid = np.linalg.norm(cluster_embeddings - centroid, axis=1)
+            medoid_idx = int(np.argmin(distances_to_centroid))
+            medoid_detection_id = cluster_detection_ids[medoid_idx]
+
+            # Identify core points
+            core_detection_ids = [
+                did
+                for did, prob in zip(cluster_detection_ids, cluster_probabilities)
+                if prob >= core_probability_threshold
+            ]
+
+            # Create cluster with epsilon
+            cluster_id = self.repo.create_cluster_with_epsilon(
+                centroid=centroid,
+                representative_detection_id=medoid_detection_id,
+                medoid_detection_id=medoid_detection_id,
+                face_count=len(cluster_detection_ids),
+                epsilon=epsilon,
+                core_count=len(core_detection_ids),
+            )
+
+            logger.info(
+                f"Created cluster {cluster_id} from unassigned pool with "
+                f"{len(cluster_detection_ids)} detections, epsilon={epsilon:.4f}, "
+                f"{len(core_detection_ids)} core points"
+            )
+
+            # Assign detections to cluster
+            for detection_id, prob in zip(cluster_detection_ids, cluster_probabilities):
+                is_core = prob >= core_probability_threshold
+                status = "hdbscan_core" if is_core else "hdbscan"
+
+                # Force update (we're in maintenance, so no race conditions)
+                self.repo.force_update_detection_cluster(
+                    detection_id=detection_id,
+                    cluster_id=cluster_id,
+                    cluster_confidence=prob,
+                    cluster_status=status,
+                )
+
+            # Mark core points
+            if core_detection_ids:
+                self.repo.mark_detections_as_core(core_detection_ids)
+
+            clusters_created += 1
+
+        logger.info(f"Created {clusters_created} clusters from unassigned pool")
+        return clusters_created
 
     def revert_singleton_clusters(self) -> int:
         """
@@ -675,14 +641,17 @@ class MaintenanceUtilities:
             # Move detection back to unassigned pool
             with self.pool.transaction() as conn:
                 with conn.cursor() as cursor:
-                    cursor.execute("""
+                    cursor.execute(
+                        """
                         UPDATE person_detection
                         SET cluster_id = NULL,
                             cluster_status = 'unassigned',
                             cluster_confidence = 0,
                             unassigned_since = NOW()
                         WHERE id = %s
-                    """, (detection_id,))
+                    """,
+                        (detection_id,),
+                    )
 
                     # Delete the now-empty cluster
                     cursor.execute("DELETE FROM cluster WHERE id = %s", (cluster_id,))
@@ -690,6 +659,64 @@ class MaintenanceUtilities:
 
         logger.info(f"Reverted {reverted} singleton clusters to unassigned pool")
         return reverted
+
+    def calculate_missing_epsilons(self, min_faces: int = 3, percentile: float = 90.0) -> int:
+        """
+        Calculate epsilon for clusters that have NULL epsilon but 3+ faces.
+
+        For each qualifying cluster:
+        1. Get all face embeddings in the cluster
+        2. Use the cluster's existing centroid
+        3. Calculate distances from each embedding to the centroid
+        4. Set epsilon = specified percentile of those distances
+
+        This is useful for manual clusters created before HDBSCAN was implemented,
+        allowing them to participate in incremental clustering.
+
+        Args:
+            min_faces: Minimum number of faces required (default 3)
+            percentile: Percentile of distances to use for epsilon (default 90.0)
+
+        Returns:
+            Number of clusters updated
+        """
+        logger.info(
+            f"Calculating missing epsilons for clusters with {min_faces}+ faces "
+            f"using {percentile}th percentile"
+        )
+        updated_count = 0
+
+        clusters = self.repo.get_clusters_without_epsilon(min_faces=min_faces)
+        logger.info(f"Found {len(clusters)} clusters without epsilon")
+
+        for cluster in clusters:
+            cluster_id = cluster["id"]
+            centroid = cluster["centroid"]
+
+            if centroid is None:
+                continue
+
+            detections = self.repo.get_detections_in_cluster(cluster_id)
+            if len(detections) < min_faces:
+                continue
+
+            embeddings = [d["embedding"] for d in detections if d["embedding"] is not None]
+            if len(embeddings) < min_faces:
+                continue
+
+            embeddings_array = np.array(embeddings)
+            centroid_array = np.array(centroid)
+
+            distances = np.linalg.norm(embeddings_array - centroid_array, axis=1)
+
+            epsilon = float(np.percentile(distances, percentile))
+
+            self.repo.update_cluster_epsilon_only(cluster_id, epsilon)
+            updated_count += 1
+            logger.debug(f"Cluster {cluster_id}: epsilon = {epsilon:.4f}")
+
+        logger.info(f"Calculated epsilon for {updated_count} clusters")
+        return updated_count
 
     def run_daily_maintenance(self) -> Dict[str, int]:
         """
@@ -702,51 +729,39 @@ class MaintenanceUtilities:
         results = {}
 
         try:
-            results['centroids_recomputed'] = self.recompute_all_centroids()
-        except Exception as e:
-            logger.error(f"Failed to recompute centroids: {e}")
-            results['centroids_recomputed'] = 0
-
-        try:
-            results['empty_clusters_removed'] = self.cleanup_empty_clusters()
+            results["empty_clusters_removed"] = self.cleanup_empty_clusters()
         except Exception as e:
             logger.error(f"Failed to cleanup empty clusters: {e}")
-            results['empty_clusters_removed'] = 0
+            results["empty_clusters_removed"] = 0
 
         try:
-            results['statistics_updated'] = self.update_cluster_statistics()
+            results["statistics_updated"] = self.update_cluster_statistics()
         except Exception as e:
             logger.error(f"Failed to update statistics: {e}")
-            results['statistics_updated'] = 0
+            results["statistics_updated"] = 0
 
         try:
-            results['must_link_propagated'] = self.propagate_must_link_constraints()
+            results["epsilons_calculated"] = self.calculate_missing_epsilons()
         except Exception as e:
-            logger.error(f"Failed to propagate must-link constraints: {e}")
-            results['must_link_propagated'] = 0
-
-        try:
-            results['must_link_merges'] = self.merge_must_linked_clusters()
-        except Exception as e:
-            logger.error(f"Failed to merge must-linked clusters: {e}")
-            results['must_link_merges'] = 0
+            logger.error(f"Failed to calculate missing epsilons: {e}")
+            results["epsilons_calculated"] = 0
 
         try:
             violations = self.find_constraint_violations()
-            results['constraint_violations'] = len(violations)
+            results["constraint_violations"] = len(violations)
         except Exception as e:
             logger.error(f"Failed to check constraint violations: {e}")
-            results['constraint_violations'] = -1
+            results["constraint_violations"] = -1
 
         logger.info(f"Daily maintenance completed: {results}")
         return results
 
-    def run_weekly_maintenance(self, similarity_threshold: float = 0.3) -> Dict[str, int]:
+    def run_weekly_maintenance(self, cluster_unassigned: bool = False) -> Dict[str, int]:
         """
         Run all weekly maintenance tasks.
 
         Args:
-            similarity_threshold: Threshold for cluster similarity
+            cluster_unassigned: If True, run HDBSCAN on unassigned pool to find new clusters
 
         Returns:
             Dictionary with results of each task
@@ -758,20 +773,23 @@ class MaintenanceUtilities:
         results.update(self.run_daily_maintenance())
 
         try:
-            results['medoids_updated'] = self.update_all_medoids()
+            results["centroids_recomputed"] = self.recompute_all_centroids()
         except Exception as e:
-            logger.error(f"Failed to update medoids: {e}")
-            results['medoids_updated'] = 0
+            logger.error(f"Failed to recompute centroids: {e}")
+            results["centroids_recomputed"] = 0
 
         try:
-            results['clusters_merged'] = self.find_and_merge_similar_clusters(similarity_threshold)
+            results["medoids_updated"] = self.update_all_medoids()
         except Exception as e:
-            logger.error(f"Failed to merge similar clusters: {e}")
-            results['clusters_merged'] = 0
+            logger.error(f"Failed to update medoids: {e}")
+            results["medoids_updated"] = 0
 
-        # Skip singleton creation - unassigned faces stay in pool indefinitely
-        # They can still match future photos and don't need artificial clusters
-        results['unassigned_cleanup'] = 0
+        if cluster_unassigned:
+            try:
+                results["unassigned_clusters_created"] = self.cluster_unassigned_pool()
+            except Exception as e:
+                logger.error(f"Failed to cluster unassigned pool: {e}")
+                results["unassigned_clusters_created"] = 0
 
         logger.info(f"Weekly maintenance completed: {results}")
         return results

@@ -12,12 +12,15 @@ if (process.env.NODE_ENV === "production" && !process.env.SESSION_SECRET) {
 
 function parseCookies(cookieHeader: string | null): Record<string, string> {
   if (!cookieHeader) return {};
-  return cookieHeader.split(";").reduce((acc, part) => {
-    const [rawKey, ...rawValue] = part.trim().split("=");
-    if (!rawKey) return acc;
-    acc[decodeURIComponent(rawKey)] = decodeURIComponent(rawValue.join("="));
-    return acc;
-  }, {} as Record<string, string>);
+  return cookieHeader.split(";").reduce(
+    (acc, part) => {
+      const [rawKey, ...rawValue] = part.trim().split("=");
+      if (!rawKey) return acc;
+      acc[decodeURIComponent(rawKey)] = decodeURIComponent(rawValue.join("="));
+      return acc;
+    },
+    {} as Record<string, string>,
+  );
 }
 
 function buildSetCookie(value: string, expiresAt: Date): string {

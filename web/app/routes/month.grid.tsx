@@ -5,7 +5,7 @@ import { Breadcrumb } from "~/components/breadcrumb";
 import { Layout } from "~/components/layout";
 import { Card, CardContent } from "~/components/ui/card";
 import { getPhotoCountByMonth, getPhotosByMonth } from "~/lib/db.server";
-import type { Route } from "./+types/month";
+import type { Route } from "./+types/month.grid";
 
 export function meta({ params }: Route.MetaArgs) {
   const monthNames = [
@@ -67,26 +67,32 @@ export async function loader({ params, request }: Route.LoaderArgs) {
     const totalPhotos = await getPhotoCountByMonth(year, month);
     const hasMore = offset + photos.length < totalPhotos;
 
-    return dataWithViewMode({
-      photos,
-      totalPhotos,
-      hasMore,
-      page,
-      year: params.year,
-      month: params.month,
-      monthName,
-    }, "grid");
+    return dataWithViewMode(
+      {
+        photos,
+        totalPhotos,
+        hasMore,
+        page,
+        year: params.year,
+        month: params.month,
+        monthName,
+      },
+      "grid",
+    );
   } catch (error) {
     console.error(`Failed to load photos for ${year}-${month}:`, error);
-    return dataWithViewMode({
-      photos: [],
-      totalPhotos: 0,
-      hasMore: false,
-      page,
-      year: params.year,
-      month: params.month,
-      monthName,
-    }, "grid");
+    return dataWithViewMode(
+      {
+        photos: [],
+        totalPhotos: 0,
+        hasMore: false,
+        page,
+        year: params.year,
+        month: params.month,
+        monthName,
+      },
+      "grid",
+    );
   }
 }
 

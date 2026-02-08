@@ -1,24 +1,18 @@
-import { EyeOff, Grid, Loader2, Pencil, Star, Unlink, User, Users } from "lucide-react";
+import { EyeOff, Grid, Pencil, Star, Unlink, User, Users } from "lucide-react";
 import { useEffect, useState } from "react";
 import { Link, useFetcher, useRevalidator } from "react-router";
 import { Breadcrumb } from "~/components/breadcrumb";
 import { CoverflowIcon } from "~/components/coverflow-icon";
 import { Layout } from "~/components/layout";
+import { RenamePersonDialog } from "~/components/rename-person-dialog";
 import { Badge } from "~/components/ui/badge";
 import { Button } from "~/components/ui/button";
 import { Card, CardContent } from "~/components/ui/card";
 import { ContextMenu, ContextMenuContent, ContextMenuItem, ContextMenuTrigger } from "~/components/ui/context-menu";
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-} from "~/components/ui/dialog";
-import { Input } from "~/components/ui/input";
+import { ViewSwitcher } from "~/components/view-switcher";
 import { dataWithViewMode } from "~/lib/cookies.server";
 import { getClustersByPerson, getPersonById, unlinkClusterFromPerson } from "~/lib/db.server";
+import { getFaceCropStyle } from "~/lib/face-crop";
 import type { Route } from "./+types/person.$id.grid";
 
 export function meta({ data }: Route.MetaArgs) {
@@ -61,33 +55,6 @@ export async function action({ request, params }: Route.ActionArgs) {
   return { success: false, message: "Unknown action" };
 }
 
-function getFaceCropStyle(
-  bbox: {
-    bbox_x: number;
-    bbox_y: number;
-    bbox_width: number;
-    bbox_height: number;
-  },
-  imageWidth: number,
-  imageHeight: number,
-  containerSize = 128,
-) {
-  const scaleX = containerSize / bbox.bbox_width;
-  const scaleY = containerSize / bbox.bbox_height;
-
-  const left = -bbox.bbox_x * scaleX;
-  const top = -bbox.bbox_y * scaleY;
-  const width = imageWidth * scaleX;
-  const height = imageHeight * scaleY;
-
-  return {
-    transform: `translate(${left}px, ${top}px)`,
-    transformOrigin: "0 0",
-    width: `${width}px`,
-    height: `${height}px`,
-  };
-}
-
 type Cluster = Awaited<ReturnType<typeof getClustersByPerson>>[number];
 
 export default function PersonDetailView({ loaderData }: Route.ComponentProps) {
@@ -96,34 +63,20 @@ export default function PersonDetailView({ loaderData }: Route.ComponentProps) {
 
   // Dialog state
   const [renameDialogOpen, setRenameDialogOpen] = useState(false);
-  const [editFirstName, setEditFirstName] = useState(person.first_name || "");
-  const [editLastName, setEditLastName] = useState(person.last_name || "");
   const [pendingUnlinkClusterId, setPendingUnlinkClusterId] = useState<string | null>(null);
 
-  const renameFetcher = useFetcher();
   const hideFetcher = useFetcher();
   const unlinkFetcher = useFetcher();
   const representativeFetcher = useFetcher();
   const revalidator = useRevalidator();
 
   const isSubmitting =
-    renameFetcher.state !== "idle" ||
-    hideFetcher.state !== "idle" ||
-    unlinkFetcher.state !== "idle" ||
-    representativeFetcher.state !== "idle";
+    hideFetcher.state !== "idle" || unlinkFetcher.state !== "idle" || representativeFetcher.state !== "idle";
 
   // Reset clusters when loader data changes
   useEffect(() => {
     setClusters(initialClusters);
   }, [initialClusters]);
-
-  // Revalidate after rename completes
-  useEffect(() => {
-    if (renameFetcher.data?.success) {
-      setRenameDialogOpen(false);
-      revalidator.revalidate();
-    }
-  }, [renameFetcher.data, revalidator]);
 
   // Revalidate after hide completes
   useEffect(() => {
@@ -148,13 +101,8 @@ export default function PersonDetailView({ loaderData }: Route.ComponentProps) {
     }
   }, [representativeFetcher.data, revalidator]);
 
-  const handleSaveRename = () => {
-    if (editFirstName.trim()) {
-      renameFetcher.submit(
-        { firstName: editFirstName.trim(), lastName: editLastName.trim() },
-        { method: "post", action: `/api/person/${person.id}/rename` },
-      );
-    }
+  const handleRenameSuccess = () => {
+    revalidator.revalidate();
   };
 
   const handleHideAll = () => {
@@ -222,17 +170,19 @@ export default function PersonDetailView({ loaderData }: Route.ComponentProps) {
           </div>
 
           <div className="flex items-center space-x-2">
-            <div className="flex items-center rounded-lg border bg-gray-50 p-1" title="View mode">
-              <div className="flex items-center gap-1.5 px-3 py-1.5 rounded-md text-sm font-medium bg-white text-gray-900 shadow-sm">
-                <Grid className="h-4 w-4" />
-              </div>
-              <Link
-                to={`/person/${person.id}/wall`}
-                className="flex items-center gap-1.5 px-3 py-1.5 rounded-md text-sm font-medium text-gray-500 hover:text-gray-700 transition-colors"
-              >
-                <CoverflowIcon className="size-4" />
-              </Link>
-            </div>
+            <ViewSwitcher
+              variant="light"
+              modes={[
+                { key: "grid", label: "Grid View", icon: <Grid className="h-4 w-4" />, isActive: true },
+                {
+                  key: "wall",
+                  label: "3D Wall",
+                  icon: <CoverflowIcon className="size-4" />,
+                  to: `/person/${person.id}/wall`,
+                  isActive: false,
+                },
+              ]}
+            />
             <Button variant="outline" size="sm" onClick={() => setRenameDialogOpen(true)} disabled={isSubmitting}>
               <Pencil className="h-4 w-4 mr-1" />
               Rename
@@ -381,54 +331,14 @@ export default function PersonDetailView({ loaderData }: Route.ComponentProps) {
         )}
 
         {/* Rename Dialog */}
-        <Dialog open={renameDialogOpen} onOpenChange={setRenameDialogOpen}>
-          <DialogContent className="max-w-sm">
-            <DialogHeader>
-              <DialogTitle>Rename Person</DialogTitle>
-              <DialogDescription>Enter the person's name.</DialogDescription>
-            </DialogHeader>
-            <div className="space-y-4 py-4">
-              <div className="space-y-2">
-                <label htmlFor="firstName" className="text-sm font-medium">
-                  First Name
-                </label>
-                <Input
-                  id="firstName"
-                  value={editFirstName}
-                  onChange={(e) => setEditFirstName(e.target.value)}
-                  placeholder="First name"
-                  autoFocus
-                />
-              </div>
-              <div className="space-y-2">
-                <label htmlFor="lastName" className="text-sm font-medium">
-                  Last Name
-                </label>
-                <Input
-                  id="lastName"
-                  value={editLastName}
-                  onChange={(e) => setEditLastName(e.target.value)}
-                  placeholder="Last name (optional)"
-                />
-              </div>
-            </div>
-            <DialogFooter>
-              <Button variant="outline" onClick={() => setRenameDialogOpen(false)}>
-                Cancel
-              </Button>
-              <Button onClick={handleSaveRename} disabled={!editFirstName.trim() || isSubmitting}>
-                {renameFetcher.state !== "idle" ? (
-                  <>
-                    <Loader2 className="h-4 w-4 mr-1 animate-spin" />
-                    Saving...
-                  </>
-                ) : (
-                  "Save"
-                )}
-              </Button>
-            </DialogFooter>
-          </DialogContent>
-        </Dialog>
+        <RenamePersonDialog
+          open={renameDialogOpen}
+          onOpenChange={setRenameDialogOpen}
+          personId={person.id.toString()}
+          currentFirstName={person.first_name || ""}
+          currentLastName={person.last_name || ""}
+          onSuccess={handleRenameSuccess}
+        />
       </div>
     </Layout>
   );

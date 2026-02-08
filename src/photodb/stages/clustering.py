@@ -6,16 +6,24 @@ from decimal import Decimal
 
 from .base import BaseStage
 from ..database.models import Photo
+from ..utils.hdbscan_config import (
+    create_hdbscan_clusterer,
+    calculate_cluster_epsilon,
+    DEFAULT_MIN_CLUSTER_SIZE,
+    DEFAULT_MIN_SAMPLES,
+    DEFAULT_EPSILON_PERCENTILE,
+    DEFAULT_CORE_PROBABILITY_THRESHOLD,
+    DEFAULT_CLUSTERING_THRESHOLD,
+)
 
 logger = logging.getLogger(__name__)
 
 # Check for PyTorch MPS (Metal) availability
 try:
     import torch
-    HAS_TORCH = True
+
     HAS_MPS = torch.backends.mps.is_available()
 except ImportError:
-    HAS_TORCH = False
     HAS_MPS = False
 
 
@@ -42,7 +50,9 @@ class ClusteringStage(BaseStage):
 
     def __init__(self, repository, config: dict):
         super().__init__(repository, config)
-        self.clustering_threshold = float(config.get("CLUSTERING_THRESHOLD", 0.45))
+        self.clustering_threshold = float(
+            config.get("CLUSTERING_THRESHOLD", DEFAULT_CLUSTERING_THRESHOLD)
+        )
         # Pool threshold defaults to 70% of main threshold for stricter pool clustering
         self.pool_clustering_threshold = float(
             config.get("POOL_CLUSTERING_THRESHOLD", self.clustering_threshold * 0.7)
@@ -52,11 +62,17 @@ class ClusteringStage(BaseStage):
         self.verified_threshold_multiplier = float(config.get("VERIFIED_THRESHOLD_MULTIPLIER", 0.8))
         self.medoid_recompute_threshold = float(config.get("MEDOID_RECOMPUTE_THRESHOLD", 0.25))
 
-        # HDBSCAN configuration
-        self.min_cluster_size = int(config.get("HDBSCAN_MIN_CLUSTER_SIZE", 3))
-        self.min_samples = int(config.get("HDBSCAN_MIN_SAMPLES", 2))
-        self.epsilon_percentile = float(config.get("EPSILON_PERCENTILE", 90))
-        self.core_probability_threshold = float(config.get("CORE_PROBABILITY_THRESHOLD", 0.8))
+        # HDBSCAN configuration (uses shared defaults from hdbscan_config)
+        self.min_cluster_size = int(
+            config.get("HDBSCAN_MIN_CLUSTER_SIZE", DEFAULT_MIN_CLUSTER_SIZE)
+        )
+        self.min_samples = int(config.get("HDBSCAN_MIN_SAMPLES", DEFAULT_MIN_SAMPLES))
+        self.epsilon_percentile = float(
+            config.get("EPSILON_PERCENTILE", DEFAULT_EPSILON_PERCENTILE)
+        )
+        self.core_probability_threshold = float(
+            config.get("CORE_PROBABILITY_THRESHOLD", DEFAULT_CORE_PROBABILITY_THRESHOLD)
+        )
         self.bootstrap_mode = False  # Set externally when bootstrap is requested
 
         logger.debug(
@@ -745,12 +761,9 @@ class ClusteringStage(BaseStage):
 
     def _run_hdbscan_cpu(self, embeddings: np.ndarray, hdbscan) -> Tuple[np.ndarray, np.ndarray]:
         """Run standard HDBSCAN on CPU."""
-        clusterer = hdbscan.HDBSCAN(
+        clusterer = create_hdbscan_clusterer(
             min_cluster_size=self.min_cluster_size,
             min_samples=self.min_samples,
-            metric="euclidean",
-            cluster_selection_method="eom",
-            core_dist_n_jobs=-1,
         )
         clusterer.fit(embeddings)
         return clusterer.labels_, clusterer.probabilities_
@@ -762,7 +775,6 @@ class ClusteringStage(BaseStage):
         Uses GPU for k-NN search, then sparse graph HDBSCAN on CPU.
         Typically 8x faster than standard CPU on Apple Silicon.
         """
-        import hdbscan
         from scipy.sparse import csr_matrix
 
         n_samples = embeddings.shape[0]
@@ -810,11 +822,10 @@ class ClusteringStage(BaseStage):
         logger.info("Running HDBSCAN on sparse graph...")
 
         # Run HDBSCAN on precomputed sparse graph
-        clusterer = hdbscan.HDBSCAN(
+        clusterer = create_hdbscan_clusterer(
             min_cluster_size=self.min_cluster_size,
             min_samples=self.min_samples,
-            metric="precomputed",
-            cluster_selection_method="eom",
+            precomputed=True,
         )
         clusterer.fit(symmetric)
 
@@ -837,30 +848,13 @@ class ClusteringStage(BaseStage):
         Returns:
             Epsilon value (distance threshold) for the cluster
         """
-        from scipy.spatial.distance import pdist
-
-        # Get embeddings for this cluster
-        cluster_mask = labels == label
-        cluster_embeddings = embeddings[cluster_mask]
-
-        if len(cluster_embeddings) < 2:
-            # Single point cluster - use default threshold
-            return self.clustering_threshold
-
-        # Calculate pairwise distances
-        pairwise_distances = pdist(cluster_embeddings, metric="euclidean")
-
-        if len(pairwise_distances) == 0:
-            return self.clustering_threshold
-
-        # Use percentile of distances as epsilon
-        epsilon = float(np.percentile(pairwise_distances, self.epsilon_percentile))
-
-        # Ensure epsilon is within reasonable bounds
-        min_epsilon = 0.1  # Minimum to avoid too tight clusters
-        max_epsilon = self.clustering_threshold * 1.5  # Maximum to avoid too loose clusters
-
-        return max(min_epsilon, min(epsilon, max_epsilon))
+        return calculate_cluster_epsilon(
+            embeddings,
+            labels,
+            label,
+            percentile=self.epsilon_percentile,
+            fallback_threshold=self.clustering_threshold,
+        )
 
     def _assign_bootstrap_clusters(self, bootstrap_results: Dict[int, Dict]) -> None:
         """
@@ -878,9 +872,7 @@ class ClusteringStage(BaseStage):
 
         # Build set of manual detection IDs to preserve
         manual_detection_ids = {
-            d["detection_id"]
-            for d in embeddings_data
-            if d.get("cluster_status") == "manual"
+            d["detection_id"] for d in embeddings_data if d.get("cluster_status") == "manual"
         }
         if manual_detection_ids:
             logger.info(f"Preserving {len(manual_detection_ids)} manual assignments")

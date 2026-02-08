@@ -1,10 +1,10 @@
 import { Grid, Users } from "lucide-react";
 import { useMemo } from "react";
-import { Link, useLocation } from "react-router";
+import { useLocation } from "react-router";
+import { CoverflowIcon } from "~/components/coverflow-icon";
 import { Header } from "~/components/header";
 import { PhotoWall, type WallTile } from "~/components/photo-wall";
 import { ViewSwitcher } from "~/components/view-switcher";
-import { CoverflowIcon } from "~/components/coverflow-icon";
 import { dataWithViewMode } from "~/lib/cookies.server";
 import { getClustersGroupedByPerson, getClustersGroupedCount } from "~/lib/db.server";
 import type { Route } from "./+types/clusters.wall";
@@ -48,9 +48,7 @@ export default function ClustersWallView({ loaderData }: Route.ComponentProps) {
           label: isPerson ? item.person_name || "" : "",
           navigateTo,
           metadata: {
-            subtitle: isPerson
-              ? undefined
-              : `${item.face_count} photo${item.face_count !== 1 ? "s" : ""}`,
+            subtitle: isPerson ? undefined : `${item.face_count} photo${item.face_count !== 1 ? "s" : ""}`,
             count: item.face_count,
             // Pass bbox data for face cropping (rectangular tiles)
             bbox:

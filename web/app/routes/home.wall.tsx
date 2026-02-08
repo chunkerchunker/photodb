@@ -1,10 +1,10 @@
 import { Camera, Grid, User, Users } from "lucide-react";
 import { useMemo } from "react";
-import { Link, useLocation, data } from "react-router";
+import { data, Link, useLocation } from "react-router";
+import { CoverflowIcon } from "~/components/coverflow-icon";
 import { Header } from "~/components/header";
 import { PhotoWall, type WallTile } from "~/components/photo-wall";
 import { ViewSwitcher } from "~/components/view-switcher";
-import { CoverflowIcon } from "~/components/coverflow-icon";
 import { getYearsWithPhotos } from "~/lib/db.server";
 import type { Route } from "./+types/home.wall";
 

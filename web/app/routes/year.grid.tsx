@@ -1,5 +1,5 @@
 import { Box } from "lucide-react";
-import { Link, data } from "react-router";
+import { data, Link } from "react-router";
 import { Breadcrumb } from "~/components/breadcrumb";
 import { Layout } from "~/components/layout";
 import { Card, CardContent } from "~/components/ui/card";

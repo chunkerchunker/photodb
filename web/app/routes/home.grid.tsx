@@ -1,4 +1,4 @@
-import { Link, data } from "react-router";
+import { data, Link } from "react-router";
 import { Layout } from "~/components/layout";
 import { Card, CardContent } from "~/components/ui/card";
 import { getYearsWithPhotos } from "~/lib/db.server";

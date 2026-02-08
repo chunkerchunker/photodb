@@ -11,6 +11,9 @@ import logging
 import sys
 import os
 import json
+from contextlib import contextmanager
+from typing import Callable, Generator
+
 from dotenv import load_dotenv
 
 # Load environment variables BEFORE importing modules that read them at module level
@@ -24,6 +27,46 @@ logging.basicConfig(
     level=logging.INFO, format="%(asctime)s - %(name)s - %(levelname)s - %(message)s"
 )
 logger = logging.getLogger(__name__)
+
+
+@contextmanager
+def maintenance_context() -> Generator[MaintenanceUtilities, None, None]:
+    """
+    Context manager for maintenance operations.
+
+    Handles database connection pool setup and teardown automatically.
+
+    Yields:
+        MaintenanceUtilities instance with active connection pool
+    """
+    database_url = os.getenv("DATABASE_URL", "postgresql://localhost/photodb")
+    pool = ConnectionPool(connection_string=database_url)
+    try:
+        yield MaintenanceUtilities(pool)
+    finally:
+        pool.close_all()
+
+
+def run_maintenance_command(
+    operation: Callable[[MaintenanceUtilities], int],
+    error_message: str,
+) -> int:
+    """
+    Execute a maintenance operation with standard error handling.
+
+    Args:
+        operation: Function that takes MaintenanceUtilities and returns exit code
+        error_message: Message to log on failure
+
+    Returns:
+        Exit code (0 for success, 1 for failure)
+    """
+    try:
+        with maintenance_context() as maintenance:
+            return operation(maintenance)
+    except Exception as e:
+        logger.error(f"{error_message}: {e}")
+        return 1
 
 
 def setup_logging(verbose: bool = False):
@@ -41,11 +84,7 @@ def run_daily(args):
     """Run daily maintenance tasks."""
     logger.info("Running daily maintenance tasks...")
 
-    database_url = os.getenv("DATABASE_URL", "postgresql://localhost/photodb")
-    pool = ConnectionPool(connection_string=database_url)
-    maintenance = MaintenanceUtilities(pool)
-
-    try:
+    def operation(maintenance: MaintenanceUtilities) -> int:
         results = maintenance.run_daily_maintenance()
 
         print("\nDaily maintenance completed:")
@@ -59,22 +98,15 @@ def run_daily(args):
             print(json.dumps(results, indent=2))
 
         return 0
-    except Exception as e:
-        logger.error(f"Daily maintenance failed: {e}")
-        return 1
-    finally:
-        pool.close_all()
+
+    return run_maintenance_command(operation, "Daily maintenance failed")
 
 
 def run_weekly(args):
     """Run weekly maintenance tasks."""
     logger.info("Running weekly maintenance tasks...")
 
-    database_url = os.getenv("DATABASE_URL", "postgresql://localhost/photodb")
-    pool = ConnectionPool(connection_string=database_url)
-    maintenance = MaintenanceUtilities(pool)
-
-    try:
+    def operation(maintenance: MaintenanceUtilities) -> int:
         results = maintenance.run_weekly_maintenance(cluster_unassigned=args.cluster_unassigned)
 
         print("\nWeekly maintenance completed:")
@@ -94,180 +126,124 @@ def run_weekly(args):
             print(json.dumps(results, indent=2))
 
         return 0
-    except Exception as e:
-        logger.error(f"Weekly maintenance failed: {e}")
-        return 1
-    finally:
-        pool.close_all()
+
+    return run_maintenance_command(operation, "Weekly maintenance failed")
 
 
 def recompute_centroids(args):
     """Recompute all cluster centroids."""
     logger.info("Recomputing cluster centroids...")
 
-    database_url = os.getenv("DATABASE_URL", "postgresql://localhost/photodb")
-    pool = ConnectionPool(connection_string=database_url)
-    maintenance = MaintenanceUtilities(pool)
-
-    try:
+    def operation(maintenance: MaintenanceUtilities) -> int:
         count = maintenance.recompute_all_centroids()
-        print(f"✅ Recomputed centroids for {count} clusters")
+        print(f"Recomputed centroids for {count} clusters")
         return 0
-    except Exception as e:
-        logger.error(f"Failed to recompute centroids: {e}")
-        return 1
-    finally:
-        pool.close_all()
+
+    return run_maintenance_command(operation, "Failed to recompute centroids")
 
 
 def update_medoids(args):
     """Update medoids for all clusters."""
     logger.info("Updating cluster medoids...")
 
-    database_url = os.getenv("DATABASE_URL", "postgresql://localhost/photodb")
-    pool = ConnectionPool(connection_string=database_url)
-    maintenance = MaintenanceUtilities(pool)
-
-    try:
+    def operation(maintenance: MaintenanceUtilities) -> int:
         count = maintenance.update_all_medoids()
-        print(f"✅ Updated medoids for {count} clusters")
+        print(f"Updated medoids for {count} clusters")
         return 0
-    except Exception as e:
-        logger.error(f"Failed to update medoids: {e}")
-        return 1
-    finally:
-        pool.close_all()
+
+    return run_maintenance_command(operation, "Failed to update medoids")
 
 
 def cleanup_empty(args):
     """Remove empty clusters."""
     logger.info("Cleaning up empty clusters...")
 
-    database_url = os.getenv("DATABASE_URL", "postgresql://localhost/photodb")
-    pool = ConnectionPool(connection_string=database_url)
-    maintenance = MaintenanceUtilities(pool)
-
-    try:
+    def operation(maintenance: MaintenanceUtilities) -> int:
         count = maintenance.cleanup_empty_clusters()
-        print(f"✅ Removed {count} empty clusters")
+        print(f"Removed {count} empty clusters")
         return 0
-    except Exception as e:
-        logger.error(f"Failed to cleanup clusters: {e}")
-        return 1
-    finally:
-        pool.close_all()
+
+    return run_maintenance_command(operation, "Failed to cleanup clusters")
 
 
 def update_stats(args):
     """Update cluster statistics."""
     logger.info("Updating cluster statistics...")
 
-    database_url = os.getenv("DATABASE_URL", "postgresql://localhost/photodb")
-    pool = ConnectionPool(connection_string=database_url)
-    maintenance = MaintenanceUtilities(pool)
-
-    try:
+    def operation(maintenance: MaintenanceUtilities) -> int:
         count = maintenance.update_cluster_statistics()
-        print(f"✅ Updated statistics for {count} clusters")
+        print(f"Updated statistics for {count} clusters")
         return 0
-    except Exception as e:
-        logger.error(f"Failed to update statistics: {e}")
-        return 1
-    finally:
-        pool.close_all()
+
+    return run_maintenance_command(operation, "Failed to update statistics")
 
 
 def revert_singletons(args):
     """Revert maintenance-created singleton clusters to unassigned pool."""
     logger.info("Reverting singleton clusters...")
 
-    database_url = os.getenv("DATABASE_URL", "postgresql://localhost/photodb")
-    pool = ConnectionPool(connection_string=database_url)
-    maintenance = MaintenanceUtilities(pool)
-
-    try:
+    def operation(maintenance: MaintenanceUtilities) -> int:
         count = maintenance.revert_singleton_clusters()
         print(f"Reverted {count} singleton clusters to unassigned pool")
         return 0
-    except Exception as e:
-        logger.error(f"Failed to revert singletons: {e}")
-        return 1
-    finally:
-        pool.close_all()
+
+    return run_maintenance_command(operation, "Failed to revert singletons")
 
 
 def cluster_unassigned(args):
     """Run HDBSCAN clustering on the unassigned pool."""
     logger.info("Clustering unassigned pool...")
 
-    database_url = os.getenv("DATABASE_URL", "postgresql://localhost/photodb")
-    pool = ConnectionPool(connection_string=database_url)
-    maintenance = MaintenanceUtilities(pool)
-
-    try:
+    def operation(maintenance: MaintenanceUtilities) -> int:
         count = maintenance.cluster_unassigned_pool(min_cluster_size=args.min_cluster_size)
         print(f"Created {count} clusters from unassigned pool")
         return 0
-    except Exception as e:
-        logger.error(f"Failed to cluster unassigned pool: {e}")
-        return 1
-    finally:
-        pool.close_all()
+
+    return run_maintenance_command(operation, "Failed to cluster unassigned pool")
 
 
 def calculate_epsilons(args):
     """Calculate epsilon for clusters with NULL epsilon but 3+ faces."""
     logger.info("Calculating missing epsilons...")
 
-    database_url = os.getenv("DATABASE_URL", "postgresql://localhost/photodb")
-    pool = ConnectionPool(connection_string=database_url)
-    maintenance = MaintenanceUtilities(pool)
-
-    try:
+    def operation(maintenance: MaintenanceUtilities) -> int:
         count = maintenance.calculate_missing_epsilons(
             min_faces=args.min_faces,
             percentile=args.percentile,
         )
         print(f"Calculated epsilon for {count} clusters")
         return 0
-    except Exception as e:
-        logger.error(f"Failed to calculate epsilons: {e}")
-        return 1
-    finally:
-        pool.close_all()
+
+    return run_maintenance_command(operation, "Failed to calculate epsilons")
 
 
 def health_check(args):
     """Check clustering system health."""
     logger.info("Checking cluster health...")
 
-    database_url = os.getenv("DATABASE_URL", "postgresql://localhost/photodb")
-    pool = ConnectionPool(connection_string=database_url)
-    maintenance = MaintenanceUtilities(pool)
-
-    try:
+    def operation(maintenance: MaintenanceUtilities) -> int:
         stats = maintenance.get_cluster_health_stats()
 
-        print("\n📊 Cluster Health Report:")
-        print(f"  • Total clusters: {stats['total_clusters']}")
-        print(f"  • Empty clusters: {stats['empty_clusters']}")
-        print(f"  • Clusters without centroids: {stats['clusters_without_centroids']}")
-        print(f"  • Clusters without medoids: {stats['clusters_without_medoids']}")
-        print(f"  • Average cluster size: {stats['avg_cluster_size']:.1f}")
-        print(f"  • Cluster size range: {stats['min_cluster_size']} - {stats['max_cluster_size']}")
-        print(f"  • Total faces: {stats['total_faces']}")
-        print(f"  • Unclustered faces: {stats['unclustered_faces']}")
+        print("\nCluster Health Report:")
+        print(f"  - Total clusters: {stats['total_clusters']}")
+        print(f"  - Empty clusters: {stats['empty_clusters']}")
+        print(f"  - Clusters without centroids: {stats['clusters_without_centroids']}")
+        print(f"  - Clusters without medoids: {stats['clusters_without_medoids']}")
+        print(f"  - Average cluster size: {stats['avg_cluster_size']:.1f}")
+        print(f"  - Cluster size range: {stats['min_cluster_size']} - {stats['max_cluster_size']}")
+        print(f"  - Total faces: {stats['total_faces']}")
+        print(f"  - Unclustered faces: {stats['unclustered_faces']}")
         print("")
-        print("👤 Person-Cluster Relationships:")
-        print(f"  • Total persons: {stats.get('total_persons', 0)}")
-        print(f"  • Clusters linked to a person: {stats.get('clusters_with_person', 0)}")
+        print("Person-Cluster Relationships:")
+        print(f"  - Total persons: {stats.get('total_persons', 0)}")
+        print(f"  - Clusters linked to a person: {stats.get('clusters_with_person', 0)}")
         print(
-            f"  • Persons with multiple clusters: {stats.get('persons_with_multiple_clusters', 0)}"
+            f"  - Persons with multiple clusters: {stats.get('persons_with_multiple_clusters', 0)}"
         )
 
         if stats["total_faces"] > 0:
             clustered_pct = (1 - stats["unclustered_faces"] / stats["total_faces"]) * 100
-            print(f"  • Clustering coverage: {clustered_pct:.1f}%")
+            print(f"  - Clustering coverage: {clustered_pct:.1f}%")
 
         # Check for issues
         issues = []
@@ -279,22 +255,19 @@ def health_check(args):
             issues.append(f"{stats['clusters_without_medoids']} clusters missing medoids")
 
         if issues:
-            print("\n⚠️  Issues detected:")
+            print("\nIssues detected:")
             for issue in issues:
-                print(f"  • {issue}")
+                print(f"  - {issue}")
         else:
-            print("\n✅ No issues detected")
+            print("\nNo issues detected")
 
         if args.json:
             print("\nJSON output:")
             print(json.dumps(stats, indent=2))
 
         return 0 if not issues else 1
-    except Exception as e:
-        logger.error(f"Health check failed: {e}")
-        return 1
-    finally:
-        pool.close_all()
+
+    return run_maintenance_command(operation, "Health check failed")
 
 
 def main():

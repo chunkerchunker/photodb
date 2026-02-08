@@ -1,6 +1,6 @@
 import crypto from "node:crypto";
 import { redirect } from "react-router";
-import { getUserById, getUserByUsername, updateUserPasswordHash, type AppUser } from "./db.server";
+import { type AppUser, getUserById, getUserByUsername, updateUserPasswordHash } from "./db.server";
 
 const SESSION_COOKIE_NAME = "photodb_session";
 const SESSION_TTL_DAYS = 30;

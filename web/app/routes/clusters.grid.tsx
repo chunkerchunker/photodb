@@ -1,9 +1,11 @@
-import { AlertTriangle, EyeOff, Grid, Link2, Loader2, Pencil, Search, User, Users, X } from "lucide-react";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { AlertTriangle, EyeOff, Grid, Link2, Loader2, Pencil, Search, User, Users } from "lucide-react";
+import { useCallback, useEffect, useState } from "react";
 import { Link, useFetcher, useRevalidator } from "react-router";
 import { ClusterLinkDialog } from "~/components/cluster-merge-dialog";
 import { CoverflowIcon } from "~/components/coverflow-icon";
 import { Layout } from "~/components/layout";
+import { RenamePersonDialog } from "~/components/rename-person-dialog";
+import { SearchBox } from "~/components/search-box";
 import { Button } from "~/components/ui/button";
 import { Card, CardContent } from "~/components/ui/card";
 import {
@@ -21,9 +23,11 @@ import {
   DialogHeader,
   DialogTitle,
 } from "~/components/ui/dialog";
-import { Input } from "~/components/ui/input";
+import { ViewSwitcher } from "~/components/view-switcher";
+import { useInfiniteScroll } from "~/hooks/use-infinite-scroll";
 import { dataWithViewMode } from "~/lib/cookies.server";
 import { getClustersGroupedByPerson, getClustersGroupedCount, getHiddenClustersCount } from "~/lib/db.server";
+import { getFaceCropStyle } from "~/lib/face-crop";
 import type { Route } from "./+types/clusters.grid";
 
 export function meta() {
@@ -74,35 +78,6 @@ export async function loader({ request }: Route.LoaderArgs) {
   }
 }
 
-function getFaceCropStyle(
-  bbox: {
-    bbox_x: number;
-    bbox_y: number;
-    bbox_width: number;
-    bbox_height: number;
-  },
-  imageWidth: number,
-  imageHeight: number,
-) {
-  // Calculate scale to fit the face in the container (128px)
-  const containerSize = 128;
-  const scaleX = containerSize / bbox.bbox_width;
-  const scaleY = containerSize / bbox.bbox_height;
-
-  // Convert normalized coordinates to percentages for CSS positioning
-  const left = -bbox.bbox_x * scaleX;
-  const top = -bbox.bbox_y * scaleY;
-  const width = imageWidth * scaleX;
-  const height = imageHeight * scaleY;
-
-  return {
-    transform: `translate(${left}px, ${top}px)`,
-    transformOrigin: "0 0",
-    width: `${width}px`,
-    height: `${height}px`,
-  };
-}
-
 type Item = Route.ComponentProps["loaderData"]["items"][number];
 
 export default function ClustersView({ loaderData }: Route.ComponentProps) {
@@ -115,7 +90,6 @@ export default function ClustersView({ loaderData }: Route.ComponentProps) {
   // Search state
   const [searchOpen, setSearchOpen] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
-  const searchInputRef = useRef<HTMLInputElement>(null);
 
   // Selection state (shift-click) - stores "type:id" keys for uniqueness
   const [selectedItemKeys, setSelectedItemKeys] = useState<Set<string>>(new Set());
@@ -124,11 +98,8 @@ export default function ClustersView({ loaderData }: Route.ComponentProps) {
   const [contextItem, setContextItem] = useState<Item | null>(null);
   const [renameDialogOpen, setRenameDialogOpen] = useState(false);
   const [linkDialogOpen, setLinkDialogOpen] = useState(false);
-  const [editFirstName, setEditFirstName] = useState("");
-  const [editLastName, setEditLastName] = useState("");
   const [pendingHideClusterId, setPendingHideClusterId] = useState<number | null>(null);
   const [pendingHidePersonId, setPendingHidePersonId] = useState<number | null>(null);
-  const renameFetcher = useFetcher();
   const hideFetcher = useFetcher();
   const revalidator = useRevalidator();
 
@@ -147,7 +118,6 @@ export default function ClustersView({ loaderData }: Route.ComponentProps) {
 
   const fetcher = useFetcher<typeof loader>();
   const linkFetcher = useFetcher();
-  const loadMoreRef = useRef<HTMLDivElement>(null);
 
   // Reset state when initial data changes (e.g., navigation)
   useEffect(() => {
@@ -155,30 +125,6 @@ export default function ClustersView({ loaderData }: Route.ComponentProps) {
     setPage(initialPage);
     setHasMore(initialHasMore);
   }, [initialItems, initialPage, initialHasMore]);
-
-  // Keyboard shortcut for search (Cmd+F / Ctrl+F)
-  useEffect(() => {
-    const handleKeyDown = (e: KeyboardEvent) => {
-      if ((e.metaKey || e.ctrlKey) && e.key === "f") {
-        e.preventDefault();
-        setSearchOpen(true);
-      }
-      if (e.key === "Escape" && searchOpen) {
-        setSearchOpen(false);
-        setSearchQuery("");
-      }
-    };
-
-    document.addEventListener("keydown", handleKeyDown);
-    return () => document.removeEventListener("keydown", handleKeyDown);
-  }, [searchOpen]);
-
-  // Focus search input when opened
-  useEffect(() => {
-    if (searchOpen && searchInputRef.current) {
-      searchInputRef.current.focus();
-    }
-  }, [searchOpen]);
 
   // Append new items when fetcher returns data
   useEffect(() => {
@@ -199,28 +145,11 @@ export default function ClustersView({ loaderData }: Route.ComponentProps) {
     }
   }, [fetcher, hasMore, page]);
 
-  // Intersection Observer for infinite scroll
-  useEffect(() => {
-    const observer = new IntersectionObserver(
-      (entries) => {
-        if (entries[0].isIntersecting) {
-          loadMore();
-        }
-      },
-      { rootMargin: "200px" },
-    );
-
-    const currentRef = loadMoreRef.current;
-    if (currentRef) {
-      observer.observe(currentRef);
-    }
-
-    return () => {
-      if (currentRef) {
-        observer.unobserve(currentRef);
-      }
-    };
-  }, [loadMore]);
+  const loadMoreRef = useInfiniteScroll({
+    onLoadMore: loadMore,
+    hasMore,
+    isLoading: fetcher.state === "loading",
+  });
 
   const isLoading = fetcher.state === "loading";
   const isLinking = linkFetcher.state !== "idle";
@@ -322,10 +251,6 @@ export default function ClustersView({ loaderData }: Route.ComponentProps) {
   // Context menu handlers
   const handleRename = (item: Item) => {
     setContextItem(item);
-    // Parse existing name into first/last
-    const parts = item.person_name?.split(" ") || [];
-    setEditFirstName(parts[0] || "");
-    setEditLastName(parts.slice(1).join(" ") || "");
     setRenameDialogOpen(true);
   };
 
@@ -366,23 +291,9 @@ export default function ClustersView({ loaderData }: Route.ComponentProps) {
     setLinkDialogOpen(true);
   };
 
-  const handleSaveRename = () => {
-    if (contextItem && editFirstName.trim()) {
-      const action =
-        contextItem.item_type === "person"
-          ? `/api/person/${contextItem.id}/rename`
-          : `/api/cluster/${contextItem.id}/rename`;
-      renameFetcher.submit(
-        { firstName: editFirstName.trim(), lastName: editLastName.trim() },
-        { method: "post", action },
-      );
-    }
-  };
-
-  // Update local state when rename completes
-  useEffect(() => {
-    if (renameFetcher.data?.success && contextItem) {
-      const newName = editLastName.trim() ? `${editFirstName.trim()} ${editLastName.trim()}` : editFirstName.trim();
+  const handleRenameSuccess = (newFirstName: string, newLastName: string) => {
+    if (contextItem) {
+      const newName = newLastName ? `${newFirstName} ${newLastName}` : newFirstName;
       setItems((prev) =>
         prev.map((item) =>
           item.item_type === contextItem.item_type && item.id === contextItem.id
@@ -390,10 +301,9 @@ export default function ClustersView({ loaderData }: Route.ComponentProps) {
             : item,
         ),
       );
-      setRenameDialogOpen(false);
       setContextItem(null);
     }
-  }, [renameFetcher.data, contextItem, editFirstName, editLastName]);
+  };
 
   const handleLinkComplete = () => {
     setContextItem(null);
@@ -441,17 +351,19 @@ export default function ClustersView({ loaderData }: Route.ComponentProps) {
             <h1 className="text-3xl font-bold text-gray-900">Face Clusters</h1>
           </div>
           <div className="flex items-center space-x-4">
-            <div className="flex items-center rounded-lg border bg-gray-50 p-1">
-              <div className="flex items-center gap-1.5 px-3 py-1.5 rounded-md text-sm font-medium bg-white text-gray-900 shadow-sm">
-                <Grid className="h-4 w-4" />
-              </div>
-              <Link
-                to="/clusters/wall"
-                className="flex items-center gap-1.5 px-3 py-1.5 rounded-md text-sm font-medium text-gray-500 hover:text-gray-700 transition-colors"
-              >
-                <CoverflowIcon className="size-4" />
-              </Link>
-            </div>
+            <ViewSwitcher
+              variant="light"
+              modes={[
+                { key: "grid", label: "Grid View", icon: <Grid className="h-4 w-4" />, isActive: true },
+                {
+                  key: "wall",
+                  label: "3D Wall",
+                  icon: <CoverflowIcon className="size-4" />,
+                  to: "/clusters/wall",
+                  isActive: false,
+                },
+              ]}
+            />
             {hiddenCount > 0 && (
               <Link to="/clusters/hidden">
                 <Button variant="outline" size="sm">
@@ -466,49 +378,14 @@ export default function ClustersView({ loaderData }: Route.ComponentProps) {
           </div>
         </div>
 
-        {/* Search Box */}
-        {searchOpen && (
-          <div className="relative w-full max-w-lg mx-auto mb-4">
-            <div className="bg-white rounded-lg shadow-lg border">
-              <div className="flex items-center px-4 py-3">
-                <Search className="h-5 w-5 text-gray-400 mr-3" />
-                <input
-                  ref={searchInputRef}
-                  type="text"
-                  value={searchQuery}
-                  onChange={(e) => setSearchQuery(e.target.value)}
-                  placeholder="Search by name or cluster ID..."
-                  className="flex-1 outline-none text-lg placeholder:text-gray-400"
-                  autoComplete="off"
-                />
-                {searchQuery && (
-                  <button
-                    type="button"
-                    onClick={() => setSearchQuery("")}
-                    className="p-1 hover:bg-gray-100 rounded mr-2"
-                  >
-                    <X className="h-4 w-4 text-gray-400" />
-                  </button>
-                )}
-                <button
-                  type="button"
-                  onClick={() => {
-                    setSearchOpen(false);
-                    setSearchQuery("");
-                  }}
-                  className="text-xs text-gray-400 hover:text-gray-600"
-                >
-                  <kbd className="px-1.5 py-0.5 bg-gray-100 rounded">Esc</kbd>
-                </button>
-              </div>
-              {searchQuery && (
-                <div className="px-4 py-2 text-xs text-gray-500 border-t">
-                  {filteredItems.length} result{filteredItems.length !== 1 ? "s" : ""}
-                </div>
-              )}
-            </div>
-          </div>
-        )}
+        <SearchBox
+          open={searchOpen}
+          onOpenChange={setSearchOpen}
+          query={searchQuery}
+          onQueryChange={setSearchQuery}
+          placeholder="Search by name or cluster ID..."
+          resultCount={searchQuery ? filteredItems.length : undefined}
+        />
 
         {items.length > 0 ? (
           <>
@@ -739,73 +616,23 @@ export default function ClustersView({ loaderData }: Route.ComponentProps) {
         </Dialog>
 
         {/* Rename Dialog */}
-        <Dialog open={renameDialogOpen} onOpenChange={setRenameDialogOpen}>
-          <DialogContent className="max-w-sm">
-            <DialogHeader>
-              <DialogTitle>
-                {contextItem?.person_name
-                  ? `Rename ${contextItem.item_type === "person" ? "Person" : "Cluster"}`
-                  : "Set Name"}
-              </DialogTitle>
-              <DialogDescription>Enter a name for this person.</DialogDescription>
-            </DialogHeader>
-            <div className="space-y-4">
-              <div className="grid grid-cols-2 gap-3">
-                <div className="space-y-1">
-                  <label htmlFor="renameFirstName" className="text-sm font-medium text-gray-700">
-                    First Name
-                  </label>
-                  <Input
-                    id="renameFirstName"
-                    placeholder="First name"
-                    value={editFirstName}
-                    onChange={(e) => setEditFirstName(e.target.value)}
-                    autoComplete="off"
-                    data-form-type="other"
-                    data-1p-ignore
-                    data-lpignore="true"
-                    autoFocus
-                  />
-                </div>
-                <div className="space-y-1">
-                  <label htmlFor="renameLastName" className="text-sm font-medium text-gray-700">
-                    Last Name
-                  </label>
-                  <Input
-                    id="renameLastName"
-                    placeholder="Last name"
-                    value={editLastName}
-                    onChange={(e) => setEditLastName(e.target.value)}
-                    onKeyDown={(e) => {
-                      if (e.key === "Enter") {
-                        handleSaveRename();
-                      }
-                    }}
-                    autoComplete="off"
-                    data-form-type="other"
-                    data-1p-ignore
-                    data-lpignore="true"
-                  />
-                </div>
-              </div>
-              <DialogFooter>
-                <Button variant="outline" onClick={() => setRenameDialogOpen(false)}>
-                  Cancel
-                </Button>
-                <Button onClick={handleSaveRename} disabled={!editFirstName.trim() || renameFetcher.state !== "idle"}>
-                  {renameFetcher.state !== "idle" ? (
-                    <>
-                      <Loader2 className="h-4 w-4 mr-1 animate-spin" />
-                      Saving...
-                    </>
-                  ) : (
-                    "Save"
-                  )}
-                </Button>
-              </DialogFooter>
-            </div>
-          </DialogContent>
-        </Dialog>
+        {contextItem && (
+          <RenamePersonDialog
+            open={renameDialogOpen}
+            onOpenChange={setRenameDialogOpen}
+            personId={contextItem.id.toString()}
+            currentFirstName={contextItem.person_name?.split(" ")[0] || ""}
+            currentLastName={contextItem.person_name?.split(" ").slice(1).join(" ") || ""}
+            title={
+              contextItem.person_name
+                ? `Rename ${contextItem.item_type === "person" ? "Person" : "Cluster"}`
+                : "Set Name"
+            }
+            description="Enter a name for this person."
+            apiType={contextItem.item_type === "person" ? "person" : "cluster"}
+            onSuccess={handleRenameSuccess}
+          />
+        )}
 
         {/* Context Menu Link Dialog - only for clusters, not persons */}
         {contextItem && contextItem.item_type === "cluster" && (

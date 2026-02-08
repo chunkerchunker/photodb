@@ -34,6 +34,8 @@ import {
   DialogTrigger,
 } from "~/components/ui/dialog";
 import { Input } from "~/components/ui/input";
+import { ViewSwitcher } from "~/components/view-switcher";
+import { useInfiniteScroll } from "~/hooks/use-infinite-scroll";
 import { dataWithViewMode } from "~/lib/cookies.server";
 import {
   deleteCluster,
@@ -47,6 +49,7 @@ import {
   setClusterPersonName,
   setClusterRepresentative,
 } from "~/lib/db.server";
+import { getFaceCropStyle } from "~/lib/face-crop";
 import { cn } from "~/lib/utils";
 import type { Route } from "./+types/cluster.$id.grid";
 
@@ -190,34 +193,6 @@ export async function loader({ params, request }: Route.LoaderArgs) {
       "grid",
     );
   }
-}
-
-function getFaceCropStyle(
-  bbox: {
-    bbox_x: number;
-    bbox_y: number;
-    bbox_width: number;
-    bbox_height: number;
-  },
-  imageWidth: number,
-  imageHeight: number,
-  containerSize = 128,
-) {
-  const scaleX = containerSize / bbox.bbox_width;
-  const scaleY = containerSize / bbox.bbox_height;
-
-  // Convert normalized coordinates to percentages for CSS positioning
-  const left = -bbox.bbox_x * scaleX;
-  const top = -bbox.bbox_y * scaleY;
-  const width = imageWidth * scaleX;
-  const height = imageHeight * scaleY;
-
-  return {
-    transform: `translate(${left}px, ${top}px)`,
-    transformOrigin: "0 0",
-    width: `${width}px`,
-    height: `${height}px`,
-  };
 }
 
 interface SearchCluster {
@@ -407,7 +382,6 @@ export default function ClusterDetailView({ loaderData }: Route.ComponentProps) 
   const [page, setPage] = useState(initialPage);
   const [hasMore, setHasMore] = useState(initialHasMore);
   const scrollFetcher = useFetcher<typeof loader>();
-  const loadMoreRef = useRef<HTMLDivElement>(null);
 
   // Reset state when initial data changes (e.g., navigation or action)
   useEffect(() => {
@@ -436,28 +410,12 @@ export default function ClusterDetailView({ loaderData }: Route.ComponentProps) 
     }
   }, [scrollFetcher, hasMore, page, cluster]);
 
-  // Intersection Observer for infinite scroll
-  useEffect(() => {
-    const observer = new IntersectionObserver(
-      (entries) => {
-        if (entries[0].isIntersecting) {
-          loadMore();
-        }
-      },
-      { rootMargin: "600px" },
-    );
-
-    const currentRef = loadMoreRef.current;
-    if (currentRef) {
-      observer.observe(currentRef);
-    }
-
-    return () => {
-      if (currentRef) {
-        observer.unobserve(currentRef);
-      }
-    };
-  }, [loadMore]);
+  const loadMoreRef = useInfiniteScroll({
+    onLoadMore: loadMore,
+    hasMore,
+    isLoading: scrollFetcher.state === "loading",
+    rootMargin: "600px",
+  });
 
   const isLoadingMore = scrollFetcher.state === "loading";
 
@@ -731,17 +689,19 @@ export default function ClusterDetailView({ loaderData }: Route.ComponentProps) 
             </Dialog>
           </div>
           <div className="flex items-center space-x-4">
-            <div className="flex items-center rounded-lg border bg-gray-50 p-1" title="View mode">
-              <div className="flex items-center gap-1.5 px-3 py-1.5 rounded-md text-sm font-medium bg-white text-gray-900 shadow-sm">
-                <Grid className="h-4 w-4" />
-              </div>
-              <Link
-                to={`/cluster/${cluster.id}/wall`}
-                className="flex items-center gap-1.5 px-3 py-1.5 rounded-md text-sm font-medium text-gray-500 hover:text-gray-700 transition-colors"
-              >
-                <CoverflowIcon className="size-4" />
-              </Link>
-            </div>
+            <ViewSwitcher
+              variant="light"
+              modes={[
+                { key: "grid", label: "Grid View", icon: <Grid className="h-4 w-4" />, isActive: true },
+                {
+                  key: "wall",
+                  label: "3D Wall",
+                  icon: <CoverflowIcon className="size-4" />,
+                  to: `/cluster/${cluster.id}/wall`,
+                  isActive: false,
+                },
+              ]}
+            />
             <span className="text-gray-600">
               {totalFaces} face{totalFaces !== 1 ? "s" : ""}
             </span>

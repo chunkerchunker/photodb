@@ -1,8 +1,8 @@
 import { Camera, Grid, User, Users } from "lucide-react";
 import { Link } from "react-router";
+import { CoverflowIcon } from "./coverflow-icon";
 import { Header } from "./header";
 import { ViewSwitcher } from "./view-switcher";
-import { CoverflowIcon } from "./coverflow-icon";
 
 interface LayoutProps {
   children: React.ReactNode;

@@ -12,10 +12,15 @@ Includes support for constrained clustering:
 import logging
 from typing import Dict, Any, List
 import numpy as np
-import hdbscan
 
 from ..database.connection import ConnectionPool
 from ..database.repository import PhotoRepository, MIN_FACE_SIZE_PX, MIN_FACE_CONFIDENCE
+from .hdbscan_config import (
+    create_hdbscan_clusterer,
+    calculate_cluster_epsilon,
+    DEFAULT_CORE_PROBABILITY_THRESHOLD,
+    DEFAULT_CLUSTERING_THRESHOLD,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -490,14 +495,8 @@ class MaintenanceUtilities:
             f"(min_cluster_size={min_cluster_size})"
         )
 
-        # Run HDBSCAN with same params as bootstrap
-        clusterer = hdbscan.HDBSCAN(
-            min_cluster_size=min_cluster_size,
-            min_samples=2,
-            metric="euclidean",
-            cluster_selection_method="eom",
-            core_dist_n_jobs=-1,
-        )
+        # Run HDBSCAN using shared configuration
+        clusterer = create_hdbscan_clusterer(min_cluster_size=min_cluster_size)
         clusterer.fit(embeddings)
 
         labels = clusterer.labels_
@@ -536,7 +535,6 @@ class MaintenanceUtilities:
 
         # Create clusters
         clusters_created = 0
-        core_probability_threshold = 0.8
 
         for label, cluster_detection_ids in label_to_detections.items():
             cluster_embeddings = np.array(label_to_embeddings[label])
@@ -548,16 +546,10 @@ class MaintenanceUtilities:
             if centroid_norm > 0:
                 centroid = centroid / centroid_norm
 
-            # Calculate epsilon (90th percentile of pairwise distances)
-            if len(cluster_embeddings) >= 2:
-                from scipy.spatial.distance import pdist
-
-                pairwise_distances = pdist(cluster_embeddings, metric="euclidean")
-                epsilon = float(np.percentile(pairwise_distances, 90))
-                # Clamp to reasonable bounds
-                epsilon = max(0.1, min(epsilon, 0.675))  # 0.675 = 0.45 * 1.5
-            else:
-                epsilon = 0.45  # Default threshold
+            # Calculate epsilon using shared function
+            epsilon = calculate_cluster_epsilon(
+                embeddings, labels, label, fallback_threshold=DEFAULT_CLUSTERING_THRESHOLD
+            )
 
             # Find medoid (closest to centroid)
             distances_to_centroid = np.linalg.norm(cluster_embeddings - centroid, axis=1)
@@ -568,7 +560,7 @@ class MaintenanceUtilities:
             core_detection_ids = [
                 did
                 for did, prob in zip(cluster_detection_ids, cluster_probabilities)
-                if prob >= core_probability_threshold
+                if prob >= DEFAULT_CORE_PROBABILITY_THRESHOLD
             ]
 
             # Create cluster with epsilon
@@ -589,7 +581,7 @@ class MaintenanceUtilities:
 
             # Assign detections to cluster
             for detection_id, prob in zip(cluster_detection_ids, cluster_probabilities):
-                is_core = prob >= core_probability_threshold
+                is_core = prob >= DEFAULT_CORE_PROBABILITY_THRESHOLD
                 status = "hdbscan_core" if is_core else "hdbscan"
 
                 # Force update (we're in maintenance, so no race conditions)

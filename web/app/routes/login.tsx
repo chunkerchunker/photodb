@@ -1,6 +1,6 @@
 import { Form, useActionData, useNavigation } from "react-router";
-import type { Route } from "./+types/login";
 import { handleLogin } from "~/lib/auth.server";
+import type { Route } from "./+types/login";
 
 export async function action({ request }: Route.ActionArgs) {
   return await handleLogin(request);

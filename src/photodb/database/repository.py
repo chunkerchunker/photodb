@@ -1569,7 +1569,8 @@ class PhotoRepository:
                     """UPDATE person_detection
                        SET cluster_id = NULL,
                            cluster_status = 'unassigned',
-                           cluster_confidence = 0
+                           cluster_confidence = 0,
+                           unassigned_since = NOW()
                        WHERE id = %s""",
                     (detection_id,),
                 )

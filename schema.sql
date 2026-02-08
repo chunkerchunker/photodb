@@ -31,9 +31,17 @@ CREATE TABLE IF NOT EXISTS collection_member(
 );
 
 -- Add default collection FK after collection exists (nullable to avoid cyclic bootstrapping)
-ALTER TABLE app_user
-    ADD CONSTRAINT app_user_default_collection_fk
-    FOREIGN KEY (default_collection_id) REFERENCES collection(id) ON DELETE SET NULL;
+DO $$
+BEGIN
+    IF NOT EXISTS (
+        SELECT 1 FROM pg_constraint WHERE conname = 'app_user_default_collection_fk'
+    ) THEN
+        ALTER TABLE app_user
+            ADD CONSTRAINT app_user_default_collection_fk
+            FOREIGN KEY (default_collection_id) REFERENCES collection(id) ON DELETE SET NULL;
+    END IF;
+END;
+$$;
 
 -- Photo table: Core photo records
 CREATE TABLE IF NOT EXISTS photo(
@@ -340,18 +348,6 @@ CREATE INDEX IF NOT EXISTS idx_face_match_candidate_collection ON face_match_can
 
 CREATE INDEX IF NOT EXISTS idx_face_match_candidate_status ON face_match_candidate(status);
 
--- Must-link constraint: forces detections to be in the same cluster
-CREATE TABLE IF NOT EXISTS must_link(
-    id bigserial PRIMARY KEY,
-    detection_id_1 bigint NOT NULL REFERENCES person_detection(id) ON DELETE CASCADE,
-    detection_id_2 bigint NOT NULL REFERENCES person_detection(id) ON DELETE CASCADE,
-    collection_id bigint NOT NULL REFERENCES collection(id) ON DELETE CASCADE,
-    created_by text DEFAULT 'human', -- 'human' or 'system'
-    created_at timestamptz DEFAULT NOW(),
-    UNIQUE(detection_id_1, detection_id_2),
-    CHECK (detection_id_1 < detection_id_2) -- Canonical ordering to prevent duplicates
-);
-
 -- Cannot-link constraint: prevents detections from being in the same cluster
 CREATE TABLE IF NOT EXISTS cannot_link(
     id bigserial PRIMARY KEY,
@@ -376,9 +372,6 @@ CREATE TABLE IF NOT EXISTS cluster_cannot_link(
 );
 
 -- Indexes for constraint lookups
-CREATE INDEX IF NOT EXISTS idx_must_link_detection1 ON must_link(detection_id_1);
-CREATE INDEX IF NOT EXISTS idx_must_link_detection2 ON must_link(detection_id_2);
-CREATE INDEX IF NOT EXISTS idx_must_link_collection ON must_link(collection_id);
 CREATE INDEX IF NOT EXISTS idx_cannot_link_detection1 ON cannot_link(detection_id_1);
 CREATE INDEX IF NOT EXISTS idx_cannot_link_detection2 ON cannot_link(detection_id_2);
 CREATE INDEX IF NOT EXISTS idx_cannot_link_collection ON cannot_link(collection_id);
@@ -388,32 +381,6 @@ CREATE INDEX IF NOT EXISTS idx_cluster_cannot_link_collection ON cluster_cannot_
 CREATE INDEX IF NOT EXISTS idx_cluster_verified ON "cluster"(verified) WHERE verified = true;
 
 -- Helper functions for constraint management
-
--- Function to add a must-link constraint with canonical ordering
-CREATE OR REPLACE FUNCTION add_must_link(p_detection_id_1 bigint, p_detection_id_2 bigint, p_collection_id bigint, p_created_by text DEFAULT 'human')
-RETURNS bigint AS $$
-DECLARE
-    v_id bigint;
-    v_detection_1 bigint;
-    v_detection_2 bigint;
-BEGIN
-    -- Ensure canonical ordering
-    IF p_detection_id_1 < p_detection_id_2 THEN
-        v_detection_1 := p_detection_id_1;
-        v_detection_2 := p_detection_id_2;
-    ELSE
-        v_detection_1 := p_detection_id_2;
-        v_detection_2 := p_detection_id_1;
-    END IF;
-
-    INSERT INTO must_link (detection_id_1, detection_id_2, collection_id, created_by)
-    VALUES (v_detection_1, v_detection_2, p_collection_id, p_created_by)
-    ON CONFLICT (detection_id_1, detection_id_2) DO NOTHING
-    RETURNING id INTO v_id;
-
-    RETURN v_id;
-END;
-$$ LANGUAGE plpgsql;
 
 -- Function to add a cannot-link constraint with canonical ordering
 CREATE OR REPLACE FUNCTION add_cannot_link(p_detection_id_1 bigint, p_detection_id_2 bigint, p_collection_id bigint, p_created_by text DEFAULT 'human')

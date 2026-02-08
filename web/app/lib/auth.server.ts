@@ -1,6 +1,6 @@
 import crypto from "node:crypto";
 import { redirect } from "react-router";
-import { getUserById, getUserByUsername, updateUserPasswordHash, type AppUser } from "./db.server";
+import { type AppUser, getUserById, getUserByUsername, updateUserPasswordHash } from "./db.server";
 
 const SESSION_COOKIE_NAME = "photodb_session";
 const SESSION_TTL_DAYS = 30;
@@ -12,12 +12,15 @@ if (process.env.NODE_ENV === "production" && !process.env.SESSION_SECRET) {
 
 function parseCookies(cookieHeader: string | null): Record<string, string> {
   if (!cookieHeader) return {};
-  return cookieHeader.split(";").reduce((acc, part) => {
-    const [rawKey, ...rawValue] = part.trim().split("=");
-    if (!rawKey) return acc;
-    acc[decodeURIComponent(rawKey)] = decodeURIComponent(rawValue.join("="));
-    return acc;
-  }, {} as Record<string, string>);
+  return cookieHeader.split(";").reduce(
+    (acc, part) => {
+      const [rawKey, ...rawValue] = part.trim().split("=");
+      if (!rawKey) return acc;
+      acc[decodeURIComponent(rawKey)] = decodeURIComponent(rawValue.join("="));
+      return acc;
+    },
+    {} as Record<string, string>,
+  );
 }
 
 function buildSetCookie(value: string, expiresAt: Date): string {

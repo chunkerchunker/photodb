@@ -1,11 +1,11 @@
 import { Box, Loader2 } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
-import { Link, useFetcher } from "react-router";
+import { data, Link, useFetcher } from "react-router";
 import { Breadcrumb } from "~/components/breadcrumb";
 import { Layout } from "~/components/layout";
 import { Card, CardContent } from "~/components/ui/card";
 import { getPhotoCountByMonth, getPhotosByMonth } from "~/lib/db.server";
-import type { Route } from "./+types/month";
+import type { Route } from "./+types/month.grid";
 
 export function meta({ params }: Route.MetaArgs) {
   const monthNames = [
@@ -36,6 +36,8 @@ export function meta({ params }: Route.MetaArgs) {
 
 const LIMIT = 48; // 6x8 grid
 
+import { dataWithViewMode } from "~/lib/cookies.server";
+
 export async function loader({ params, request }: Route.LoaderArgs) {
   const year = parseInt(params.year, 10);
   const month = parseInt(params.month, 10);
@@ -65,26 +67,32 @@ export async function loader({ params, request }: Route.LoaderArgs) {
     const totalPhotos = await getPhotoCountByMonth(year, month);
     const hasMore = offset + photos.length < totalPhotos;
 
-    return {
-      photos,
-      totalPhotos,
-      hasMore,
-      page,
-      year: params.year,
-      month: params.month,
-      monthName,
-    };
+    return dataWithViewMode(
+      {
+        photos,
+        totalPhotos,
+        hasMore,
+        page,
+        year: params.year,
+        month: params.month,
+        monthName,
+      },
+      "grid",
+    );
   } catch (error) {
     console.error(`Failed to load photos for ${year}-${month}:`, error);
-    return {
-      photos: [],
-      totalPhotos: 0,
-      hasMore: false,
-      page,
-      year: params.year,
-      month: params.month,
-      monthName,
-    };
+    return dataWithViewMode(
+      {
+        photos: [],
+        totalPhotos: 0,
+        hasMore: false,
+        page,
+        year: params.year,
+        month: params.month,
+        monthName,
+      },
+      "grid",
+    );
   }
 }
 

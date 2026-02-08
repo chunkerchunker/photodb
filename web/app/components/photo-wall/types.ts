@@ -1,3 +1,12 @@
+export interface BoundingBox {
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+  imageWidth: number;
+  imageHeight: number;
+}
+
 export interface WallTile {
   id: string | number;
   imageUrls: string[];
@@ -6,6 +15,8 @@ export interface WallTile {
   metadata?: {
     subtitle?: string;
     count?: number;
+    bbox?: BoundingBox;
+    isCircular?: boolean; // Set to true for circular face tiles, defaults to false (rectangular)
   };
 }
 
@@ -21,6 +32,7 @@ export const ROWS = 4;
 export const TILE_WIDTH = 2.0;
 export const TILE_HEIGHT = 1.5;
 export const TILE_GAP = 0.15;
+export const TILE_GAP_V = 0.35; // Extra vertical gap for face views with labels
 
 // Camera constants
 export const CAMERA_Z_DEFAULT = 8;

@@ -24,6 +24,7 @@ export const tileFragmentShader = `
   uniform float vignetteStrength;
   uniform float imageAspect;
   uniform float tileAspect;
+  uniform bool isCircular;
 
   varying vec2 vUv;
   varying vec3 vNormal;
@@ -35,16 +36,28 @@ export const tileFragmentShader = `
     return length(max(q, 0.0)) - radius;
   }
 
-  void main() {
-    // Calculate distance from rounded rectangle edge
-    vec2 centeredUv = vUv * 2.0 - 1.0;
-    float halfSize = 1.0 - cornerRadius;
-    float d = roundedBoxSDF(centeredUv, vec2(halfSize), cornerRadius);
+  // Signed distance function for circle
+  float circleSDF(vec2 p, float radius) {
+    return length(p) - radius;
+  }
 
-    // Discard pixels outside rounded corners
+  void main() {
+    vec2 centeredUv = vUv * 2.0 - 1.0;
+    float d;
+
+    if (isCircular) {
+      // Circle mode - use circle SDF
+      d = circleSDF(centeredUv, 1.0);
+    } else {
+      // Rectangle mode - use rounded box SDF
+      float halfSize = 1.0 - cornerRadius;
+      d = roundedBoxSDF(centeredUv, vec2(halfSize), cornerRadius);
+    }
+
+    // Discard pixels outside shape
     if (d > 0.0) discard;
 
-    // Anti-aliased edge for rounded corners
+    // Anti-aliased edge
     float edgeSoftness = fwidth(d) * 1.5;
     float edgeAlpha = 1.0 - smoothstep(-edgeSoftness, edgeSoftness, d);
 
@@ -78,8 +91,9 @@ export const tileFragmentShader = `
       litColor = ambient + diffuse;
     }
 
-    // Vignette effect - darken edges only
-    float vignette = 1.0 - pow(dist, 2.5) * vignetteStrength;
+    // Vignette effect - darken edges only (subtle for circles)
+    float vignetteAmount = isCircular ? vignetteStrength * 0.5 : vignetteStrength;
+    float vignette = 1.0 - pow(dist, 2.5) * vignetteAmount;
 
     vec3 finalColor = litColor * vignette;
 
@@ -92,6 +106,7 @@ export const shadowFragmentShader = `
   uniform float blur;
   uniform float cornerRadius;
   uniform float innerScale;
+  uniform bool isCircular;
 
   varying vec2 vUv;
 
@@ -101,11 +116,23 @@ export const shadowFragmentShader = `
     return length(max(q, 0.0)) - radius;
   }
 
+  // Signed distance function for circle
+  float circleSDF(vec2 p, float radius) {
+    return length(p) - radius;
+  }
+
   void main() {
     vec2 centeredUv = vUv * 2.0 - 1.0;
-    // Scale the box to match tile size within larger geometry
-    float halfSize = innerScale - cornerRadius;
-    float d = roundedBoxSDF(centeredUv, vec2(halfSize), cornerRadius);
+    float d;
+
+    if (isCircular) {
+      // Circle shadow
+      d = circleSDF(centeredUv, innerScale);
+    } else {
+      // Rounded rectangle shadow
+      float halfSize = innerScale - cornerRadius;
+      d = roundedBoxSDF(centeredUv, vec2(halfSize), cornerRadius);
+    }
 
     // Soft shadow falloff - blur is in UV space
     float alpha = 1.0 - smoothstep(-blur * 0.5, blur, d);
@@ -114,10 +141,10 @@ export const shadowFragmentShader = `
   }
 `;
 
-export function createShadowMaterial(): THREE.ShaderMaterial {
-  const innerScale = TILE_WIDTH / (TILE_WIDTH + SHADOW_BLUR * 4);
+export function createShadowMaterial(isCircular: boolean = false, tileSize: number = TILE_WIDTH): THREE.ShaderMaterial {
+  const innerScale = tileSize / (tileSize + SHADOW_BLUR * 4);
   const shadowCornerRadius = CORNER_RADIUS * innerScale;
-  const blurUV = ((SHADOW_BLUR * 2) / (TILE_WIDTH + SHADOW_BLUR * 4)) * 2;
+  const blurUV = ((SHADOW_BLUR * 2) / (tileSize + SHADOW_BLUR * 4)) * 2;
 
   return new THREE.ShaderMaterial({
     uniforms: {
@@ -125,6 +152,7 @@ export function createShadowMaterial(): THREE.ShaderMaterial {
       blur: { value: blurUV },
       cornerRadius: { value: shadowCornerRadius },
       innerScale: { value: innerScale },
+      isCircular: { value: isCircular },
     },
     vertexShader: tileVertexShader,
     fragmentShader: shadowFragmentShader,
@@ -134,7 +162,7 @@ export function createShadowMaterial(): THREE.ShaderMaterial {
   });
 }
 
-export function createTileMaterial(isReflection: boolean = false): THREE.ShaderMaterial {
+export function createTileMaterial(isReflection: boolean = false, isCircular: boolean = false): THREE.ShaderMaterial {
   return new THREE.ShaderMaterial({
     uniforms: {
       map: { value: null },
@@ -144,7 +172,8 @@ export function createTileMaterial(isReflection: boolean = false): THREE.ShaderM
       cornerRadius: { value: CORNER_RADIUS },
       vignetteStrength: { value: VIGNETTE_STRENGTH },
       imageAspect: { value: 0.0 },
-      tileAspect: { value: TILE_WIDTH / TILE_HEIGHT },
+      tileAspect: { value: isCircular ? 1.0 : TILE_WIDTH / TILE_HEIGHT },
+      isCircular: { value: isCircular },
     },
     vertexShader: tileVertexShader,
     fragmentShader: tileFragmentShader,

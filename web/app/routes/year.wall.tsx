@@ -1,7 +1,10 @@
-import { ArrowLeft, Grid } from "lucide-react";
+import { ArrowLeft, Camera, Grid, User, Users } from "lucide-react";
 import { useMemo } from "react";
-import { Link, useLocation } from "react-router";
+import { data, Link, useLocation } from "react-router";
+import { CoverflowIcon } from "~/components/coverflow-icon";
+import { Header } from "~/components/header";
 import { PhotoWall, type WallTile } from "~/components/photo-wall";
+import { ViewSwitcher } from "~/components/view-switcher";
 import { getMonthsInYear } from "~/lib/db.server";
 import type { Route } from "./+types/year.wall";
 
@@ -12,15 +15,17 @@ export function meta({ params }: Route.MetaArgs) {
   ];
 }
 
+import { dataWithViewMode } from "~/lib/cookies.server";
+
 export async function loader({ params }: Route.LoaderArgs) {
   const year = parseInt(params.year, 10);
 
   try {
     const months = await getMonthsInYear(year);
-    return { months, year: params.year };
+    return dataWithViewMode({ months, year: params.year }, "wall");
   } catch (error) {
     console.error(`Failed to load months for year ${year}:`, error);
-    return { months: [], year: params.year };
+    return dataWithViewMode({ months: [], year: params.year }, "wall");
   }
 }
 
@@ -59,27 +64,29 @@ export default function YearWallView({ loaderData }: Route.ComponentProps) {
   }
 
   const headerContent = (
-    <div className="flex items-center justify-between">
-      <div className="flex items-center gap-4">
-        <Link
-          to={`/year/${year}`}
-          className="text-white/80 hover:text-white transition-colors p-2 rounded-lg hover:bg-white/10"
-          title="Grid view"
-        >
-          <Grid className="h-5 w-5" />
-        </Link>
-        <div>
-          <h1 className="text-2xl font-bold text-white">{year}</h1>
-          <p className="text-white/60 text-sm">
-            {months.length} month{months.length !== 1 ? "s" : ""} - 3D Wall View
-          </p>
-        </div>
-      </div>
-      <Link to="/wall" className="text-white/80 hover:text-white transition-colors flex items-center gap-2">
-        <ArrowLeft className="h-4 w-4" />
-        Back to Years
-      </Link>
-    </div>
+    <Header
+      homeTo="/wall"
+      breadcrumbs={[{ label: year.toString() }]}
+      viewAction={
+        <ViewSwitcher
+          modes={[
+            {
+              key: "grid",
+              label: "Grid View",
+              icon: <Grid className="h-4 w-4" />,
+              to: `/year/${year}/grid`,
+              isActive: false,
+            },
+            {
+              key: "wall",
+              label: "3D Wall",
+              icon: <CoverflowIcon className="h-4 w-4" />,
+              isActive: true,
+            },
+          ]}
+        />
+      }
+    />
   );
 
   return <PhotoWall key={location.key} tiles={tiles} sessionKey={`year-wall-${year}`} headerContent={headerContent} />;

@@ -4,6 +4,7 @@ import { useNavigate } from "react-router";
 import * as THREE from "three";
 import { createShadowMaterial, createTileMaterial } from "./shaders";
 import {
+  type BoundingBox,
   CAMERA_Z_DEFAULT,
   CAMERA_Z_MAX,
   CAMERA_Z_MIN,
@@ -17,6 +18,7 @@ import {
   SHADOW_OFFSET_Y,
   SHADOW_OFFSET_Z,
   TILE_GAP,
+  TILE_GAP_V,
   TILE_HEIGHT,
   TILE_WIDTH,
   type WallTile,
@@ -27,19 +29,78 @@ interface TileData {
   mesh: THREE.Mesh;
   shadowMesh: THREE.Mesh;
   reflectionMesh: THREE.Mesh;
+  labelMesh?: THREE.Mesh;
   tile: WallTile;
   column: number;
   row: number;
   baseX: number;
   baseY: number;
+  isCircular: boolean;
 }
 
-// Create a collage texture from multiple images with an optional label
-async function createCollageTexture(imageUrls: string[], label?: string): Promise<HTMLCanvasElement> {
+// Create a label texture for text below tiles
+// If label is provided, renders it bold and bright
+// If only subtitle is provided (no label), renders it in the same position but with subtitle styling
+function createLabelTexture(label: string, subtitle?: string): THREE.CanvasTexture {
+  const canvas = document.createElement("canvas");
+  const width = 512;
+  const height = 80;
+  canvas.width = width;
+  canvas.height = height;
+  const ctx = canvas.getContext("2d");
+  if (!ctx) return new THREE.CanvasTexture(canvas);
+
+  // Transparent background
+  ctx.clearRect(0, 0, width, height);
+
+  ctx.textAlign = "center";
+  ctx.textBaseline = "middle";
+
+  const centerY = height / 2;
+
+  // If no label but has subtitle, render subtitle centered with subtitle styling
+  if (!label && subtitle) {
+    const subtitleFontSize = 28;
+    ctx.font = `${subtitleFontSize}px system-ui, -apple-system, sans-serif`;
+
+    // Shadow
+    ctx.fillStyle = "rgba(0, 0, 0, 0.6)";
+    ctx.fillText(subtitle, width / 2 + 1, centerY + 1);
+
+    // Text (subtitle styling - muted)
+    ctx.fillStyle = "rgba(255, 255, 255, 0.55)";
+    ctx.fillText(subtitle, width / 2, centerY);
+  } else if (label) {
+    // Draw label centered
+    const fontSize = 36;
+    ctx.font = `600 ${fontSize}px system-ui, -apple-system, sans-serif`;
+
+    // Shadow
+    ctx.fillStyle = "rgba(0, 0, 0, 0.6)";
+    ctx.fillText(label, width / 2 + 1, centerY + 1);
+
+    // Text (slightly muted white)
+    ctx.fillStyle = "rgba(255, 255, 255, 0.75)";
+    ctx.fillText(label, width / 2, centerY);
+  }
+
+  const texture = new THREE.CanvasTexture(canvas);
+  texture.needsUpdate = true;
+  return texture;
+}
+
+// Create a collage texture from multiple images with an optional label and bbox for face cropping
+async function createCollageTexture(
+  imageUrls: string[],
+  label?: string,
+  bbox?: BoundingBox,
+  isCircular: boolean = false,
+): Promise<HTMLCanvasElement> {
   const canvas = document.createElement("canvas");
   const size = 512;
+  // For circular (face) tiles, use square canvas; for rectangular tiles, use aspect ratio
   canvas.width = size;
-  canvas.height = size * (TILE_HEIGHT / TILE_WIDTH);
+  canvas.height = isCircular ? size : size * (TILE_HEIGHT / TILE_WIDTH);
   const ctx = canvas.getContext("2d");
   if (!ctx) return canvas;
 
@@ -64,39 +125,95 @@ async function createCollageTexture(imageUrls: string[], label?: string): Promis
     .map((r) => (r as PromiseFulfilledResult<HTMLImageElement>).value);
 
   if (loadedImages.length > 0) {
-    const cols = loadedImages.length === 1 ? 1 : 2;
-    const rows = loadedImages.length <= 2 ? 1 : 2;
-    const cellWidth = canvas.width / cols;
-    const cellHeight = canvas.height / rows;
-    const gap = 2;
+    // If bbox is provided, crop to the face region
+    if (bbox && loadedImages.length === 1) {
+      const img = loadedImages[0];
 
-    loadedImages.slice(0, 4).forEach((img, i) => {
-      const col = i % cols;
-      const row = Math.floor(i / cols);
-      const x = col * cellWidth + gap / 2;
-      const y = row * cellHeight + gap / 2;
-      const w = cellWidth - gap;
-      const h = cellHeight - gap;
+      // bbox coordinates are in pixels (relative to imageWidth/imageHeight)
+      // We need to scale them to the actual loaded image dimensions
+      const scaleX = img.width / bbox.imageWidth;
+      const scaleY = img.height / bbox.imageHeight;
 
-      // Draw image with cover fit
-      const imgAspect = img.width / img.height;
-      const cellAspect = w / h;
+      // Add padding around the face (20% on each side for context)
+      const padding = 0.2;
 
-      let sx = 0,
-        sy = 0,
-        sw = img.width,
-        sh = img.height;
+      // For circular tiles, make the crop square; for rectangular, use bbox aspect with padding
+      const paddedWidth = bbox.width * (1 + padding * 2);
+      const paddedHeight = bbox.height * (1 + padding * 2);
 
-      if (imgAspect > cellAspect) {
-        sw = img.height * cellAspect;
-        sx = (img.width - sw) / 2;
-      } else {
-        sh = img.width / cellAspect;
-        sy = (img.height - sh) / 2;
+      // Center the crop on the face center
+      const faceCenterX = bbox.x + bbox.width / 2;
+      const faceCenterY = bbox.y + bbox.height / 2;
+      const paddedX = faceCenterX - paddedWidth / 2;
+      const paddedY = faceCenterY - paddedHeight / 2;
+
+      // Convert to actual image pixel coordinates
+      const sx = Math.max(0, paddedX * scaleX);
+      const sy = Math.max(0, paddedY * scaleY);
+      const sw = Math.min(paddedWidth * scaleX, img.width - sx);
+      const sh = Math.min(paddedHeight * scaleY, img.height - sy);
+
+      // Draw to fill the canvas (cover fit)
+      const srcAspect = sw / sh;
+      const destAspect = canvas.width / canvas.height;
+      let drawX = 0,
+        drawY = 0,
+        drawW = canvas.width,
+        drawH = canvas.height;
+
+      if (srcAspect > destAspect) {
+        // Source is wider - fit to height, center horizontally
+        drawW = canvas.height * srcAspect;
+        drawX = (canvas.width - drawW) / 2;
+      } else if (srcAspect < destAspect) {
+        // Source is taller - fit to width, center vertically
+        drawH = canvas.width / srcAspect;
+        drawY = (canvas.height - drawH) / 2;
       }
 
-      ctx.drawImage(img, sx, sy, sw, sh, x, y, w, h);
-    });
+      ctx.drawImage(img, sx, sy, sw, sh, drawX, drawY, drawW, drawH);
+
+      // For circular tiles, don't draw label - it will be rendered separately
+      if (isCircular) {
+        return canvas;
+      }
+      // For rectangular tiles with bbox, continue to draw the label below
+    } else {
+      // Standard collage behavior for multiple images or no bbox
+      const cols = loadedImages.length === 1 ? 1 : 2;
+      const rows = loadedImages.length <= 2 ? 1 : 2;
+      const cellWidth = canvas.width / cols;
+      const cellHeight = canvas.height / rows;
+      const gap = 2;
+
+      loadedImages.slice(0, 4).forEach((img, i) => {
+        const col = i % cols;
+        const row = Math.floor(i / cols);
+        const x = col * cellWidth + gap / 2;
+        const y = row * cellHeight + gap / 2;
+        const w = cellWidth - gap;
+        const h = cellHeight - gap;
+
+        // Draw image with cover fit
+        const imgAspect = img.width / img.height;
+        const cellAspect = w / h;
+
+        let sx = 0,
+          sy = 0,
+          sw = img.width,
+          sh = img.height;
+
+        if (imgAspect > cellAspect) {
+          sw = img.height * cellAspect;
+          sx = (img.width - sw) / 2;
+        } else {
+          sh = img.width / cellAspect;
+          sy = (img.height - sh) / 2;
+        }
+
+        ctx.drawImage(img, sx, sy, sw, sh, x, y, w, h);
+      });
+    }
   }
 
   // Draw label if provided
@@ -200,24 +317,36 @@ export function PhotoWall({ tiles, sessionKey, headerContent, onTileClick }: Pho
         // Mark as loading
         loadedTexturesRef.current.set(tileData.tile.id, null as unknown as THREE.Texture);
 
-        // Create collage texture
-        createCollageTexture(tileData.tile.imageUrls, tileData.tile.label)
+        // For tiles with bbox (face cropping), don't include label in texture (it's rendered separately)
+        const hasBbox = !!tileData.tile.metadata?.bbox;
+        const labelForTexture = hasBbox ? undefined : tileData.tile.label;
+
+        // Create collage texture with optional bbox for face cropping
+        createCollageTexture(
+          tileData.tile.imageUrls,
+          labelForTexture,
+          tileData.tile.metadata?.bbox,
+          tileData.isCircular,
+        )
           .then((canvas) => {
             const texture = new THREE.CanvasTexture(canvas);
             loadedTexturesRef.current.set(tileData.tile.id, texture);
+
+            // Circular tiles have 1:1 aspect ratio, rectangular have TILE_WIDTH/TILE_HEIGHT
+            const imageAspect = tileData.isCircular ? 1.0 : TILE_WIDTH / TILE_HEIGHT;
 
             // Update main mesh
             const material = tileData.mesh.material as THREE.ShaderMaterial;
             material.uniforms.map.value = texture;
             material.uniforms.hasTexture.value = true;
-            material.uniforms.imageAspect.value = TILE_WIDTH / TILE_HEIGHT;
+            material.uniforms.imageAspect.value = imageAspect;
             material.needsUpdate = true;
 
             // Update reflection mesh
             const reflectionMaterial = tileData.reflectionMesh.material as THREE.ShaderMaterial;
             reflectionMaterial.uniforms.map.value = texture;
             reflectionMaterial.uniforms.hasTexture.value = true;
-            reflectionMaterial.uniforms.imageAspect.value = TILE_WIDTH / TILE_HEIGHT;
+            reflectionMaterial.uniforms.imageAspect.value = imageAspect;
             reflectionMaterial.needsUpdate = true;
           })
           .catch(() => {
@@ -253,6 +382,13 @@ export function PhotoWall({ tiles, sessionKey, headerContent, onTileClick }: Pho
       tileData.reflectionMesh.rotation.y = rotationY;
       tileData.reflectionMesh.position.z = offsetZ;
       tileData.reflectionMesh.position.x = curveX - wallPositionRef.current.x;
+
+      // Update label mesh position for circular tiles
+      if (tileData.labelMesh) {
+        tileData.labelMesh.rotation.y = rotationY;
+        tileData.labelMesh.position.z = offsetZ + 0.01;
+        tileData.labelMesh.position.x = curveX - wallPositionRef.current.x;
+      }
 
       const distanceFromCenter = Math.abs(clampedAngle) / (Math.PI / 3);
       const baseOpacity = 0.12;
@@ -571,7 +707,7 @@ export function PhotoWall({ tiles, sessionKey, headerContent, onTileClick }: Pho
 
     const tileDataList: TileData[] = [];
 
-    const bottomRowY = (ROWS / 2 - (ROWS - 1) - 0.5) * (TILE_HEIGHT + TILE_GAP);
+    const bottomRowY = (ROWS / 2 - (ROWS - 1) - 0.5) * (TILE_HEIGHT + TILE_GAP_V);
     const wallBottom = bottomRowY - TILE_HEIGHT / 2;
     const reflectionGap = 0.15;
     const mirrorLine = wallBottom - reflectionGap;
@@ -580,20 +716,31 @@ export function PhotoWall({ tiles, sessionKey, headerContent, onTileClick }: Pho
       const column = Math.floor(index / ROWS);
       const row = index % ROWS;
 
+      // Check if this is a circular (face) tile - explicitly set via isCircular flag
+      const isCircular = !!tile.metadata?.isCircular;
+      // Check if tile has bbox (face cropping) - labels will be outside
+      const hasBbox = !!tile.metadata?.bbox;
+
+      // For circular tiles, use square dimensions
+      const tileW = isCircular ? TILE_HEIGHT : TILE_WIDTH;
+      const tileH = TILE_HEIGHT;
+
       const x = column * (TILE_WIDTH + TILE_GAP) - wallWidth / 2 + TILE_WIDTH / 2;
-      const y = (ROWS / 2 - row - 0.5) * (TILE_HEIGHT + TILE_GAP);
+      // Use larger vertical gap for better spacing
+      const y = (ROWS / 2 - row - 0.5) * (TILE_HEIGHT + TILE_GAP_V);
 
       // Create shadow mesh
-      const shadowGeometry = new THREE.PlaneGeometry(TILE_WIDTH + SHADOW_BLUR * 4, TILE_HEIGHT + SHADOW_BLUR * 4);
-      const shadowMaterial = createShadowMaterial();
+      const shadowSize = isCircular ? tileH : tileW;
+      const shadowGeometry = new THREE.PlaneGeometry(shadowSize + SHADOW_BLUR * 4, shadowSize + SHADOW_BLUR * 4);
+      const shadowMaterial = createShadowMaterial(isCircular, shadowSize);
       const shadowMesh = new THREE.Mesh(shadowGeometry, shadowMaterial);
       shadowMesh.position.set(x + SHADOW_OFFSET_X, y + SHADOW_OFFSET_Y, SHADOW_OFFSET_Z);
       shadowMesh.userData = { isShadow: true };
       wallContainer.add(shadowMesh);
 
       // Create tile geometry
-      const geometry = new THREE.PlaneGeometry(TILE_WIDTH, TILE_HEIGHT);
-      const material = createTileMaterial(false);
+      const geometry = new THREE.PlaneGeometry(tileW, tileH);
+      const material = createTileMaterial(false, isCircular);
 
       const mesh = new THREE.Mesh(geometry, material);
       mesh.position.set(x, y, 0);
@@ -601,8 +748,8 @@ export function PhotoWall({ tiles, sessionKey, headerContent, onTileClick }: Pho
       wallContainer.add(mesh);
 
       // Create reflection mesh
-      const reflectionGeometry = new THREE.PlaneGeometry(TILE_WIDTH, TILE_HEIGHT);
-      const reflectionMaterial = createTileMaterial(true);
+      const reflectionGeometry = new THREE.PlaneGeometry(tileW, tileH);
+      const reflectionMaterial = createTileMaterial(true, isCircular);
       const reflectionMesh = new THREE.Mesh(reflectionGeometry, reflectionMaterial);
 
       const reflectionY = 2 * mirrorLine - y;
@@ -611,15 +758,38 @@ export function PhotoWall({ tiles, sessionKey, headerContent, onTileClick }: Pho
       reflectionMesh.userData = { isReflection: true };
       wallContainer.add(reflectionMesh);
 
+      // Create label mesh for tiles with bbox (face cropping) - label is outside the face
+      let labelMesh: THREE.Mesh | undefined;
+      if (hasBbox && (tile.label || tile.metadata?.subtitle)) {
+        const labelTexture = createLabelTexture(tile.label || "", tile.metadata?.subtitle);
+        // Match canvas aspect ratio (512x80 = 6.4:1)
+        const labelWidth = tileW * 1.4;
+        const labelHeight = labelWidth * (80 / 512);
+        const labelGeometry = new THREE.PlaneGeometry(labelWidth, labelHeight);
+        const labelMaterial = new THREE.MeshBasicMaterial({
+          map: labelTexture,
+          transparent: true,
+          side: THREE.FrontSide,
+          depthWrite: false,
+        });
+        labelMesh = new THREE.Mesh(labelGeometry, labelMaterial);
+        // Position label directly under tile, hugging the card above
+        labelMesh.position.set(x, y - tileH / 2 - labelHeight / 2 + 0.08, 0.01);
+        labelMesh.userData = { isLabel: true };
+        wallContainer.add(labelMesh);
+      }
+
       tileDataList.push({
         mesh,
         shadowMesh,
         reflectionMesh,
+        labelMesh,
         tile,
         column,
         row,
         baseX: x,
         baseY: y,
+        isCircular,
       });
     });
 
@@ -727,6 +897,10 @@ export function PhotoWall({ tiles, sessionKey, headerContent, onTileClick }: Pho
         (tileData.shadowMesh.material as THREE.Material).dispose();
         tileData.reflectionMesh.geometry.dispose();
         (tileData.reflectionMesh.material as THREE.Material).dispose();
+        if (tileData.labelMesh) {
+          tileData.labelMesh.geometry.dispose();
+          (tileData.labelMesh.material as THREE.Material).dispose();
+        }
       });
 
       sceneRef.current = null;

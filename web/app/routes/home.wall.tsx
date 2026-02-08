@@ -1,7 +1,10 @@
-import { Grid } from "lucide-react";
+import { Camera, Grid, User, Users } from "lucide-react";
 import { useMemo } from "react";
-import { Link, useLocation } from "react-router";
+import { data, Link, useLocation } from "react-router";
+import { CoverflowIcon } from "~/components/coverflow-icon";
+import { Header } from "~/components/header";
 import { PhotoWall, type WallTile } from "~/components/photo-wall";
+import { ViewSwitcher } from "~/components/view-switcher";
 import { getYearsWithPhotos } from "~/lib/db.server";
 import type { Route } from "./+types/home.wall";
 
@@ -12,13 +15,15 @@ export function meta() {
   ];
 }
 
+import { dataWithViewMode } from "~/lib/cookies.server";
+
 export async function loader() {
   try {
     const years = await getYearsWithPhotos();
-    return { years };
+    return dataWithViewMode({ years }, "wall");
   } catch (error) {
     console.error("Failed to load years:", error);
-    return { years: [] };
+    return dataWithViewMode({ years: [] }, "wall");
   }
 }
 
@@ -53,23 +58,28 @@ export default function HomeWallView({ loaderData }: Route.ComponentProps) {
   }
 
   const headerContent = (
-    <div className="flex items-center justify-between">
-      <div className="flex items-center gap-4">
-        <Link
-          to="/"
-          className="text-white/80 hover:text-white transition-colors p-2 rounded-lg hover:bg-white/10"
-          title="Grid view"
-        >
-          <Grid className="h-5 w-5" />
-        </Link>
-        <div>
-          <h1 className="text-2xl font-bold text-white">Photo Collection</h1>
-          <p className="text-white/60 text-sm">
-            {years.length} year{years.length !== 1 ? "s" : ""} - 3D Wall View
-          </p>
-        </div>
-      </div>
-    </div>
+    <Header
+      homeTo="/wall"
+      viewAction={
+        <ViewSwitcher
+          modes={[
+            {
+              key: "grid",
+              label: "Grid View",
+              icon: <Grid className="h-4 w-4" />,
+              to: "/grid",
+              isActive: false,
+            },
+            {
+              key: "wall",
+              label: "3D Wall",
+              icon: <CoverflowIcon className="size-4" />,
+              isActive: true,
+            },
+          ]}
+        />
+      }
+    />
   );
 
   return <PhotoWall key={location.key} tiles={tiles} sessionKey="home-wall" headerContent={headerContent} />;

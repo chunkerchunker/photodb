@@ -1,24 +1,26 @@
 import { Box } from "lucide-react";
-import { Link } from "react-router";
+import { data, Link } from "react-router";
 import { Breadcrumb } from "~/components/breadcrumb";
 import { Layout } from "~/components/layout";
 import { Card, CardContent } from "~/components/ui/card";
 import { getMonthsInYear } from "~/lib/db.server";
-import type { Route } from "./+types/year";
+import type { Route } from "./+types/year.grid";
 
 export function meta({ params }: Route.MetaArgs) {
   return [{ title: `PhotoDB - ${params.year}` }, { name: "description", content: `Browse photos from ${params.year}` }];
 }
+
+import { dataWithViewMode } from "~/lib/cookies.server";
 
 export async function loader({ params }: Route.LoaderArgs) {
   const year = parseInt(params.year, 10);
 
   try {
     const months = await getMonthsInYear(year);
-    return { months, year: params.year };
+    return dataWithViewMode({ months, year: params.year }, "grid");
   } catch (error) {
     console.error(`Failed to load months for year ${year}:`, error);
-    return { months: [], year: params.year };
+    return dataWithViewMode({ months: [], year: params.year }, "grid");
   }
 }
 

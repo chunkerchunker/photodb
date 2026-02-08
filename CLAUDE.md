@@ -222,6 +222,55 @@ Always import `timm_compat` before importing mivolo to apply the patches.
 
 **Model Location:** InsightFace models auto-download to `~/.insightface/models/` on first use.
 
+### Clustering Stage Configuration
+
+The clustering stage uses a hybrid HDBSCAN → Incremental DBSCAN approach:
+- **Bootstrap phase**: HDBSCAN identifies stable clusters and core points from existing embeddings
+- **Incremental phase**: New faces are assigned using per-cluster epsilon-ball queries
+
+**Configuration:**
+- `HDBSCAN_MIN_CLUSTER_SIZE`: Minimum faces to form a cluster (default: `3`)
+- `HDBSCAN_MIN_SAMPLES`: Core point requirement for HDBSCAN (default: `2`)
+- `EPSILON_PERCENTILE`: Percentile of core point distances for epsilon calculation (default: `90`)
+- `CLUSTERING_THRESHOLD`: Fallback distance threshold for clusters without epsilon (default: `0.45`)
+
+**Bootstrap Clustering:**
+To run HDBSCAN bootstrap on existing embeddings:
+```bash
+uv run python scripts/migrate_to_hdbscan.py --dry-run  # Preview changes
+uv run python scripts/migrate_to_hdbscan.py            # Run migration
+```
+
+**Database Migration:**
+For existing databases, run the migration for HDBSCAN support:
+```bash
+psql $DATABASE_URL -f migrations/010_hdbscan_clustering.sql
+```
+
+**How it works:**
+1. HDBSCAN runs on all embeddings to identify density-based clusters
+2. Core points (high-probability cluster members) are marked with `is_core = true`
+3. Per-cluster epsilon is calculated as the 90th percentile of core point distances
+4. New faces are assigned if distance to any cluster centroid < that cluster's epsilon
+5. Manual assignments (`cluster_status = 'manual'`) and verified clusters are preserved
+
+**Metal/MPS GPU Acceleration (Apple Silicon):**
+On Apple Silicon Macs, HDBSCAN bootstrap uses Metal/MPS for ~8x faster clustering:
+- GPU-accelerated k-NN search via PyTorch MPS
+- Sparse graph reduces MST complexity from O(n²) to O(n×k)
+- Automatically falls back to CPU if MPS unavailable
+- Validated with ARI > 0.97 (nearly identical results to CPU)
+
+**Person-Cluster Relationship:**
+- A Person can have multiple clusters (e.g., same person at different ages)
+- Clusters are linked to a Person via `cluster.person_id`
+- Users assign clusters to persons directly via the web UI
+- Cannot-link constraints prevent faces from being assigned to forbidden clusters
+
+**Constraints:**
+- `cannot_link`: Prevents a face from being assigned to a cluster (checked during incremental clustering)
+- No must-link table - identity linking is done directly via person_id
+
 ### Scene Analysis Stage Configuration
 
 - `CLIP_MODEL_NAME`: CLIP model to use (default: `MobileCLIP-S2`)

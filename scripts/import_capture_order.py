@@ -18,6 +18,12 @@ Usage:
   # With custom password
   python scripts/import_capture_order.py --order-id 123 --password "userpass"
 
+  # With custom base path for photo files
+  python scripts/import_capture_order.py --order-id 123 --base-path /path/to/capture
+
+  # Skip file existence check (import even if files are missing)
+  python scripts/import_capture_order.py --order-id 123 --no-check-files
+
 Environment:
   CAPTURE_DATABASE_URL: Connection string for capture DB (default: postgresql://localhost/capture)
   DATABASE_URL: Connection string for photodb (default: postgresql://localhost/photodb)
@@ -91,14 +97,21 @@ def _generate_username(name: str | None, order_id: int) -> str:
     return f"order_{order_id:05d}"
 
 
-def _build_photo_filename(order_id: int, album_id: int, page_id: str, crop_id: str) -> str:
+DEFAULT_BASE_PATH = "/Volumes/media/Pictures/capture"
+
+
+def _build_photo_filename(
+    order_id: int, album_id: int, page_id: str, crop_id: str, base_path: str = DEFAULT_BASE_PATH
+) -> str:
     """Build the photo filename path for a capture crop."""
-    return f"capture/Order#{order_id:05d}/Album#{album_id:05d}/{page_id}/crops/{crop_id}_final.jpeg"
+    return f"{base_path}/Order#{order_id:05d}/Album#{album_id:05d}/{page_id}/crops/{crop_id}_final.jpeg"
 
 
-def _build_normalized_path(order_id: int, album_id: int, page_id: str, crop_id: str) -> str:
+def _build_normalized_path(
+    order_id: int, album_id: int, page_id: str, crop_id: str, base_path: str = DEFAULT_BASE_PATH
+) -> str:
     """Build the normalized image path for a capture crop (with _sm suffix)."""
-    return f"capture/Order#{order_id:05d}/Album#{album_id:05d}/{page_id}/crops/{crop_id}_final_sm.jpeg"
+    return f"{base_path}/Order#{order_id:05d}/Album#{album_id:05d}/{page_id}/crops/{crop_id}_final_sm.jpeg"
 
 
 def _euclidean_distance(x1: int, y1: int, x2: int, y2: int) -> float:
@@ -398,13 +411,15 @@ def create_photos(
     crops: list[CaptureCrop],
     album_id_map: dict[int, int],
     dry_run: bool,
+    base_path: str = DEFAULT_BASE_PATH,
+    check_files: bool = True,
 ) -> int:
     """Create photo entries for all crops. Returns count of photos created."""
     if dry_run:
         print(f"\nWould create {len(crops)} photos:")
         for crop in crops[:5]:  # Show first 5 as example
-            filename = _build_photo_filename(order_id, crop.album_id, crop.page_id, crop.id)
-            normalized_path = _build_normalized_path(order_id, crop.album_id, crop.page_id, crop.id)
+            filename = _build_photo_filename(order_id, crop.album_id, crop.page_id, crop.id, base_path)
+            normalized_path = _build_normalized_path(order_id, crop.album_id, crop.page_id, crop.id, base_path)
             width, height, norm_w, norm_h = _calculate_dimensions(
                 crop.x1, crop.y1, crop.x2, crop.y2, crop.x3, crop.y3, crop.x4, crop.y4
             )
@@ -416,6 +431,7 @@ def create_photos(
 
     created = 0
     skipped = 0
+    skipped_missing = 0
     photo_album_created = 0
     now = datetime.now(timezone.utc)
 
@@ -424,8 +440,23 @@ def create_photos(
 
     with photodb_conn.cursor() as cur:
         for crop in crops:
-            filename = _build_photo_filename(order_id, crop.album_id, crop.page_id, crop.id)
-            normalized_path = _build_normalized_path(order_id, crop.album_id, crop.page_id, crop.id)
+            filename = _build_photo_filename(order_id, crop.album_id, crop.page_id, crop.id, base_path)
+            normalized_path = _build_normalized_path(order_id, crop.album_id, crop.page_id, crop.id, base_path)
+
+            # Check if files exist on disk
+            if check_files:
+                missing_files = []
+                if not os.path.exists(filename):
+                    missing_files.append(f"filename: {filename}")
+                if not os.path.exists(normalized_path):
+                    missing_files.append(f"normalized: {normalized_path}")
+                if missing_files:
+                    print(f"WARNING: Skipping crop {crop.id} - missing files:", file=sys.stderr)
+                    for mf in missing_files:
+                        print(f"  {mf}", file=sys.stderr)
+                    skipped_missing += 1
+                    continue
+
             width, height, norm_w, norm_h = _calculate_dimensions(
                 crop.x1, crop.y1, crop.x2, crop.y2, crop.x3, crop.y3, crop.x4, crop.y4
             )
@@ -493,6 +524,8 @@ def create_photos(
                 (first_photo_id, album_id),
             )
 
+    if skipped_missing:
+        print(f"Skipped {skipped_missing} photos due to missing files")
     if skipped:
         print(f"Skipped {skipped} photos that already exist")
     print(f"Created {created} new photos")
@@ -506,7 +539,13 @@ def main() -> int:
     parser = argparse.ArgumentParser(description="Import a Capture order into PhotoDB")
     parser.add_argument("--order-id", type=int, required=True, help="Capture order ID to import")
     parser.add_argument("--password", type=str, default="changeme", help="Password for new user")
+    parser.add_argument("--base-path", type=str, default=DEFAULT_BASE_PATH, help="Base path for photo files")
     parser.add_argument("--dry-run", action="store_true", help="Show what would be done without making changes")
+    parser.add_argument(
+        "--no-check-files",
+        action="store_true",
+        help="Disable file existence check (by default, skips photos if files don't exist)",
+    )
     args = parser.parse_args()
 
     capture_url = os.getenv("CAPTURE_DATABASE_URL", "postgresql://localhost/capture")
@@ -556,7 +595,16 @@ def main() -> int:
         if not args.dry_run:
             photodb_conn.commit()
 
-        create_photos(photodb_conn, collection_id, args.order_id, crops, album_id_map, args.dry_run)
+        create_photos(
+            photodb_conn,
+            collection_id,
+            args.order_id,
+            crops,
+            album_id_map,
+            args.dry_run,
+            args.base_path,
+            check_files=not args.no_check_files,
+        )
 
         if not args.dry_run:
             photodb_conn.commit()

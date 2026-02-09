@@ -419,6 +419,9 @@ def create_photos(
     photo_album_created = 0
     now = datetime.now(timezone.utc)
 
+    # Track first photo added to each album for representative
+    album_first_photo: dict[int, int] = {}  # photodb_album_id -> first photo_id
+
     with photodb_conn.cursor() as cur:
         for crop in crops:
             filename = _build_photo_filename(order_id, crop.album_id, crop.page_id, crop.id)
@@ -475,11 +478,27 @@ def create_photos(
                 )
                 if cur.rowcount > 0:
                     photo_album_created += 1
+                    # Track first photo for this album
+                    if photodb_album_id not in album_first_photo:
+                        album_first_photo[photodb_album_id] = photo_id
+
+        # Set representative photo for each album (first photo added)
+        for album_id, first_photo_id in album_first_photo.items():
+            cur.execute(
+                """
+                UPDATE album
+                SET representative_photo_id = %s
+                WHERE id = %s AND representative_photo_id IS NULL
+                """,
+                (first_photo_id, album_id),
+            )
 
     if skipped:
         print(f"Skipped {skipped} photos that already exist")
     print(f"Created {created} new photos")
     print(f"Created {photo_album_created} photo-album associations")
+    if album_first_photo:
+        print(f"Set representative photo for {len(album_first_photo)} albums")
     return created
 
 

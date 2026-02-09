@@ -48,9 +48,11 @@ CREATE TABLE IF NOT EXISTS album (
     id bigserial PRIMARY KEY,
     collection_id bigint NOT NULL,
     name text NOT NULL,
+    representative_photo_id bigint,
     created_at timestamptz DEFAULT now(),
     updated_at timestamptz DEFAULT now(),
-    FOREIGN KEY (collection_id) REFERENCES collection(id) ON DELETE CASCADE
+    FOREIGN KEY (collection_id) REFERENCES collection(id) ON DELETE CASCADE,
+    FOREIGN KEY (representative_photo_id) REFERENCES photo(id) ON DELETE SET NULL
 );
 
 -- Photo table: Core photo records

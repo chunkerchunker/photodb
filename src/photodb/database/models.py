@@ -54,6 +54,36 @@ class Photo:
 
 
 @dataclass
+class Album:
+    id: Optional[int]
+    collection_id: int
+    name: str
+    created_at: datetime
+    updated_at: datetime
+
+    @classmethod
+    def create(cls, collection_id: int, name: str) -> "Album":
+        """Create a new album record."""
+        now = datetime.now(timezone.utc)
+        return cls(
+            id=None,  # Will be assigned by database
+            collection_id=collection_id,
+            name=name,
+            created_at=now,
+            updated_at=now,
+        )
+
+    def to_dict(self) -> Dict[str, Any]:
+        return {
+            "id": self.id,
+            "collection_id": self.collection_id,
+            "name": self.name,
+            "created_at": self.created_at,
+            "updated_at": self.updated_at,
+        }
+
+
+@dataclass
 class Metadata:
     photo_id: int
     collection_id: int

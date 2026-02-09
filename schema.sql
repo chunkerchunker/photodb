@@ -43,6 +43,16 @@ BEGIN
 END;
 $$;
 
+-- Album table: Arbitrary groupings of photos within a collection
+CREATE TABLE IF NOT EXISTS album (
+    id bigserial PRIMARY KEY,
+    collection_id bigint NOT NULL,
+    name text NOT NULL,
+    created_at timestamptz DEFAULT now(),
+    updated_at timestamptz DEFAULT now(),
+    FOREIGN KEY (collection_id) REFERENCES collection(id) ON DELETE CASCADE
+);
+
 -- Photo table: Core photo records
 CREATE TABLE IF NOT EXISTS photo(
     id bigserial PRIMARY KEY,
@@ -58,6 +68,16 @@ CREATE TABLE IF NOT EXISTS photo(
     FOREIGN KEY (collection_id) REFERENCES collection(id) ON DELETE CASCADE,
     UNIQUE (collection_id, filename),
     UNIQUE (collection_id, normalized_path)
+);
+
+-- Photo-Album junction table: Many-to-many relationship between photos and albums
+CREATE TABLE IF NOT EXISTS photo_album (
+    photo_id bigint NOT NULL,
+    album_id bigint NOT NULL,
+    added_at timestamptz DEFAULT now(),
+    PRIMARY KEY (photo_id, album_id),
+    FOREIGN KEY (photo_id) REFERENCES photo(id) ON DELETE CASCADE,
+    FOREIGN KEY (album_id) REFERENCES album(id) ON DELETE CASCADE
 );
 
 -- Metadata table: Extracted photo metadata
@@ -88,6 +108,12 @@ CREATE TABLE IF NOT EXISTS processing_status(
 -- Note: photo.filename has UNIQUE constraint which creates an implicit index
 
 CREATE INDEX IF NOT EXISTS idx_photo_collection_id ON photo(collection_id, id);
+
+-- Album indexes
+CREATE INDEX IF NOT EXISTS idx_album_collection_id ON album(collection_id);
+CREATE INDEX IF NOT EXISTS idx_album_collection_name ON album(collection_id, name);
+CREATE INDEX IF NOT EXISTS idx_photo_album_album_id ON photo_album(album_id);
+CREATE INDEX IF NOT EXISTS idx_photo_album_photo_id ON photo_album(photo_id);
 
 CREATE INDEX IF NOT EXISTS idx_metadata_captured_at ON metadata(captured_at);
 CREATE INDEX IF NOT EXISTS idx_metadata_collection_captured_at ON metadata(collection_id, captured_at);

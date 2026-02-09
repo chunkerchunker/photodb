@@ -1,8 +1,8 @@
-import { Images, Grid } from "lucide-react";
-import { Link } from "react-router";
+import { Images, Grid, Loader2 } from "lucide-react";
+import { useCallback, useEffect, useRef, useState } from "react";
+import { Link, useFetcher } from "react-router";
 import { CoverflowIcon } from "~/components/coverflow-icon";
 import { Header } from "~/components/header";
-import { Pagination } from "~/components/pagination";
 import { ViewSwitcher } from "~/components/view-switcher";
 import { requireCollectionId } from "~/lib/auth.server";
 import { dataWithViewMode } from "~/lib/cookies.server";
@@ -33,8 +33,8 @@ export async function loader({ request, params }: Route.LoaderArgs) {
     }
     const photos = await getAlbumPhotos(collectionId, albumId, LIMIT, offset);
     const totalPhotos = await getAlbumPhotosCount(collectionId, albumId);
-    const totalPages = Math.ceil(totalPhotos / LIMIT);
-    return dataWithViewMode({ album, photos, totalPhotos, page, totalPages }, "grid");
+    const hasMore = offset + photos.length < totalPhotos;
+    return dataWithViewMode({ album, photos, totalPhotos, page, hasMore }, "grid");
   } catch (error) {
     if (error instanceof Response) throw error;
     console.error("Failed to load album:", error);
@@ -42,8 +42,74 @@ export async function loader({ request, params }: Route.LoaderArgs) {
   }
 }
 
+type Photo = Route.ComponentProps["loaderData"]["photos"][number];
+
 export default function AlbumGridView({ loaderData }: Route.ComponentProps) {
-  const { album, photos, totalPhotos, page, totalPages } = loaderData;
+  const {
+    album,
+    photos: initialPhotos,
+    totalPhotos,
+    page: initialPage,
+    hasMore: initialHasMore,
+  } = loaderData;
+
+  const [photos, setPhotos] = useState<Photo[]>(initialPhotos);
+  const [page, setPage] = useState(initialPage);
+  const [hasMore, setHasMore] = useState(initialHasMore);
+
+  const fetcher = useFetcher<typeof loader>();
+  const loadMoreRef = useRef<HTMLDivElement>(null);
+
+  // Reset state when initial data changes (e.g., navigation to different album)
+  useEffect(() => {
+    setPhotos(initialPhotos);
+    setPage(initialPage);
+    setHasMore(initialHasMore);
+  }, [initialPhotos, initialPage, initialHasMore]);
+
+  // Append new photos when fetcher returns data
+  useEffect(() => {
+    if (fetcher.data?.photos && fetcher.data.photos.length > 0) {
+      setPhotos((prev) => {
+        const existingIds = new Set(prev.map((p) => p.id));
+        const newPhotos = fetcher.data!.photos.filter((p) => !existingIds.has(p.id));
+        return [...prev, ...newPhotos];
+      });
+      setPage(fetcher.data.page);
+      setHasMore(fetcher.data.hasMore);
+    }
+  }, [fetcher.data]);
+
+  const loadMore = useCallback(() => {
+    if (fetcher.state === "idle" && hasMore) {
+      fetcher.load(`/album/${album.id}/grid?page=${page + 1}`);
+    }
+  }, [fetcher, hasMore, page, album.id]);
+
+  // Intersection Observer for infinite scroll
+  useEffect(() => {
+    const observer = new IntersectionObserver(
+      (entries) => {
+        if (entries[0].isIntersecting) {
+          loadMore();
+        }
+      },
+      { rootMargin: "200px" },
+    );
+
+    const currentRef = loadMoreRef.current;
+    if (currentRef) {
+      observer.observe(currentRef);
+    }
+
+    return () => {
+      if (currentRef) {
+        observer.unobserve(currentRef);
+      }
+    };
+  }, [loadMore]);
+
+  const isLoading = fetcher.state === "loading";
 
   const headerContent = (
     <Header
@@ -112,15 +178,18 @@ export default function AlbumGridView({ loaderData }: Route.ComponentProps) {
           ))}
         </div>
 
-        {totalPages > 1 && (
-          <div className="mt-8">
-            <Pagination
-              currentPage={page}
-              totalPages={totalPages}
-              baseUrl={`/album/${album.id}/grid`}
-            />
-          </div>
-        )}
+        {/* Infinite scroll trigger */}
+        <div ref={loadMoreRef} className="flex justify-center py-8">
+          {isLoading && (
+            <div className="flex items-center space-x-2 text-gray-400">
+              <Loader2 className="h-5 w-5 animate-spin" />
+              <span>Loading more photos...</span>
+            </div>
+          )}
+          {!hasMore && photos.length > 0 && (
+            <span className="text-gray-500 text-sm">All photos loaded</span>
+          )}
+        </div>
       </main>
     </div>
   );

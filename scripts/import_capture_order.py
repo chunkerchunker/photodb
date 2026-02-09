@@ -580,6 +580,14 @@ def main() -> int:
         print("No crops to import.", file=sys.stderr)
         return 1
 
+    # Filter albums to only those that have crops
+    album_ids_with_crops = {crop.album_id for crop in crops}
+    albums_with_photos = [a for a in albums if a.id in album_ids_with_crops]
+    skipped_albums = len(albums) - len(albums_with_photos)
+    if skipped_albums > 0:
+        print(f"Skipping {skipped_albums} albums with no photos")
+    albums = albums_with_photos
+
     # Connect to photodb and create records
     print(f"\nConnecting to photodb database...")
     with psycopg.connect(photodb_url) as photodb_conn:

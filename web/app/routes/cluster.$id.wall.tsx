@@ -5,6 +5,7 @@ import { CoverflowIcon } from "~/components/coverflow-icon";
 import { Header } from "~/components/header";
 import { PhotoWall, type WallTile } from "~/components/photo-wall";
 import { ViewSwitcher } from "~/components/view-switcher";
+import { requireCollectionId } from "~/lib/auth.server";
 import { dataWithViewMode } from "~/lib/cookies.server";
 import { getClusterDetails, getClusterFaces, getClusterFacesCount } from "~/lib/db.server";
 import type { Route } from "./+types/cluster.$id.wall";
@@ -16,18 +17,19 @@ export function meta({ params }: Route.MetaArgs) {
   ];
 }
 
-export async function loader({ params }: Route.LoaderArgs) {
+export async function loader({ request, params }: Route.LoaderArgs) {
+  const { collectionId } = await requireCollectionId(request);
   const clusterId = params.id;
 
   try {
-    const cluster = await getClusterDetails(clusterId);
+    const cluster = await getClusterDetails(collectionId, clusterId);
     if (!cluster) {
       throw new Response("Cluster not found", { status: 404 });
     }
 
     // Load all faces for wall view (no pagination)
-    const faces = await getClusterFaces(clusterId, 500, 0);
-    const totalFaces = await getClusterFacesCount(clusterId);
+    const faces = await getClusterFaces(collectionId, clusterId, 500, 0);
+    const totalFaces = await getClusterFacesCount(collectionId, clusterId);
 
     return dataWithViewMode({ cluster, faces, totalFaces }, "wall");
   } catch (error) {

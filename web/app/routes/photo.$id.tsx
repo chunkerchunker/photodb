@@ -79,6 +79,7 @@ import { Button } from "~/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "~/components/ui/card";
 import { Checkbox } from "~/components/ui/checkbox";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "~/components/ui/collapsible";
+import { requireCollectionId } from "~/lib/auth.server";
 import { getPhotoDetails, removeFaceFromClusterWithConstraint } from "~/lib/db.server";
 import { cn } from "~/lib/utils";
 import type { Route } from "./+types/photo.$id";
@@ -212,6 +213,7 @@ export function meta({ params }: Route.MetaArgs) {
 }
 
 export async function action({ request }: Route.ActionArgs) {
+  const { collectionId } = await requireCollectionId(request);
   const formData = await request.formData();
   const intent = formData.get("intent");
 
@@ -220,17 +222,18 @@ export async function action({ request }: Route.ActionArgs) {
     if (!faceId || Number.isNaN(faceId)) {
       return { success: false, message: "Invalid face ID" };
     }
-    return removeFaceFromClusterWithConstraint(faceId);
+    return removeFaceFromClusterWithConstraint(collectionId, faceId);
   }
 
   return { success: false, message: "Unknown action" };
 }
 
-export async function loader({ params }: Route.LoaderArgs) {
+export async function loader({ request, params }: Route.LoaderArgs) {
+  const { collectionId } = await requireCollectionId(request);
   const photoId = parseInt(params.id, 10);
 
   try {
-    const photo = await getPhotoDetails(photoId);
+    const photo = await getPhotoDetails(collectionId, photoId);
     return { photo };
   } catch (error) {
     console.error(`Failed to load photo ${photoId}:`, error);

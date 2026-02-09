@@ -2,6 +2,7 @@ import { ArrowLeft, Camera, Grid, Loader2, User, Users } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { data, Link, useLocation, useNavigate } from "react-router";
 import * as THREE from "three";
+import { requireCollectionId } from "~/lib/auth.server";
 import { CoverflowIcon } from "~/components/coverflow-icon";
 import { Header } from "~/components/header";
 import { ViewSwitcher } from "~/components/view-switcher";
@@ -37,7 +38,8 @@ export function meta({ params }: Route.MetaArgs) {
 
 import { dataWithViewMode } from "~/lib/cookies.server";
 
-export async function loader({ params }: Route.LoaderArgs) {
+export async function loader({ request, params }: Route.LoaderArgs) {
+  const { collectionId } = await requireCollectionId(request);
   const year = parseInt(params.year, 10);
   const month = parseInt(params.month, 10);
 
@@ -60,8 +62,8 @@ export async function loader({ params }: Route.LoaderArgs) {
 
   try {
     // Load all photos for the Photo Wall (up to a reasonable limit)
-    const photos = await getPhotosByMonth(year, month, 500, 0);
-    const totalPhotos = await getPhotoCountByMonth(year, month);
+    const photos = await getPhotosByMonth(collectionId, year, month, 500, 0);
+    const totalPhotos = await getPhotoCountByMonth(collectionId, year, month);
 
     return dataWithViewMode(
       {

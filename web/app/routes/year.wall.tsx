@@ -1,6 +1,7 @@
 import { ArrowLeft, Camera, Grid, User, Users } from "lucide-react";
 import { useMemo } from "react";
 import { data, Link, useLocation } from "react-router";
+import { requireCollectionId } from "~/lib/auth.server";
 import { CoverflowIcon } from "~/components/coverflow-icon";
 import { Header } from "~/components/header";
 import { PhotoWall, type WallTile } from "~/components/photo-wall";
@@ -14,11 +15,12 @@ export function meta({ params }: Route.MetaArgs) {
 
 import { dataWithViewMode } from "~/lib/cookies.server";
 
-export async function loader({ params }: Route.LoaderArgs) {
+export async function loader({ request, params }: Route.LoaderArgs) {
+  const { collectionId } = await requireCollectionId(request);
   const year = parseInt(params.year, 10);
 
   try {
-    const months = await getMonthsInYear(year);
+    const months = await getMonthsInYear(collectionId, year);
     return dataWithViewMode({ months, year: params.year }, "wall");
   } catch (error) {
     console.error(`Failed to load months for year ${year}:`, error);

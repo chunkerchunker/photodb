@@ -25,6 +25,7 @@ import {
 } from "~/components/ui/dialog";
 import { ViewSwitcher } from "~/components/view-switcher";
 import { useInfiniteScroll } from "~/hooks/use-infinite-scroll";
+import { requireCollectionId } from "~/lib/auth.server";
 import { dataWithViewMode } from "~/lib/cookies.server";
 import { getClustersGroupedByPerson, getClustersGroupedCount, getHiddenClustersCount } from "~/lib/db.server";
 import { getFaceCropStyle } from "~/lib/face-crop";
@@ -43,14 +44,15 @@ export function meta() {
 const LIMIT = 24; // 4x6 grid
 
 export async function loader({ request }: Route.LoaderArgs) {
+  const { collectionId } = await requireCollectionId(request);
   const url = new URL(request.url);
   const page = parseInt(url.searchParams.get("page") || "1", 10);
   const offset = (page - 1) * LIMIT;
 
   try {
-    const items = await getClustersGroupedByPerson(LIMIT, offset);
-    const totalItems = await getClustersGroupedCount();
-    const hiddenCount = await getHiddenClustersCount();
+    const items = await getClustersGroupedByPerson(collectionId, LIMIT, offset);
+    const totalItems = await getClustersGroupedCount(collectionId);
+    const hiddenCount = await getHiddenClustersCount(collectionId);
     const hasMore = offset + items.length < totalItems;
 
     return dataWithViewMode(

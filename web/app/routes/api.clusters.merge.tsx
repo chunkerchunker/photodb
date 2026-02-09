@@ -1,3 +1,4 @@
+import { requireCollectionId } from "~/lib/auth.server";
 import { linkClustersToSamePerson } from "~/lib/db.server";
 import type { Route } from "./+types/api.clusters.merge";
 
@@ -11,6 +12,7 @@ export async function action({ request }: Route.ActionArgs) {
     return Response.json({ success: false, message: "Method not allowed" }, { status: 405 });
   }
 
+  const { collectionId } = await requireCollectionId(request);
   const formData = await request.formData();
   const sourceClusterId = formData.get("sourceClusterId") as string;
   const targetClusterId = formData.get("targetClusterId") as string;
@@ -19,6 +21,6 @@ export async function action({ request }: Route.ActionArgs) {
     return Response.json({ success: false, message: "Missing cluster IDs" }, { status: 400 });
   }
 
-  const result = await linkClustersToSamePerson(sourceClusterId, targetClusterId);
+  const result = await linkClustersToSamePerson(collectionId, sourceClusterId, targetClusterId);
   return Response.json(result);
 }

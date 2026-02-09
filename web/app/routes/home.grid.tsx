@@ -1,4 +1,5 @@
 import { data, Link } from "react-router";
+import { requireCollectionId } from "~/lib/auth.server";
 import { Layout } from "~/components/layout";
 import { Card, CardContent } from "~/components/ui/card";
 import { getYearsWithPhotos } from "~/lib/db.server";
@@ -14,9 +15,11 @@ export function meta() {
 
 import { dataWithViewMode } from "~/lib/cookies.server";
 
-export async function loader() {
+export async function loader({ request }: Route.LoaderArgs) {
+  const { collectionId } = await requireCollectionId(request);
+
   try {
-    const years = await getYearsWithPhotos();
+    const years = await getYearsWithPhotos(collectionId);
     return dataWithViewMode({ years }, "grid");
   } catch (error) {
     console.error("Failed to load years:", error);

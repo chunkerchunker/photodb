@@ -13,17 +13,21 @@ const pool = new Pool({
   connectionTimeoutMillis: 2000,
 });
 
-function getCollectionId(): number {
+/**
+ * Get the default collection ID from environment variable.
+ * Used for backward compatibility (e.g., CLI tools) when collectionId is not provided.
+ */
+function getDefaultCollectionId(): number {
   const raw = process.env.COLLECTION_ID || "1";
   const parsed = Number.parseInt(raw, 10);
   return Number.isNaN(parsed) ? 1 : parsed;
 }
 
+export { getDefaultCollectionId };
+
 // Query functions that match the Python PhotoQueries class
 
-export async function getYearsWithPhotos() {
-  const collectionId = getCollectionId();
-
+export async function getYearsWithPhotos(collectionId: number) {
   // Single query with LATERAL join for sample photos
   // Uses day-of-year to create daily-varying but deterministic selection
   // The modulo with a prime (997) spreads photos across the ID space
@@ -67,9 +71,7 @@ export async function getYearsWithPhotos() {
   }));
 }
 
-export async function getMonthsInYear(year: number) {
-  const collectionId = getCollectionId();
-
+export async function getMonthsInYear(collectionId: number, year: number) {
   // Single query with LATERAL join for sample photos
   // Uses daily-varying deterministic selection like getYearsWithPhotos
   const query = `
@@ -129,9 +131,13 @@ export async function getMonthsInYear(year: number) {
   }));
 }
 
-export async function getPhotosByMonth(year: number, month: number, limit = 100, offset = 0) {
-  const collectionId = getCollectionId();
-
+export async function getPhotosByMonth(
+  collectionId: number,
+  year: number,
+  month: number,
+  limit = 100,
+  offset = 0,
+) {
   const query = `
     SELECT p.id, p.filename, p.normalized_path,
            m.captured_at, m.latitude, m.longitude,
@@ -164,9 +170,7 @@ export async function getPhotosByMonth(year: number, month: number, limit = 100,
   return photos;
 }
 
-export async function getPhotoCountByMonth(year: number, month: number) {
-  const collectionId = getCollectionId();
-
+export async function getPhotoCountByMonth(collectionId: number, year: number, month: number) {
   const query = `
     SELECT COUNT(*) as count
     FROM metadata m
@@ -179,9 +183,7 @@ export async function getPhotoCountByMonth(year: number, month: number) {
   return parseInt(result.rows[0].count, 10);
 }
 
-export async function getPhotoDetails(photoId: number) {
-  const collectionId = getCollectionId();
-
+export async function getPhotoDetails(collectionId: number, photoId: number) {
   const query = `
     SELECT p.id, p.filename, p.normalized_path, 
            p.created_at as photo_created_at, p.updated_at as photo_updated_at,
@@ -349,9 +351,7 @@ export async function getPhotoDetails(photoId: number) {
   return photo;
 }
 
-export async function getPhotoById(photoId: number) {
-  const collectionId = getCollectionId();
-
+export async function getPhotoById(collectionId: number, photoId: number) {
   const query = `
     SELECT id, filename, normalized_path
     FROM photo
@@ -385,9 +385,7 @@ export async function updateUserPasswordHash(userId: number, passwordHash: strin
   await pool.query("UPDATE app_user SET password_hash = $1 WHERE id = $2", [passwordHash, userId]);
 }
 
-export async function getClusters(limit = 50, offset = 0) {
-  const collectionId = getCollectionId();
-
+export async function getClusters(collectionId: number, limit = 50, offset = 0) {
   const query = `
     SELECT c.id, c.face_count, c.representative_detection_id,
            pd.face_bbox_x as bbox_x, pd.face_bbox_y as bbox_y,
@@ -409,9 +407,7 @@ export async function getClusters(limit = 50, offset = 0) {
   return result.rows;
 }
 
-export async function getClustersCount() {
-  const collectionId = getCollectionId();
-
+export async function getClustersCount(collectionId: number) {
   const query = `
     SELECT COUNT(*) as count
     FROM cluster
@@ -429,9 +425,7 @@ export async function getClustersCount() {
  * Unassigned clusters (no person_id) are shown individually.
  * Sorted by face count descending.
  */
-export async function getClustersGroupedByPerson(limit = 50, offset = 0) {
-  const collectionId = getCollectionId();
-
+export async function getClustersGroupedByPerson(collectionId: number, limit = 50, offset = 0) {
   const query = `
     WITH person_aggregates AS (
       -- Aggregate clusters by person
@@ -512,9 +506,7 @@ export async function getClustersGroupedByPerson(limit = 50, offset = 0) {
  * Get count of items for the grouped clusters view.
  * Counts distinct people + unassigned clusters.
  */
-export async function getClustersGroupedCount() {
-  const collectionId = getCollectionId();
-
+export async function getClustersGroupedCount(collectionId: number) {
   const query = `
     SELECT
       (
@@ -540,9 +532,7 @@ export async function getClustersGroupedCount() {
   return parseInt(result.rows[0].count, 10);
 }
 
-export async function getHiddenClusters(limit = 50, offset = 0) {
-  const collectionId = getCollectionId();
-
+export async function getHiddenClusters(collectionId: number, limit = 50, offset = 0) {
   const query = `
     SELECT c.id, c.face_count, c.representative_detection_id,
            pd.face_bbox_x as bbox_x, pd.face_bbox_y as bbox_y,
@@ -564,9 +554,7 @@ export async function getHiddenClusters(limit = 50, offset = 0) {
   return result.rows;
 }
 
-export async function getHiddenClustersCount() {
-  const collectionId = getCollectionId();
-
+export async function getHiddenClustersCount(collectionId: number) {
   const query = `
     SELECT COUNT(*) as count
     FROM cluster
@@ -578,9 +566,12 @@ export async function getHiddenClustersCount() {
   return parseInt(result.rows[0].count, 10);
 }
 
-export async function getNamedClusters(limit = 50, offset = 0, sort: "photos" | "name" = "name") {
-  const collectionId = getCollectionId();
-
+export async function getNamedClusters(
+  collectionId: number,
+  limit = 50,
+  offset = 0,
+  sort: "photos" | "name" = "name",
+) {
   const orderBy =
     sort === "photos"
       ? "c.face_count DESC, per.first_name, per.last_name, c.id"
@@ -607,9 +598,7 @@ export async function getNamedClusters(limit = 50, offset = 0, sort: "photos" | 
   return result.rows;
 }
 
-export async function getNamedClustersCount() {
-  const collectionId = getCollectionId();
-
+export async function getNamedClustersCount(collectionId: number) {
   const query = `
     SELECT COUNT(*) as count
     FROM cluster c
@@ -627,9 +616,12 @@ export async function getNamedClustersCount() {
  * Groups clusters by person_id and sums face counts.
  * Uses person.representative_detection_id if set, otherwise falls back to largest cluster's representative.
  */
-export async function getPeople(limit = 50, offset = 0, sort: "photos" | "name" = "name") {
-  const collectionId = getCollectionId();
-
+export async function getPeople(
+  collectionId: number,
+  limit = 50,
+  offset = 0,
+  sort: "photos" | "name" = "name",
+) {
   const orderBy =
     sort === "photos"
       ? "total_face_count DESC, per.first_name, per.last_name, per.id"
@@ -688,9 +680,7 @@ export async function getPeople(limit = 50, offset = 0, sort: "photos" | "name" 
 /**
  * Get count of unique people (not clusters).
  */
-export async function getPeopleCount() {
-  const collectionId = getCollectionId();
-
+export async function getPeopleCount(collectionId: number) {
   const query = `
     SELECT COUNT(DISTINCT c.person_id) as count
     FROM cluster c
@@ -708,9 +698,7 @@ export async function getPeopleCount() {
  * Get a person by ID with aggregated cluster data.
  * Uses person.representative_detection_id if set, otherwise falls back to largest cluster's representative.
  */
-export async function getPersonById(personId: string) {
-  const collectionId = getCollectionId();
-
+export async function getPersonById(collectionId: number, personId: string) {
   const query = `
     WITH person_stats AS (
       SELECT
@@ -761,9 +749,7 @@ export async function getPersonById(personId: string) {
 /**
  * Get all clusters belonging to a person.
  */
-export async function getClustersByPerson(personId: string) {
-  const collectionId = getCollectionId();
-
+export async function getClustersByPerson(collectionId: number, personId: string) {
   const query = `
     SELECT c.id, c.face_count::integer as face_count, c.representative_detection_id, c.hidden, c.verified,
            pd.face_bbox_x as bbox_x, pd.face_bbox_y as bbox_y,
@@ -784,9 +770,12 @@ export async function getClustersByPerson(personId: string) {
 /**
  * Rename a person directly.
  */
-export async function setPersonName(personId: string, firstName: string, lastName?: string) {
-  const collectionId = getCollectionId();
-
+export async function setPersonName(
+  collectionId: number,
+  personId: string,
+  firstName: string,
+  lastName?: string,
+) {
   const query = `
     UPDATE person
     SET first_name = $1, last_name = $2, updated_at = NOW()
@@ -804,9 +793,7 @@ export async function setPersonName(personId: string, firstName: string, lastNam
 /**
  * Hide or unhide all clusters belonging to a person.
  */
-export async function setPersonHidden(personId: string, hidden: boolean) {
-  const collectionId = getCollectionId();
-
+export async function setPersonHidden(collectionId: number, personId: string, hidden: boolean) {
   const query = `
     UPDATE cluster
     SET hidden = $1, updated_at = NOW()
@@ -826,9 +813,7 @@ export async function setPersonHidden(personId: string, hidden: boolean) {
 /**
  * Unlink a cluster from its person (set person_id to NULL).
  */
-export async function unlinkClusterFromPerson(clusterId: string) {
-  const collectionId = getCollectionId();
-
+export async function unlinkClusterFromPerson(collectionId: number, clusterId: string) {
   const query = `
     UPDATE cluster
     SET person_id = NULL, updated_at = NOW()
@@ -847,9 +832,11 @@ export async function unlinkClusterFromPerson(clusterId: string) {
  * Set a person's representative detection from a cluster.
  * Uses the cluster's representative_detection_id.
  */
-export async function setPersonRepresentative(personId: string, clusterId: string) {
-  const collectionId = getCollectionId();
-
+export async function setPersonRepresentative(
+  collectionId: number,
+  personId: string,
+  clusterId: string,
+) {
   const client = await pool.connect();
   try {
     // Get the cluster's representative detection and verify it belongs to this person
@@ -892,9 +879,7 @@ export async function setPersonRepresentative(personId: string, clusterId: strin
   }
 }
 
-export async function setClusterHidden(clusterId: string, hidden: boolean) {
-  const collectionId = getCollectionId();
-
+export async function setClusterHidden(collectionId: number, clusterId: string, hidden: boolean) {
   const query = `
     UPDATE cluster
     SET hidden = $1, updated_at = NOW()
@@ -909,9 +894,12 @@ export async function setClusterHidden(clusterId: string, hidden: boolean) {
   };
 }
 
-export async function setClusterPersonName(clusterId: string, firstName: string, lastName?: string) {
-  const collectionId = getCollectionId();
-
+export async function setClusterPersonName(
+  collectionId: number,
+  clusterId: string,
+  firstName: string,
+  lastName?: string,
+) {
   const client = await pool.connect();
   try {
     await client.query("BEGIN");
@@ -959,9 +947,7 @@ export async function setClusterPersonName(clusterId: string, firstName: string,
   }
 }
 
-export async function deleteCluster(clusterId: string) {
-  const collectionId = getCollectionId();
-
+export async function deleteCluster(collectionId: number, clusterId: string) {
   const client = await pool.connect();
   try {
     await client.query("BEGIN");
@@ -1006,9 +992,7 @@ export async function deleteCluster(clusterId: string) {
   }
 }
 
-export async function getClusterDetails(clusterId: string) {
-  const collectionId = getCollectionId();
-
+export async function getClusterDetails(collectionId: number, clusterId: string) {
   const query = `
     SELECT c.id, c.face_count, c.representative_detection_id,
            c.hidden,
@@ -1031,9 +1015,12 @@ export async function getClusterDetails(clusterId: string) {
   return result.rows[0] || null;
 }
 
-export async function getClusterFaces(clusterId: string, limit = 24, offset = 0) {
-  const collectionId = getCollectionId();
-
+export async function getClusterFaces(
+  collectionId: number,
+  clusterId: string,
+  limit = 24,
+  offset = 0,
+) {
   const query = `
     SELECT pd.id, pd.face_bbox_x as bbox_x, pd.face_bbox_y as bbox_y,
            pd.face_bbox_width as bbox_width, pd.face_bbox_height as bbox_height,
@@ -1052,9 +1039,7 @@ export async function getClusterFaces(clusterId: string, limit = 24, offset = 0)
   return result.rows;
 }
 
-export async function getClusterFacesCount(clusterId: string) {
-  const collectionId = getCollectionId();
-
+export async function getClusterFacesCount(collectionId: number, clusterId: string) {
   const query = `
     SELECT COUNT(*) as count
     FROM person_detection
@@ -1067,9 +1052,11 @@ export async function getClusterFacesCount(clusterId: string) {
 
 // Constraint management functions
 
-export async function addCannotLink(detectionId1: number, detectionId2: number) {
-  const collectionId = getCollectionId();
-
+export async function addCannotLink(
+  collectionId: number,
+  detectionId1: number,
+  detectionId2: number,
+) {
   // Canonical ordering to prevent duplicates
   const [id1, id2] = detectionId1 < detectionId2 ? [detectionId1, detectionId2] : [detectionId2, detectionId1];
 
@@ -1084,9 +1071,7 @@ export async function addCannotLink(detectionId1: number, detectionId2: number) 
   return result.rows[0]?.id || null;
 }
 
-export async function getCannotLinksForCluster(clusterId: string) {
-  const collectionId = getCollectionId();
-
+export async function getCannotLinksForCluster(collectionId: number, clusterId: string) {
   // Get all cannot-link pairs where both detections are in this cluster
   const query = `
     SELECT cl.id, cl.detection_id_1, cl.detection_id_2, cl.created_at
@@ -1104,9 +1089,7 @@ export async function getCannotLinksForCluster(clusterId: string) {
   return result.rows;
 }
 
-export async function removeCannotLink(cannotLinkId: number) {
-  const collectionId = getCollectionId();
-
+export async function removeCannotLink(collectionId: number, cannotLinkId: number) {
   const query = `
     DELETE FROM cannot_link
     WHERE id = $1 AND collection_id = $2
@@ -1117,9 +1100,11 @@ export async function removeCannotLink(cannotLinkId: number) {
   return result.rows[0]?.id || null;
 }
 
-export async function setClusterRepresentative(clusterId: string, detectionId: number) {
-  const collectionId = getCollectionId();
-
+export async function setClusterRepresentative(
+  collectionId: number,
+  clusterId: string,
+  detectionId: number,
+) {
   // Verify detection belongs to this cluster
   const verifyQuery = `
     SELECT cluster_id FROM person_detection WHERE id = $1 AND collection_id = $2
@@ -1146,12 +1131,11 @@ export async function setClusterRepresentative(clusterId: string, detectionId: n
 }
 
 export async function dissociateFacesFromCluster(
+  collectionId: number,
   clusterId: string,
   detectionIds: number[],
   similarityThreshold = 0.85,
 ) {
-  const collectionId = getCollectionId();
-
   if (detectionIds.length === 0) {
     return { success: false, message: "No detections selected", removedCount: 0 };
   }
@@ -1271,9 +1255,12 @@ export async function dissociateFacesFromCluster(
   }
 }
 
-export async function searchClusters(query: string, excludeClusterId?: string, limit = 20) {
-  const collectionId = getCollectionId();
-
+export async function searchClusters(
+  collectionId: number,
+  query: string,
+  excludeClusterId?: string,
+  limit = 20,
+) {
   // Search by cluster ID or person name
   const searchQuery = `
     SELECT c.id, c.face_count, c.representative_detection_id,
@@ -1308,9 +1295,11 @@ export async function searchClusters(query: string, excludeClusterId?: string, l
  * Preview what will happen when linking two clusters.
  * Returns info about both clusters' person associations.
  */
-export async function previewClusterLink(sourceClusterId: string, targetClusterId: string) {
-  const collectionId = getCollectionId();
-
+export async function previewClusterLink(
+  collectionId: number,
+  sourceClusterId: string,
+  targetClusterId: string,
+) {
   const query = `
     SELECT
       c.id as cluster_id,
@@ -1370,9 +1359,11 @@ export async function previewClusterLink(sourceClusterId: string, targetClusterI
  *
  * This preserves cluster integrity while establishing identity linkage.
  */
-export async function linkClustersToSamePerson(sourceClusterId: string, targetClusterId: string) {
-  const collectionId = getCollectionId();
-
+export async function linkClustersToSamePerson(
+  collectionId: number,
+  sourceClusterId: string,
+  targetClusterId: string,
+) {
   if (sourceClusterId === targetClusterId) {
     return { success: false, message: "Cannot link a cluster with itself" };
   }
@@ -1508,9 +1499,11 @@ export async function linkClustersToSamePerson(sourceClusterId: string, targetCl
   }
 }
 
-export async function addFacesToCluster(clusterId: string, detectionIds: number[]) {
-  const collectionId = getCollectionId();
-
+export async function addFacesToCluster(
+  collectionId: number,
+  clusterId: string,
+  detectionIds: number[],
+) {
   if (detectionIds.length === 0) {
     return { success: false, message: "No detections selected", addedCount: 0 };
   }
@@ -1581,9 +1574,7 @@ export async function addFacesToCluster(clusterId: string, detectionIds: number[
   }
 }
 
-export async function getFaceDetails(detectionId: number) {
-  const collectionId = getCollectionId();
-
+export async function getFaceDetails(collectionId: number, detectionId: number) {
   const query = `
     SELECT pd.id, pd.face_bbox_x as bbox_x, pd.face_bbox_y as bbox_y,
            pd.face_bbox_width as bbox_width, pd.face_bbox_height as bbox_height,
@@ -1602,9 +1593,7 @@ export async function getFaceDetails(detectionId: number) {
   return result.rows[0] || null;
 }
 
-export async function createClusterFromFaces(detectionIds: number[]) {
-  const collectionId = getCollectionId();
-
+export async function createClusterFromFaces(collectionId: number, detectionIds: number[]) {
   if (detectionIds.length === 0) {
     return { success: false, message: "No detections selected", clusterId: null };
   }
@@ -1683,9 +1672,12 @@ export async function createClusterFromFaces(detectionIds: number[]) {
   }
 }
 
-export async function getSimilarFaces(detectionId: number, limit = 12, similarityThreshold = 0.7) {
-  const collectionId = getCollectionId();
-
+export async function getSimilarFaces(
+  collectionId: number,
+  detectionId: number,
+  limit = 12,
+  similarityThreshold = 0.7,
+) {
   // Convert similarity threshold to distance threshold (cosine distance = 1 - similarity)
   const distanceThreshold = 1 - similarityThreshold;
 
@@ -1738,9 +1730,11 @@ export async function getSimilarFaces(detectionId: number, limit = 12, similarit
   return result.rows;
 }
 
-export async function dissociateFaceWithConfidenceCutoff(clusterId: string, detectionId: number) {
-  const collectionId = getCollectionId();
-
+export async function dissociateFaceWithConfidenceCutoff(
+  collectionId: number,
+  clusterId: string,
+  detectionId: number,
+) {
   const client = await pool.connect();
   try {
     await client.query("BEGIN");
@@ -1858,9 +1852,10 @@ export async function dissociateFaceWithConfidenceCutoff(clusterId: string, dete
   }
 }
 
-export async function removeFaceFromClusterWithConstraint(detectionId: number) {
-  const collectionId = getCollectionId();
-
+export async function removeFaceFromClusterWithConstraint(
+  collectionId: number,
+  detectionId: number,
+) {
   const client = await pool.connect();
   try {
     await client.query("BEGIN");
@@ -1929,4 +1924,104 @@ export async function removeFaceFromClusterWithConstraint(detectionId: number) {
   } finally {
     client.release();
   }
+}
+
+/**
+ * Get all albums in a collection with their representative photos.
+ * If representative_photo_id is not set, uses the first photo in the album.
+ */
+export async function getAlbums(collectionId: number, limit = 50, offset = 0) {
+  const query = `
+    SELECT
+      a.id,
+      a.name,
+      a.representative_photo_id,
+      a.created_at,
+      a.updated_at,
+      COALESCE(a.representative_photo_id, (
+        SELECT pa.photo_id
+        FROM photo_album pa
+        WHERE pa.album_id = a.id
+        ORDER BY pa.added_at
+        LIMIT 1
+      )) as display_photo_id,
+      (SELECT COUNT(*) FROM photo_album pa WHERE pa.album_id = a.id)::int as photo_count
+    FROM album a
+    WHERE a.collection_id = $1
+    ORDER BY a.name, a.id
+    LIMIT $2 OFFSET $3
+  `;
+
+  const result = await pool.query(query, [collectionId, limit, offset]);
+  return result.rows;
+}
+
+export async function getAlbumsCount(collectionId: number) {
+  const query = `
+    SELECT COUNT(*) as count
+    FROM album
+    WHERE collection_id = $1
+  `;
+
+  const result = await pool.query(query, [collectionId]);
+  return parseInt(result.rows[0].count, 10);
+}
+
+export async function getAlbumById(collectionId: number, albumId: string) {
+  const query = `
+    SELECT
+      a.id,
+      a.name,
+      a.representative_photo_id,
+      a.created_at,
+      a.updated_at,
+      COALESCE(a.representative_photo_id, (
+        SELECT pa.photo_id
+        FROM photo_album pa
+        WHERE pa.album_id = a.id
+        ORDER BY pa.added_at
+        LIMIT 1
+      )) as display_photo_id,
+      (SELECT COUNT(*) FROM photo_album pa WHERE pa.album_id = a.id)::int as photo_count
+    FROM album a
+    WHERE a.id = $1 AND a.collection_id = $2
+  `;
+
+  const result = await pool.query(query, [albumId, collectionId]);
+  return result.rows[0] || null;
+}
+
+/**
+ * Get photos in an album with metadata for display.
+ */
+export async function getAlbumPhotos(collectionId: number, albumId: string, limit = 100, offset = 0) {
+  const query = `
+    SELECT p.id, p.filename, p.normalized_path,
+           p.normalized_width, p.normalized_height,
+           m.captured_at, m.latitude, m.longitude,
+           la.description, la.emotional_tone,
+           pa.added_at
+    FROM photo_album pa
+    JOIN photo p ON pa.photo_id = p.id
+    LEFT JOIN metadata m ON p.id = m.photo_id
+    LEFT JOIN llm_analysis la ON p.id = la.photo_id
+    WHERE pa.album_id = $1 AND p.collection_id = $2
+    ORDER BY pa.added_at, p.id
+    LIMIT $3 OFFSET $4
+  `;
+
+  const result = await pool.query(query, [albumId, collectionId, limit, offset]);
+  return result.rows;
+}
+
+export async function getAlbumPhotosCount(collectionId: number, albumId: string) {
+  const query = `
+    SELECT COUNT(*) as count
+    FROM photo_album pa
+    JOIN photo p ON pa.photo_id = p.id
+    WHERE pa.album_id = $1 AND p.collection_id = $2
+  `;
+
+  const result = await pool.query(query, [albumId, collectionId]);
+  return parseInt(result.rows[0].count, 10);
 }

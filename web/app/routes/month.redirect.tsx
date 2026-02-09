@@ -1,14 +1,12 @@
 import { redirect } from "react-router";
+import { getViewModeCookie } from "~/lib/cookies.server";
 import type { Route } from "./+types/month.redirect";
 
-export function loader({ request, params }: Route.LoaderArgs) {
-  const cookieHeader = request.headers.get("Cookie");
-  const viewMode = (cookieHeader?.match(/viewMode=(wall|grid)/)?.[1] as "wall" | "grid") || "grid";
+export async function loader({ request, params }: Route.LoaderArgs) {
+  const viewMode = await getViewModeCookie(request);
   const { year, month } = params;
-
-  if (viewMode === "wall") {
-    return redirect(`/year/${year}/month/${month}/wall`);
-  } else {
+  if (viewMode === "grid") {
     return redirect(`/year/${year}/month/${month}/grid`);
   }
+  return redirect(`/year/${year}/month/${month}/wall`);
 }

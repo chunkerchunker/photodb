@@ -1,11 +1,13 @@
 import fs from "node:fs";
+import { requireCollectionId } from "~/lib/auth.server";
 import { getImagePath, getMimeType } from "~/lib/images.server";
 import type { Route } from "./+types/api.image.$id";
 
-export async function loader({ params }: Route.LoaderArgs) {
+export async function loader({ request, params }: Route.LoaderArgs) {
+  const { collectionId } = await requireCollectionId(request);
   const photoId = parseInt(params.id, 10);
 
-  const imagePath = await getImagePath(photoId);
+  const imagePath = await getImagePath(collectionId, photoId);
 
   if (!imagePath) {
     return new Response("Image not found", { status: 404 });

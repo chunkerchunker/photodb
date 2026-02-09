@@ -5,6 +5,7 @@ import { CoverflowIcon } from "~/components/coverflow-icon";
 import { Header } from "~/components/header";
 import { PhotoWall, type WallTile } from "~/components/photo-wall";
 import { ViewSwitcher } from "~/components/view-switcher";
+import { requireCollectionId } from "~/lib/auth.server";
 import { dataWithViewMode } from "~/lib/cookies.server";
 import { getPeople, getPeopleCount } from "~/lib/db.server";
 import type { Route } from "./+types/people.wall";
@@ -17,14 +18,15 @@ export function meta() {
 }
 
 export async function loader({ request }: Route.LoaderArgs) {
+  const { collectionId } = await requireCollectionId(request);
   const url = new URL(request.url);
   const sortParam = url.searchParams.get("sort");
   const sort: "photos" | "name" = sortParam === "photos" ? "photos" : "name";
 
   try {
     // Load all people for wall view (no pagination)
-    const people = await getPeople(500, 0, sort);
-    const totalPeople = await getPeopleCount();
+    const people = await getPeople(collectionId, 500, 0, sort);
+    const totalPeople = await getPeopleCount(collectionId);
     return dataWithViewMode({ people, totalPeople, sort }, "wall");
   } catch (error) {
     console.error("Failed to load people:", error);

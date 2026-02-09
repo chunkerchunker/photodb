@@ -6,8 +6,8 @@ import { getPhotoById } from "./db.server";
 // Load environment variables from .env file
 dotenv.config({ path: path.join(process.cwd(), "..", ".env") });
 
-export async function getImagePath(photoId: number): Promise<string | null> {
-  const photo = await getPhotoById(photoId);
+export async function getImagePath(collectionId: number, photoId: number): Promise<string | null> {
+  const photo = await getPhotoById(collectionId, photoId);
   if (!photo || !photo.normalized_path) {
     return null;
   }
@@ -23,8 +23,8 @@ export async function getImagePath(photoId: number): Promise<string | null> {
   return imagePath;
 }
 
-export async function getImageBuffer(photoId: number): Promise<Buffer | null> {
-  const imagePath = await getImagePath(photoId);
+export async function getImageBuffer(collectionId: number, photoId: number): Promise<Buffer | null> {
+  const imagePath = await getImagePath(collectionId, photoId);
   if (!imagePath) {
     return null;
   }

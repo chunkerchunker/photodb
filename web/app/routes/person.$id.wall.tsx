@@ -5,6 +5,7 @@ import { CoverflowIcon } from "~/components/coverflow-icon";
 import { Header } from "~/components/header";
 import { PhotoWall, type WallTile } from "~/components/photo-wall";
 import { ViewSwitcher } from "~/components/view-switcher";
+import { requireCollectionId } from "~/lib/auth.server";
 import { dataWithViewMode } from "~/lib/cookies.server";
 import { getClustersByPerson, getPersonById } from "~/lib/db.server";
 import type { Route } from "./+types/person.$id.wall";
@@ -17,18 +18,19 @@ export function meta({ data }: Route.MetaArgs) {
   ];
 }
 
-export async function loader({ params }: Route.LoaderArgs) {
+export async function loader({ request, params }: Route.LoaderArgs) {
+  const { collectionId } = await requireCollectionId(request);
   const personId = params.id;
   if (!personId) {
     throw new Response("Person ID required", { status: 400 });
   }
 
-  const person = await getPersonById(personId);
+  const person = await getPersonById(collectionId, personId);
   if (!person) {
     throw new Response("Person not found", { status: 404 });
   }
 
-  const clusters = await getClustersByPerson(personId);
+  const clusters = await getClustersByPerson(collectionId, personId);
 
   return dataWithViewMode({ person, clusters }, "wall");
 }

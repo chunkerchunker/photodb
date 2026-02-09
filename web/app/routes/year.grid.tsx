@@ -1,5 +1,6 @@
 import { Box } from "lucide-react";
 import { data, Link } from "react-router";
+import { requireCollectionId } from "~/lib/auth.server";
 import { Breadcrumb } from "~/components/breadcrumb";
 import { Layout } from "~/components/layout";
 import { Card, CardContent } from "~/components/ui/card";
@@ -12,11 +13,12 @@ export function meta({ params }: Route.MetaArgs) {
 
 import { dataWithViewMode } from "~/lib/cookies.server";
 
-export async function loader({ params }: Route.LoaderArgs) {
+export async function loader({ request, params }: Route.LoaderArgs) {
+  const { collectionId } = await requireCollectionId(request);
   const year = parseInt(params.year, 10);
 
   try {
-    const months = await getMonthsInYear(year);
+    const months = await getMonthsInYear(collectionId, year);
     return dataWithViewMode({ months, year: params.year }, "grid");
   } catch (error) {
     console.error(`Failed to load months for year ${year}:`, error);

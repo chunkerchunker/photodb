@@ -1,4 +1,4 @@
-import { Camera, User, Users } from "lucide-react";
+import { Camera, Images, User, Users } from "lucide-react";
 import { Link } from "react-router";
 
 interface HeaderProps {
@@ -45,6 +45,11 @@ export function Header({ viewAction, breadcrumbs = [], homeTo = "/" }: HeaderPro
             <Link to="/people" className="flex items-center space-x-1 hover:text-white/80 transition-colors">
               <User className="h-4 w-4" />
               <span>People</span>
+            </Link>
+
+            <Link to="/albums" className="flex items-center space-x-1 hover:text-white/80 transition-colors">
+              <Images className="h-4 w-4" />
+              <span>Albums</span>
             </Link>
 
             <Link to="/clusters" className="flex items-center space-x-1 hover:text-white/80 transition-colors">

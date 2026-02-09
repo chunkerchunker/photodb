@@ -1,6 +1,7 @@
 import { Box, Loader2 } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { data, Link, useFetcher } from "react-router";
+import { requireCollectionId } from "~/lib/auth.server";
 import { Breadcrumb } from "~/components/breadcrumb";
 import { Layout } from "~/components/layout";
 import { Card, CardContent } from "~/components/ui/card";
@@ -38,7 +39,8 @@ const LIMIT = 48; // 6x8 grid
 
 import { dataWithViewMode } from "~/lib/cookies.server";
 
-export async function loader({ params, request }: Route.LoaderArgs) {
+export async function loader({ request, params }: Route.LoaderArgs) {
+  const { collectionId } = await requireCollectionId(request);
   const year = parseInt(params.year, 10);
   const month = parseInt(params.month, 10);
   const url = new URL(request.url);
@@ -63,8 +65,8 @@ export async function loader({ params, request }: Route.LoaderArgs) {
   const monthName = monthNames[month] || `Month ${month}`;
 
   try {
-    const photos = await getPhotosByMonth(year, month, LIMIT, offset);
-    const totalPhotos = await getPhotoCountByMonth(year, month);
+    const photos = await getPhotosByMonth(collectionId, year, month, LIMIT, offset);
+    const totalPhotos = await getPhotoCountByMonth(collectionId, year, month);
     const hasMore = offset + photos.length < totalPhotos;
 
     return dataWithViewMode(

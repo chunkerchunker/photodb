@@ -1,12 +1,14 @@
+import { requireCollectionId } from "~/lib/auth.server";
 import { searchClusters } from "~/lib/db.server";
 import type { Route } from "./+types/api.clusters.search";
 
 export async function loader({ request }: Route.LoaderArgs) {
+  const { collectionId } = await requireCollectionId(request);
   const url = new URL(request.url);
   const query = url.searchParams.get("q") || "";
   const exclude = url.searchParams.get("exclude") || undefined;
 
-  const clusters = await searchClusters(query, exclude, 20);
+  const clusters = await searchClusters(collectionId, query, exclude, 20);
 
   return Response.json({ clusters });
 }

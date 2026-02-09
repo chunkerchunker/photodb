@@ -45,6 +45,19 @@ export default [
   // People - Wall Views
   route("people/wall", "routes/people.wall.tsx"),
   route("person/:id/wall", "routes/person.$id.wall.tsx"),
+
+  // Albums - Redirectors
+  route("albums", "routes/albums.redirect.tsx"),
+  route("album/:id", "routes/album.$id.redirect.tsx"),
+
+  // Albums - Grid Views
+  route("albums/grid", "routes/albums.grid.tsx"),
+  route("album/:id/grid", "routes/album.$id.grid.tsx"),
+
+  // Albums - Wall Views
+  route("albums/wall", "routes/albums.wall.tsx"),
+  route("album/:id/wall", "routes/album.$id.wall.tsx"),
+
   route("photo/:id", "routes/photo.$id.tsx"),
   route("face/:id/similar", "routes/face.$id.similar.tsx"),
   route("api/image/:id", "routes/api.image.$id.tsx"),

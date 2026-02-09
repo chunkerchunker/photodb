@@ -36,6 +36,7 @@ import {
 import { Input } from "~/components/ui/input";
 import { ViewSwitcher } from "~/components/view-switcher";
 import { useInfiniteScroll } from "~/hooks/use-infinite-scroll";
+import { requireCollectionId } from "~/lib/auth.server";
 import { dataWithViewMode } from "~/lib/cookies.server";
 import {
   deleteCluster,
@@ -64,6 +65,7 @@ export function meta({ params }: Route.MetaArgs) {
 }
 
 export async function action({ request, params }: Route.ActionArgs) {
+  const { collectionId } = await requireCollectionId(request);
   const formData = await request.formData();
   const intent = formData.get("intent");
   const clusterId = params.id;
@@ -82,7 +84,7 @@ export async function action({ request, params }: Route.ActionArgs) {
       return { success: false, message: "No faces selected" };
     }
 
-    const result = await dissociateFacesFromCluster(clusterId, faceIds);
+    const result = await dissociateFacesFromCluster(collectionId, clusterId, faceIds);
     return result;
   }
 
@@ -90,7 +92,7 @@ export async function action({ request, params }: Route.ActionArgs) {
     const faceId = parseInt(formData.get("faceId") as string, 10);
 
     if (faceId && clusterId) {
-      const result = await setClusterRepresentative(clusterId, faceId);
+      const result = await setClusterRepresentative(collectionId, clusterId, faceId);
       return result;
     }
     return { success: false, message: "Invalid face ID" };
@@ -98,7 +100,7 @@ export async function action({ request, params }: Route.ActionArgs) {
 
   if (intent === "hide" || intent === "unhide") {
     if (clusterId) {
-      const result = await setClusterHidden(clusterId, intent === "hide");
+      const result = await setClusterHidden(collectionId, clusterId, intent === "hide");
       return result;
     }
     return { success: false, message: "Invalid cluster ID" };
@@ -106,7 +108,7 @@ export async function action({ request, params }: Route.ActionArgs) {
 
   if (intent === "delete") {
     if (clusterId) {
-      const result = await deleteCluster(clusterId);
+      const result = await deleteCluster(collectionId, clusterId);
       if (result.success) {
         return redirect("/clusters");
       }
@@ -119,7 +121,7 @@ export async function action({ request, params }: Route.ActionArgs) {
     const faceId = parseInt(formData.get("faceId") as string, 10);
 
     if (faceId && clusterId) {
-      const result = await dissociateFaceWithConfidenceCutoff(clusterId, faceId);
+      const result = await dissociateFaceWithConfidenceCutoff(collectionId, clusterId, faceId);
       return result;
     }
     return { success: false, message: "Invalid face ID" };
@@ -131,7 +133,7 @@ export async function action({ request, params }: Route.ActionArgs) {
       return { success: false, message: "Invalid cluster IDs" };
     }
 
-    const result = await linkClustersToSamePerson(clusterId, targetClusterId);
+    const result = await linkClustersToSamePerson(collectionId, clusterId, targetClusterId);
     return result;
   }
 
@@ -142,7 +144,7 @@ export async function action({ request, params }: Route.ActionArgs) {
       return { success: false, message: "First name is required" };
     }
 
-    const result = await setClusterPersonName(clusterId, firstName, lastName || undefined);
+    const result = await setClusterPersonName(collectionId, clusterId, firstName, lastName || undefined);
     return result;
   }
 
@@ -152,19 +154,20 @@ export async function action({ request, params }: Route.ActionArgs) {
 const LIMIT = 48; // More faces for wide layouts with 8 columns
 
 export async function loader({ params, request }: Route.LoaderArgs) {
+  const { collectionId } = await requireCollectionId(request);
   const clusterId = params.id;
   const url = new URL(request.url);
   const page = parseInt(url.searchParams.get("page") || "1", 10);
   const offset = (page - 1) * LIMIT;
 
   try {
-    const cluster = await getClusterDetails(clusterId);
+    const cluster = await getClusterDetails(collectionId, clusterId);
     if (!cluster) {
       throw new Response("Cluster not found", { status: 404 });
     }
 
-    const faces = await getClusterFaces(clusterId, LIMIT, offset);
-    const totalFaces = await getClusterFacesCount(clusterId);
+    const faces = await getClusterFaces(collectionId, clusterId, LIMIT, offset);
+    const totalFaces = await getClusterFacesCount(collectionId, clusterId);
     const hasMore = offset + faces.length < totalFaces;
 
     return dataWithViewMode(

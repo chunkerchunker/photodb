@@ -9,6 +9,7 @@ import { Card, CardContent } from "~/components/ui/card";
 import { ContextMenu, ContextMenuContent, ContextMenuItem, ContextMenuTrigger } from "~/components/ui/context-menu";
 import { ViewSwitcher } from "~/components/view-switcher";
 import { useInfiniteScroll } from "~/hooks/use-infinite-scroll";
+import { requireCollectionId } from "~/lib/auth.server";
 import { dataWithViewMode } from "~/lib/cookies.server";
 import { getPeople, getPeopleCount } from "~/lib/db.server";
 import { getFaceCropStyle } from "~/lib/face-crop";
@@ -27,6 +28,7 @@ export function meta() {
 const LIMIT = 24; // 4x6 grid
 
 export async function loader({ request }: Route.LoaderArgs) {
+  const { collectionId } = await requireCollectionId(request);
   const url = new URL(request.url);
   const page = parseInt(url.searchParams.get("page") || "1", 10);
   const sortParam = url.searchParams.get("sort");
@@ -34,8 +36,8 @@ export async function loader({ request }: Route.LoaderArgs) {
   const offset = (page - 1) * LIMIT;
 
   try {
-    const people = await getPeople(LIMIT, offset, sort);
-    const totalPeople = await getPeopleCount();
+    const people = await getPeople(collectionId, LIMIT, offset, sort);
+    const totalPeople = await getPeopleCount(collectionId);
     const hasMore = offset + people.length < totalPeople;
 
     return dataWithViewMode(

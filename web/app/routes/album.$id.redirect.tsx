@@ -1,12 +1,12 @@
 import { redirect } from "react-router";
 import { getViewModeCookie } from "~/lib/cookies.server";
-import type { Route } from "./+types/year.redirect";
+import type { Route } from "./+types/album.$id.redirect";
 
 export async function loader({ request, params }: Route.LoaderArgs) {
+  const albumId = params.id;
   const viewMode = await getViewModeCookie(request);
-  const { year } = params;
   if (viewMode === "grid") {
-    return redirect(`/year/${year}/grid`);
+    return redirect(`/album/${albumId}/grid`);
   }
-  return redirect(`/year/${year}/wall`);
+  return redirect(`/album/${albumId}/wall`);
 }

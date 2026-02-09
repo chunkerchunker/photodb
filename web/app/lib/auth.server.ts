@@ -112,6 +112,22 @@ export async function requireUser(request: Request): Promise<AppUser> {
   return user;
 }
 
+/**
+ * Get the collection ID for the current user.
+ * Requires authentication - redirects to /login if not authenticated.
+ * Returns the user's default_collection_id, or throws if the user has no default collection.
+ */
+export async function requireCollectionId(request: Request): Promise<{ user: AppUser; collectionId: number }> {
+  const user = await requireUser(request);
+
+  if (!user.default_collection_id) {
+    // User exists but has no default collection - this shouldn't happen in normal operation
+    throw new Response("No default collection configured for user", { status: 403 });
+  }
+
+  return { user, collectionId: user.default_collection_id };
+}
+
 export async function createLoginSession(userId: number): Promise<{ token: string; cookie: string }> {
   const expiresAt = new Date(Date.now() + SESSION_TTL_DAYS * 24 * 60 * 60 * 1000);
   const token = encodeSession(userId, expiresAt);

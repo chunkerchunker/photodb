@@ -1,3 +1,4 @@
+import { requireCollectionId } from "~/lib/auth.server";
 import { setPersonRepresentative } from "~/lib/db.server";
 import type { Route } from "./+types/api.person.$id.representative";
 
@@ -6,6 +7,7 @@ export async function action({ request, params }: Route.ActionArgs) {
     return Response.json({ success: false, message: "Method not allowed" }, { status: 405 });
   }
 
+  const { collectionId } = await requireCollectionId(request);
   const personId = params.id;
   if (!personId) {
     return Response.json({ success: false, message: "Person ID required" }, { status: 400 });
@@ -18,6 +20,6 @@ export async function action({ request, params }: Route.ActionArgs) {
     return Response.json({ success: false, message: "Cluster ID required" }, { status: 400 });
   }
 
-  const result = await setPersonRepresentative(personId, clusterId);
+  const result = await setPersonRepresentative(collectionId, personId, clusterId);
   return Response.json(result);
 }

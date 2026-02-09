@@ -5,6 +5,7 @@ import { CoverflowIcon } from "~/components/coverflow-icon";
 import { Header } from "~/components/header";
 import { PhotoWall, type WallTile } from "~/components/photo-wall";
 import { ViewSwitcher } from "~/components/view-switcher";
+import { requireCollectionId } from "~/lib/auth.server";
 import { dataWithViewMode } from "~/lib/cookies.server";
 import { getClustersGroupedByPerson, getClustersGroupedCount } from "~/lib/db.server";
 import type { Route } from "./+types/clusters.wall";
@@ -16,11 +17,12 @@ export function meta() {
   ];
 }
 
-export async function loader() {
+export async function loader({ request }: Route.LoaderArgs) {
+  const { collectionId } = await requireCollectionId(request);
   try {
     // Load all items for wall view (no pagination)
-    const items = await getClustersGroupedByPerson(500, 0);
-    const totalItems = await getClustersGroupedCount();
+    const items = await getClustersGroupedByPerson(collectionId, 500, 0);
+    const totalItems = await getClustersGroupedCount(collectionId);
     return dataWithViewMode({ items, totalItems }, "wall");
   } catch (error) {
     console.error("Failed to load clusters:", error);

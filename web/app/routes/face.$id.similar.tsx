@@ -31,6 +31,7 @@ import {
 } from "~/components/ui/dialog";
 import { Input } from "~/components/ui/input";
 import { Slider } from "~/components/ui/slider";
+import { requireCollectionId } from "~/lib/auth.server";
 import {
   addFacesToCluster,
   createClusterFromFaces,
@@ -258,6 +259,7 @@ const SimilarFaceCard = memo(function SimilarFaceCard({
 });
 
 export async function action({ request, params }: Route.ActionArgs) {
+  const { collectionId } = await requireCollectionId(request);
   const formData = await request.formData();
   const intent = formData.get("intent");
   const faceId = params.id;
@@ -276,7 +278,7 @@ export async function action({ request, params }: Route.ActionArgs) {
     // Include the source face in the cluster
     faceIds.unshift(parseInt(faceId, 10));
 
-    const result = await createClusterFromFaces(faceIds);
+    const result = await createClusterFromFaces(collectionId, faceIds);
     if (result.success && result.clusterId) {
       return redirect(`/cluster/${result.clusterId}`);
     }
@@ -301,7 +303,7 @@ export async function action({ request, params }: Route.ActionArgs) {
     // Include the source face
     faceIds.unshift(parseInt(faceId, 10));
 
-    const result = await addFacesToCluster(targetClusterId, faceIds);
+    const result = await addFacesToCluster(collectionId, targetClusterId, faceIds);
     if (result.success) {
       return redirect(`/cluster/${targetClusterId}`);
     }
@@ -314,25 +316,26 @@ export async function action({ request, params }: Route.ActionArgs) {
       return { success: false, message: "No face specified" };
     }
 
-    const result = await removeFaceFromClusterWithConstraint(parseInt(targetFaceId, 10));
+    const result = await removeFaceFromClusterWithConstraint(collectionId, parseInt(targetFaceId, 10));
     return result;
   }
 
   return { success: false, message: "Unknown action" };
 }
 
-export async function loader({ params, request }: Route.LoaderArgs) {
+export async function loader({ request, params }: Route.LoaderArgs) {
+  const { collectionId } = await requireCollectionId(request);
   const faceId = parseInt(params.id, 10);
   const url = new URL(request.url);
   const threshold = parseFloat(url.searchParams.get("threshold") || "0.6");
 
   try {
-    const face = await getFaceDetails(faceId);
+    const face = await getFaceDetails(collectionId, faceId);
     if (!face) {
       throw new Response("Face not found", { status: 404 });
     }
 
-    const similarFaces = await getSimilarFaces(faceId, 50, threshold);
+    const similarFaces = await getSimilarFaces(collectionId, faceId, 50, threshold);
 
     return {
       face,

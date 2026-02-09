@@ -1,6 +1,7 @@
 import { Camera, Grid, User, Users } from "lucide-react";
 import { useMemo } from "react";
 import { data, Link, useLocation } from "react-router";
+import { requireCollectionId } from "~/lib/auth.server";
 import { CoverflowIcon } from "~/components/coverflow-icon";
 import { Header } from "~/components/header";
 import { PhotoWall, type WallTile } from "~/components/photo-wall";
@@ -14,9 +15,11 @@ export function meta() {
 
 import { dataWithViewMode } from "~/lib/cookies.server";
 
-export async function loader() {
+export async function loader({ request }: Route.LoaderArgs) {
+  const { collectionId } = await requireCollectionId(request);
+
   try {
-    const years = await getYearsWithPhotos();
+    const years = await getYearsWithPhotos(collectionId);
     return dataWithViewMode({ years }, "wall");
   } catch (error) {
     console.error("Failed to load years:", error);

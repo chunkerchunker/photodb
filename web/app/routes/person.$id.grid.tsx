@@ -10,6 +10,7 @@ import { Button } from "~/components/ui/button";
 import { Card, CardContent } from "~/components/ui/card";
 import { ContextMenu, ContextMenuContent, ContextMenuItem, ContextMenuTrigger } from "~/components/ui/context-menu";
 import { ViewSwitcher } from "~/components/view-switcher";
+import { requireCollectionId } from "~/lib/auth.server";
 import { dataWithViewMode } from "~/lib/cookies.server";
 import { getClustersByPerson, getPersonById, unlinkClusterFromPerson } from "~/lib/db.server";
 import { getFaceCropStyle } from "~/lib/face-crop";
@@ -23,23 +24,25 @@ export function meta({ data }: Route.MetaArgs) {
   ];
 }
 
-export async function loader({ params }: Route.LoaderArgs) {
+export async function loader({ request, params }: Route.LoaderArgs) {
+  const { collectionId } = await requireCollectionId(request);
   const personId = params.id;
   if (!personId) {
     throw new Response("Person ID required", { status: 400 });
   }
 
-  const person = await getPersonById(personId);
+  const person = await getPersonById(collectionId, personId);
   if (!person) {
     throw new Response("Person not found", { status: 404 });
   }
 
-  const clusters = await getClustersByPerson(personId);
+  const clusters = await getClustersByPerson(collectionId, personId);
 
   return dataWithViewMode({ person, clusters }, "grid");
 }
 
 export async function action({ request, params }: Route.ActionArgs) {
+  const { collectionId } = await requireCollectionId(request);
   const formData = await request.formData();
   const intent = formData.get("intent");
   const personId = params.id;
@@ -49,7 +52,7 @@ export async function action({ request, params }: Route.ActionArgs) {
     if (!clusterId) {
       return { success: false, message: "Cluster ID required" };
     }
-    return await unlinkClusterFromPerson(clusterId);
+    return await unlinkClusterFromPerson(collectionId, clusterId);
   }
 
   return { success: false, message: "Unknown action" };

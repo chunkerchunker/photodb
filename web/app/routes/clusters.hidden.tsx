@@ -5,6 +5,7 @@ import { Breadcrumb } from "~/components/breadcrumb";
 import { Layout } from "~/components/layout";
 import { Button } from "~/components/ui/button";
 import { Card, CardContent } from "~/components/ui/card";
+import { requireCollectionId } from "~/lib/auth.server";
 import { getHiddenClusters, getHiddenClustersCount, setClusterHidden } from "~/lib/db.server";
 import type { Route } from "./+types/clusters.hidden";
 
@@ -19,13 +20,14 @@ export function meta() {
 }
 
 export async function action({ request }: Route.ActionArgs) {
+  const { collectionId } = await requireCollectionId(request);
   const formData = await request.formData();
   const intent = formData.get("intent");
 
   if (intent === "unhide") {
     const clusterId = formData.get("clusterId") as string;
     if (clusterId) {
-      const result = await setClusterHidden(clusterId, false);
+      const result = await setClusterHidden(collectionId, clusterId, false);
       return result;
     }
     return { success: false, message: "Invalid cluster ID" };
@@ -37,13 +39,14 @@ export async function action({ request }: Route.ActionArgs) {
 const LIMIT = 24;
 
 export async function loader({ request }: Route.LoaderArgs) {
+  const { collectionId } = await requireCollectionId(request);
   const url = new URL(request.url);
   const page = parseInt(url.searchParams.get("page") || "1", 10);
   const offset = (page - 1) * LIMIT;
 
   try {
-    const clusters = await getHiddenClusters(LIMIT, offset);
-    const totalClusters = await getHiddenClustersCount();
+    const clusters = await getHiddenClusters(collectionId, LIMIT, offset);
+    const totalClusters = await getHiddenClustersCount(collectionId);
     const hasMore = offset + clusters.length < totalClusters;
 
     return {

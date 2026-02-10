@@ -108,6 +108,7 @@ export default function AlbumGridView({ loaderData }: Route.ComponentProps) {
     <Header
       breadcrumbs={[{ label: "Albums", to: "/albums" }, { label: album.name }]}
       user={rootData?.userAvatar}
+      isAdmin={rootData?.user?.isAdmin}
       viewAction={
         <ViewSwitcher
           modes={[

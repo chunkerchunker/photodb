@@ -109,6 +109,7 @@ export default function ClusterWallView({ loaderData }: Route.ComponentProps) {
       homeTo="/wall"
       breadcrumbs={[{ label: "Clusters", to: "/clusters" }, { label: displayName }]}
       user={rootData?.userAvatar}
+      isAdmin={rootData?.user?.isAdmin}
       viewAction={
         <ViewSwitcher
           modes={[

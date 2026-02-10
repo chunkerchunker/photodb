@@ -90,6 +90,7 @@ export default function PeopleWallView({ loaderData }: Route.ComponentProps) {
       homeTo="/wall"
       breadcrumbs={[{ label: "People" }]}
       user={rootData?.userAvatar}
+      isAdmin={rootData?.user?.isAdmin}
       viewAction={
         <ViewSwitcher
           modes={[

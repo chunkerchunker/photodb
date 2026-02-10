@@ -1165,6 +1165,7 @@ function ThreeWall({ photos, year, month, totalPhotos, monthName, rootData }: Th
         homeTo="/wall"
         breadcrumbs={[{ label: year.toString(), to: `/year/${year}/wall` }, { label: monthName }]}
         user={rootData?.userAvatar}
+        isAdmin={rootData?.user?.isAdmin}
         viewAction={
           <ViewSwitcher
             modes={[

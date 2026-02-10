@@ -62,8 +62,6 @@ export default function ClusterWallView({ loaderData }: Route.ComponentProps) {
           metadata: {
             subtitle: `Face #${face.id}`,
             count: 1,
-            // Use circular tiles for face display
-            isCircular: true,
           },
         };
       }),

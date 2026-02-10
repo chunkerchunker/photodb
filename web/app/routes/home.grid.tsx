@@ -1,7 +1,7 @@
 import { data, Link } from "react-router";
-import { requireCollectionId } from "~/lib/auth.server";
 import { Layout } from "~/components/layout";
 import { Card, CardContent } from "~/components/ui/card";
+import { requireCollectionId } from "~/lib/auth.server";
 import { getYearsWithPhotos } from "~/lib/db.server";
 import type { Route } from "./+types/home.grid";
 

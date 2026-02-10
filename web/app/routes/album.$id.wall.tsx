@@ -1,4 +1,4 @@
-import { Images, Grid } from "lucide-react";
+import { Grid, Images } from "lucide-react";
 import { useMemo } from "react";
 import { useLocation } from "react-router";
 import { CoverflowIcon } from "~/components/coverflow-icon";
@@ -69,10 +69,7 @@ export default function AlbumWallView({ loaderData }: Route.ComponentProps) {
   const headerContent = (
     <Header
       homeTo="/albums/wall"
-      breadcrumbs={[
-        { label: "Albums", to: "/albums" },
-        { label: album.name },
-      ]}
+      breadcrumbs={[{ label: "Albums", to: "/albums" }, { label: album.name }]}
       viewAction={
         <ViewSwitcher
           modes={[
@@ -96,11 +93,6 @@ export default function AlbumWallView({ loaderData }: Route.ComponentProps) {
   );
 
   return (
-    <PhotoWall
-      key={location.key}
-      tiles={tiles}
-      sessionKey={`album-${album.id}-wall`}
-      headerContent={headerContent}
-    />
+    <PhotoWall key={location.key} tiles={tiles} sessionKey={`album-${album.id}-wall`} headerContent={headerContent} />
   );
 }

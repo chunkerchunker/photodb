@@ -1,9 +1,9 @@
 import { Box } from "lucide-react";
 import { data, Link } from "react-router";
-import { requireCollectionId } from "~/lib/auth.server";
 import { Breadcrumb } from "~/components/breadcrumb";
 import { Layout } from "~/components/layout";
 import { Card, CardContent } from "~/components/ui/card";
+import { requireCollectionId } from "~/lib/auth.server";
 import { getMonthsInYear } from "~/lib/db.server";
 import type { Route } from "./+types/year.grid";
 

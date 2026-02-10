@@ -131,13 +131,7 @@ export async function getMonthsInYear(collectionId: number, year: number) {
   }));
 }
 
-export async function getPhotosByMonth(
-  collectionId: number,
-  year: number,
-  month: number,
-  limit = 100,
-  offset = 0,
-) {
+export async function getPhotosByMonth(collectionId: number, year: number, month: number, limit = 100, offset = 0) {
   const query = `
     SELECT p.id, p.filename, p.normalized_path,
            m.captured_at, m.latitude, m.longitude,
@@ -344,7 +338,7 @@ export async function getPhotoDetails(collectionId: number, photoId: number) {
     photo.month_name = monthNames[photo.month];
   }
 
-  // Set image dimensions from metadata table
+  // Set image dimensions from normalized image (face boxes use normalized coordinates)
   photo.image_width = photo.normalized_width || null;
   photo.image_height = photo.normalized_height || null;
 
@@ -566,12 +560,7 @@ export async function getHiddenClustersCount(collectionId: number) {
   return parseInt(result.rows[0].count, 10);
 }
 
-export async function getNamedClusters(
-  collectionId: number,
-  limit = 50,
-  offset = 0,
-  sort: "photos" | "name" = "name",
-) {
+export async function getNamedClusters(collectionId: number, limit = 50, offset = 0, sort: "photos" | "name" = "name") {
   const orderBy =
     sort === "photos"
       ? "c.face_count DESC, per.first_name, per.last_name, c.id"
@@ -616,12 +605,7 @@ export async function getNamedClustersCount(collectionId: number) {
  * Groups clusters by person_id and sums face counts.
  * Uses person.representative_detection_id if set, otherwise falls back to largest cluster's representative.
  */
-export async function getPeople(
-  collectionId: number,
-  limit = 50,
-  offset = 0,
-  sort: "photos" | "name" = "name",
-) {
+export async function getPeople(collectionId: number, limit = 50, offset = 0, sort: "photos" | "name" = "name") {
   const orderBy =
     sort === "photos"
       ? "total_face_count DESC, per.first_name, per.last_name, per.id"
@@ -770,12 +754,7 @@ export async function getClustersByPerson(collectionId: number, personId: string
 /**
  * Rename a person directly.
  */
-export async function setPersonName(
-  collectionId: number,
-  personId: string,
-  firstName: string,
-  lastName?: string,
-) {
+export async function setPersonName(collectionId: number, personId: string, firstName: string, lastName?: string) {
   const query = `
     UPDATE person
     SET first_name = $1, last_name = $2, updated_at = NOW()
@@ -832,11 +811,7 @@ export async function unlinkClusterFromPerson(collectionId: number, clusterId: s
  * Set a person's representative detection from a cluster.
  * Uses the cluster's representative_detection_id.
  */
-export async function setPersonRepresentative(
-  collectionId: number,
-  personId: string,
-  clusterId: string,
-) {
+export async function setPersonRepresentative(collectionId: number, personId: string, clusterId: string) {
   const client = await pool.connect();
   try {
     // Get the cluster's representative detection and verify it belongs to this person
@@ -1015,12 +990,7 @@ export async function getClusterDetails(collectionId: number, clusterId: string)
   return result.rows[0] || null;
 }
 
-export async function getClusterFaces(
-  collectionId: number,
-  clusterId: string,
-  limit = 24,
-  offset = 0,
-) {
+export async function getClusterFaces(collectionId: number, clusterId: string, limit = 24, offset = 0) {
   const query = `
     SELECT pd.id, pd.face_bbox_x as bbox_x, pd.face_bbox_y as bbox_y,
            pd.face_bbox_width as bbox_width, pd.face_bbox_height as bbox_height,
@@ -1052,11 +1022,7 @@ export async function getClusterFacesCount(collectionId: number, clusterId: stri
 
 // Constraint management functions
 
-export async function addCannotLink(
-  collectionId: number,
-  detectionId1: number,
-  detectionId2: number,
-) {
+export async function addCannotLink(collectionId: number, detectionId1: number, detectionId2: number) {
   // Canonical ordering to prevent duplicates
   const [id1, id2] = detectionId1 < detectionId2 ? [detectionId1, detectionId2] : [detectionId2, detectionId1];
 
@@ -1100,11 +1066,7 @@ export async function removeCannotLink(collectionId: number, cannotLinkId: numbe
   return result.rows[0]?.id || null;
 }
 
-export async function setClusterRepresentative(
-  collectionId: number,
-  clusterId: string,
-  detectionId: number,
-) {
+export async function setClusterRepresentative(collectionId: number, clusterId: string, detectionId: number) {
   // Verify detection belongs to this cluster
   const verifyQuery = `
     SELECT cluster_id FROM person_detection WHERE id = $1 AND collection_id = $2
@@ -1255,12 +1217,7 @@ export async function dissociateFacesFromCluster(
   }
 }
 
-export async function searchClusters(
-  collectionId: number,
-  query: string,
-  excludeClusterId?: string,
-  limit = 20,
-) {
+export async function searchClusters(collectionId: number, query: string, excludeClusterId?: string, limit = 20) {
   // Search by cluster ID or person name
   const searchQuery = `
     SELECT c.id, c.face_count, c.representative_detection_id,
@@ -1295,11 +1252,7 @@ export async function searchClusters(
  * Preview what will happen when linking two clusters.
  * Returns info about both clusters' person associations.
  */
-export async function previewClusterLink(
-  collectionId: number,
-  sourceClusterId: string,
-  targetClusterId: string,
-) {
+export async function previewClusterLink(collectionId: number, sourceClusterId: string, targetClusterId: string) {
   const query = `
     SELECT
       c.id as cluster_id,
@@ -1359,11 +1312,7 @@ export async function previewClusterLink(
  *
  * This preserves cluster integrity while establishing identity linkage.
  */
-export async function linkClustersToSamePerson(
-  collectionId: number,
-  sourceClusterId: string,
-  targetClusterId: string,
-) {
+export async function linkClustersToSamePerson(collectionId: number, sourceClusterId: string, targetClusterId: string) {
   if (sourceClusterId === targetClusterId) {
     return { success: false, message: "Cannot link a cluster with itself" };
   }
@@ -1499,11 +1448,7 @@ export async function linkClustersToSamePerson(
   }
 }
 
-export async function addFacesToCluster(
-  collectionId: number,
-  clusterId: string,
-  detectionIds: number[],
-) {
+export async function addFacesToCluster(collectionId: number, clusterId: string, detectionIds: number[]) {
   if (detectionIds.length === 0) {
     return { success: false, message: "No detections selected", addedCount: 0 };
   }
@@ -1730,11 +1675,7 @@ export async function getSimilarFaces(
   return result.rows;
 }
 
-export async function dissociateFaceWithConfidenceCutoff(
-  collectionId: number,
-  clusterId: string,
-  detectionId: number,
-) {
+export async function dissociateFaceWithConfidenceCutoff(collectionId: number, clusterId: string, detectionId: number) {
   const client = await pool.connect();
   try {
     await client.query("BEGIN");
@@ -1852,10 +1793,7 @@ export async function dissociateFaceWithConfidenceCutoff(
   }
 }
 
-export async function removeFaceFromClusterWithConstraint(
-  collectionId: number,
-  detectionId: number,
-) {
+export async function removeFaceFromClusterWithConstraint(collectionId: number, detectionId: number) {
   const client = await pool.connect();
   try {
     await client.query("BEGIN");

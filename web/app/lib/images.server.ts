@@ -6,25 +6,39 @@ import { getPhotoById } from "./db.server";
 // Load environment variables from .env file
 dotenv.config({ path: path.join(process.cwd(), "..", ".env") });
 
-export async function getImagePath(collectionId: number, photoId: number): Promise<string | null> {
+export async function getImagePath(collectionId: number, photoId: number, useOriginal = false): Promise<string | null> {
   const photo = await getPhotoById(collectionId, photoId);
-  if (!photo || !photo.normalized_path) {
+  if (!photo) {
     return null;
   }
 
-  const imagePath = photo.normalized_path;
+  // Use original (filename) if requested and available, otherwise fall back to normalized
+  let imagePath = useOriginal && photo.filename ? photo.filename : photo.normalized_path;
+
+  if (!imagePath) {
+    return null;
+  }
 
   // Check if file exists
   if (!fs.existsSync(imagePath)) {
-    console.error(`Image not found: ${imagePath}`);
-    return null;
+    // If original doesn't exist, try normalized as fallback
+    if (useOriginal && photo.normalized_path && fs.existsSync(photo.normalized_path)) {
+      imagePath = photo.normalized_path;
+    } else {
+      console.error(`Image not found: ${imagePath}`);
+      return null;
+    }
   }
 
   return imagePath;
 }
 
-export async function getImageBuffer(collectionId: number, photoId: number): Promise<Buffer | null> {
-  const imagePath = await getImagePath(collectionId, photoId);
+export async function getImageBuffer(
+  collectionId: number,
+  photoId: number,
+  useOriginal = false,
+): Promise<Buffer | null> {
+  const imagePath = await getImagePath(collectionId, photoId, useOriginal);
   if (!imagePath) {
     return null;
   }

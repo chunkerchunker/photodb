@@ -2,10 +2,10 @@ import { ArrowLeft, Camera, Grid, Loader2, User, Users } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { data, Link, useLocation, useNavigate } from "react-router";
 import * as THREE from "three";
-import { requireCollectionId } from "~/lib/auth.server";
 import { CoverflowIcon } from "~/components/coverflow-icon";
 import { Header } from "~/components/header";
 import { ViewSwitcher } from "~/components/view-switcher";
+import { requireCollectionId } from "~/lib/auth.server";
 import { getPhotoCountByMonth, getPhotosByMonth } from "~/lib/db.server";
 import type { Route } from "./+types/month.wall";
 

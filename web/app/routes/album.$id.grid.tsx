@@ -1,4 +1,4 @@
-import { Images, Grid, Loader2 } from "lucide-react";
+import { Grid, Images, Loader2 } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Link, useFetcher } from "react-router";
 import { CoverflowIcon } from "~/components/coverflow-icon";
@@ -13,10 +13,7 @@ const LIMIT = 48;
 
 export function meta({ data }: Route.MetaArgs) {
   const albumName = data?.album?.name || "Album";
-  return [
-    { title: `PhotoDB - ${albumName}` },
-    { name: "description", content: `Browse ${albumName}` },
-  ];
+  return [{ title: `PhotoDB - ${albumName}` }, { name: "description", content: `Browse ${albumName}` }];
 }
 
 export async function loader({ request, params }: Route.LoaderArgs) {
@@ -45,13 +42,7 @@ export async function loader({ request, params }: Route.LoaderArgs) {
 type Photo = Route.ComponentProps["loaderData"]["photos"][number];
 
 export default function AlbumGridView({ loaderData }: Route.ComponentProps) {
-  const {
-    album,
-    photos: initialPhotos,
-    totalPhotos,
-    page: initialPage,
-    hasMore: initialHasMore,
-  } = loaderData;
+  const { album, photos: initialPhotos, totalPhotos, page: initialPage, hasMore: initialHasMore } = loaderData;
 
   const [photos, setPhotos] = useState<Photo[]>(initialPhotos);
   const [page, setPage] = useState(initialPage);
@@ -113,10 +104,7 @@ export default function AlbumGridView({ loaderData }: Route.ComponentProps) {
 
   const headerContent = (
     <Header
-      breadcrumbs={[
-        { label: "Albums", to: "/albums" },
-        { label: album.name },
-      ]}
+      breadcrumbs={[{ label: "Albums", to: "/albums" }, { label: album.name }]}
       viewAction={
         <ViewSwitcher
           modes={[
@@ -186,9 +174,7 @@ export default function AlbumGridView({ loaderData }: Route.ComponentProps) {
               <span>Loading more photos...</span>
             </div>
           )}
-          {!hasMore && photos.length > 0 && (
-            <span className="text-gray-500 text-sm">All photos loaded</span>
-          )}
+          {!hasMore && photos.length > 0 && <span className="text-gray-500 text-sm">All photos loaded</span>}
         </div>
       </main>
     </div>

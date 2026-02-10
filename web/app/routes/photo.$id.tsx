@@ -14,6 +14,7 @@ import {
   Tag,
   User,
   Users,
+  X,
 } from "lucide-react";
 import { displaySettings } from "~/lib/settings";
 
@@ -65,7 +66,7 @@ function getCategoryColor(category: string): string {
   for (let i = 0; i < category.length; i++) {
     hash = category.charCodeAt(i) + ((hash << 5) - hash);
   }
-  
+
   const index = Math.abs(hash) % colors.length;
   return colors[index];
 }
@@ -136,6 +137,7 @@ interface FaceOverlayProps {
   hoveredFaceId: string | null;
   onFaceHover: (faceId: string | null) => void;
   onFaceClick: (face: Face, event: React.MouseEvent) => void;
+  opacity?: number;
 }
 
 function FaceOverlay({
@@ -147,6 +149,7 @@ function FaceOverlay({
   hoveredFaceId,
   onFaceHover,
   onFaceClick,
+  opacity = 1,
 }: FaceOverlayProps) {
   // Calculate scaling factors based on displayed vs original dimensions
   const scaleX = displayWidth / originalWidth;
@@ -183,6 +186,7 @@ function FaceOverlay({
               top: `${top}px`,
               width: `${width}px`,
               height: `${height}px`,
+              opacity: isHovered ? 1 : opacity,
             }}
             onMouseEnter={() => onFaceHover(face.id)}
             onMouseLeave={() => onFaceHover(null)}
@@ -252,7 +256,9 @@ export default function PhotoDetail({ loaderData }: Route.ComponentProps) {
   const [showLowConfidenceSceneTags, setShowLowConfidenceSceneTags] = useState(false);
   const [hoveredFaceId, setHoveredFaceId] = useState<string | null>(null);
   const [isToggleHovered, setIsToggleHovered] = useState(false);
+  const [isZoomed, setIsZoomed] = useState(false);
   const [imageMeasures, imageMeasureRef] = useMeasure<HTMLImageElement>();
+  const [zoomedImageMeasures, zoomedImageMeasureRef] = useMeasure<HTMLImageElement>();
   const [sectionStates, setSectionStates] = useState({
     basicInfo: true,
     location: true,
@@ -260,6 +266,17 @@ export default function PhotoDetail({ loaderData }: Route.ComponentProps) {
     sceneTags: true,
     aiAnalysis: true,
   });
+
+  // Close zoom overlay on Escape key
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === "Escape" && isZoomed) {
+        setIsZoomed(false);
+      }
+    };
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [isZoomed]);
 
   useEffect(() => {
     // Load section states from localStorage
@@ -336,19 +353,92 @@ export default function PhotoDetail({ loaderData }: Route.ComponentProps) {
 
   return (
     <Layout>
+      {/* Fullscreen zoom overlay */}
+      {isZoomed && (
+        <div
+          className="fixed inset-0 z-50 bg-black/95 flex items-center justify-center"
+          onClick={() => setIsZoomed(false)}
+          onKeyDown={(e) => {
+            if (e.key === "Enter" || e.key === " ") setIsZoomed(false);
+          }}
+          role="button"
+          tabIndex={0}
+        >
+          <button
+            type="button"
+            className="absolute top-4 right-4 text-white/70 hover:text-white z-10"
+            onClick={() => setIsZoomed(false)}
+          >
+            <X className="h-8 w-8" />
+          </button>
+          <div className="overflow-auto max-h-screen max-w-screen p-4">
+            <div className="relative inline-block">
+              <img
+                ref={zoomedImageMeasureRef}
+                src={`/api/image/${photo.id}?full=true`}
+                alt={photo.filename_only}
+                className="max-w-none cursor-zoom-out"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  setIsZoomed(false);
+                }}
+              />
+              {/* Face Overlay for zoomed view */}
+              {showFaces &&
+                photo.faces &&
+                photo.faces.length > 0 &&
+                photo.image_width &&
+                photo.image_height &&
+                zoomedImageMeasures &&
+                zoomedImageMeasures.width &&
+                zoomedImageMeasures.height && (
+                  <FaceOverlay
+                    faces={photo.faces}
+                    originalWidth={photo.image_width}
+                    originalHeight={photo.image_height}
+                    displayWidth={zoomedImageMeasures.width}
+                    displayHeight={zoomedImageMeasures.height}
+                    hoveredFaceId={hoveredFaceId}
+                    onFaceHover={setHoveredFaceId}
+                    opacity={1}
+                    onFaceClick={(face, event) => {
+                      event.stopPropagation();
+                      const url = face.cluster_id ? `/cluster/${face.cluster_id}` : `/face/${face.id}/similar`;
+                      if (event.metaKey || event.ctrlKey) {
+                        window.open(url, "_blank");
+                      } else {
+                        setIsZoomed(false);
+                        navigate(url);
+                      }
+                    }}
+                  />
+                )}
+            </div>
+          </div>
+        </div>
+      )}
+
       <div className="space-y-6">
         <Breadcrumb items={breadcrumbItems} />
 
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
+        <div className="grid grid-cols-1 lg:grid-cols-5 gap-6">
           {/* Image Column */}
-          <div className="flex flex-col">
+          <div className="lg:col-span-3 flex flex-col">
             <div className="flex items-start gap-2">
-              <div className="relative inline-block size-fit">
+              <div
+                className="relative inline-block cursor-zoom-in"
+                onClick={() => setIsZoomed(true)}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter" || e.key === " ") setIsZoomed(true);
+                }}
+                role="button"
+                tabIndex={0}
+              >
                 <img
                   ref={imageMeasureRef}
                   src={`/api/image/${photo.id}`}
                   alt={photo.filename_only}
-                  className="w-full h-auto rounded-lg shadow-lg"
+                  className="rounded-lg shadow-lg max-w-full max-h-[85vh] w-auto h-auto object-contain"
                 />
 
                 {/* Face Overlay */}
@@ -372,7 +462,9 @@ export default function PhotoDetail({ loaderData }: Route.ComponentProps) {
                       displayHeight={imageMeasures.height}
                       hoveredFaceId={hoveredFaceId}
                       onFaceHover={setHoveredFaceId}
+                      opacity={showFaces ? 1 : isToggleHovered ? 0.25 : 1}
                       onFaceClick={(face, event) => {
+                        event.stopPropagation();
                         const url = face.cluster_id ? `/cluster/${face.cluster_id}` : `/face/${face.id}/similar`;
                         if (event.metaKey || event.ctrlKey) {
                           window.open(url, "_blank");
@@ -393,7 +485,10 @@ export default function PhotoDetail({ loaderData }: Route.ComponentProps) {
                     "h-8 w-8 flex-shrink-0",
                     showFaces ? "text-blue-600 bg-blue-50 hover:bg-blue-100" : "text-gray-400 hover:text-gray-600",
                   )}
-                  onClick={() => updateFaceState(!showFaces)}
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    updateFaceState(!showFaces);
+                  }}
                   onMouseEnter={() => setIsToggleHovered(true)}
                   onMouseLeave={() => setIsToggleHovered(false)}
                   title={showFaces ? "Hide face bounding boxes" : "Show face bounding boxes"}
@@ -405,7 +500,7 @@ export default function PhotoDetail({ loaderData }: Route.ComponentProps) {
           </div>
 
           {/* Metadata Column */}
-          <div className="space-y-6">
+          <div className="lg:col-span-2 space-y-4">
             {/* Basic Information */}
             <Card>
               <Collapsible
@@ -683,10 +778,7 @@ export default function PhotoDetail({ loaderData }: Route.ComponentProps) {
                                               // biome-ignore lint/suspicious/noArrayIndexKey: index is fine
                                               key={tagIndex}
                                               variant="outline"
-                                              className={cn(
-                                                "text-xs",
-                                                getCategoryColor(tag.category_name)
-                                              )}
+                                              className={cn("text-xs", getCategoryColor(tag.category_name))}
                                               title={`${tag.category_name}: ${tag.prompt_text}`}
                                             >
                                               {tag.display_name || tag.label}
@@ -835,10 +927,7 @@ export default function PhotoDetail({ loaderData }: Route.ComponentProps) {
                                       // biome-ignore lint/suspicious/noArrayIndexKey: index is fine here
                                       key={index}
                                       variant="outline"
-                                      className={cn(
-                                        "text-xs",
-                                        getCategoryColor(tag.category_name)
-                                      )}
+                                      className={cn("text-xs", getCategoryColor(tag.category_name))}
                                       title={tag.prompt_text}
                                     >
                                       {tag.display_name || tag.label}

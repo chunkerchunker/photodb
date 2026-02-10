@@ -6,8 +6,10 @@ import type { Route } from "./+types/api.image.$id";
 export async function loader({ request, params }: Route.LoaderArgs) {
   const { collectionId } = await requireCollectionId(request);
   const photoId = parseInt(params.id, 10);
+  const url = new URL(request.url);
+  const useOriginal = url.searchParams.get("full") === "true";
 
-  const imagePath = await getImagePath(collectionId, photoId);
+  const imagePath = await getImagePath(collectionId, photoId, useOriginal);
 
   if (!imagePath) {
     return new Response("Image not found", { status: 404 });

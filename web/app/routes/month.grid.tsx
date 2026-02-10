@@ -1,10 +1,10 @@
 import { Box, Loader2 } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { data, Link, useFetcher } from "react-router";
-import { requireCollectionId } from "~/lib/auth.server";
 import { Breadcrumb } from "~/components/breadcrumb";
 import { Layout } from "~/components/layout";
 import { Card, CardContent } from "~/components/ui/card";
+import { requireCollectionId } from "~/lib/auth.server";
 import { getPhotoCountByMonth, getPhotosByMonth } from "~/lib/db.server";
 import type { Route } from "./+types/month.grid";
 

@@ -1,4 +1,4 @@
-import { Images, Grid } from "lucide-react";
+import { Grid, Images } from "lucide-react";
 import { useMemo } from "react";
 import { useLocation } from "react-router";
 import { CoverflowIcon } from "~/components/coverflow-icon";
@@ -11,10 +11,7 @@ import { getAlbums, getAlbumsCount } from "~/lib/db.server";
 import type { Route } from "./+types/albums.wall";
 
 export function meta() {
-  return [
-    { title: "PhotoDB - Albums - Wall" },
-    { name: "description", content: "Browse albums in wall view" },
-  ];
+  return [{ title: "PhotoDB - Albums - Wall" }, { name: "description", content: "Browse albums in wall view" }];
 }
 
 export async function loader({ request }: Route.LoaderArgs) {

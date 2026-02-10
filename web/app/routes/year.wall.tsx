@@ -1,11 +1,11 @@
 import { ArrowLeft, Camera, Grid, User, Users } from "lucide-react";
 import { useMemo } from "react";
 import { data, Link, useLocation } from "react-router";
-import { requireCollectionId } from "~/lib/auth.server";
 import { CoverflowIcon } from "~/components/coverflow-icon";
 import { Header } from "~/components/header";
 import { PhotoWall, type WallTile } from "~/components/photo-wall";
 import { ViewSwitcher } from "~/components/view-switcher";
+import { requireCollectionId } from "~/lib/auth.server";
 import { getMonthsInYear } from "~/lib/db.server";
 import type { Route } from "./+types/year.wall";
 

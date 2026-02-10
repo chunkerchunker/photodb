@@ -10,7 +10,7 @@ import { getYearsWithPhotos } from "~/lib/db.server";
 import type { Route } from "./+types/home.wall";
 
 export function meta() {
-  return [{ title: "PhotoDB - Years - Photo Wall" }];
+  return [{ title: "Storyteller - Years - Photo Wall" }];
 }
 
 import { dataWithViewMode } from "~/lib/cookies.server";

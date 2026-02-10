@@ -11,7 +11,7 @@ import { getAlbums, getAlbumsCount } from "~/lib/db.server";
 import type { Route } from "./+types/albums.wall";
 
 export function meta() {
-  return [{ title: "PhotoDB - Albums - Wall" }, { name: "description", content: "Browse albums in wall view" }];
+  return [{ title: "Storyteller - Albums - Wall" }, { name: "description", content: "Browse albums in wall view" }];
 }
 
 export async function loader({ request }: Route.LoaderArgs) {

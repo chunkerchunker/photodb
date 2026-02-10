@@ -13,7 +13,7 @@ import type { Route } from "./+types/person.$id.wall";
 export function meta({ data }: Route.MetaArgs) {
   const personName = data?.person?.person_name || "Person";
   return [
-    { title: `PhotoDB - ${personName} - 3D Wall` },
+    { title: `Storyteller - ${personName} - 3D Wall` },
     { name: "description", content: `View ${personName}'s clusters in 3D wall view` },
   ];
 }

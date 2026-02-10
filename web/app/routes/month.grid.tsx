@@ -27,7 +27,7 @@ export function meta({ params }: Route.MetaArgs) {
   const monthName = monthNames[parseInt(params.month, 10)] || params.month;
 
   return [
-    { title: `PhotoDB - ${monthName} ${params.year}` },
+    { title: `Storyteller - ${monthName} ${params.year}` },
     {
       name: "description",
       content: `Browse photos from ${monthName} ${params.year}`,

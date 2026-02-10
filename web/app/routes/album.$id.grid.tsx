@@ -13,7 +13,7 @@ const LIMIT = 48;
 
 export function meta({ data }: Route.MetaArgs) {
   const albumName = data?.album?.name || "Album";
-  return [{ title: `PhotoDB - ${albumName}` }, { name: "description", content: `Browse ${albumName}` }];
+  return [{ title: `Storyteller - ${albumName}` }, { name: "description", content: `Browse ${albumName}` }];
 }
 
 export async function loader({ request, params }: Route.LoaderArgs) {

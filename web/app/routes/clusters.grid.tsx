@@ -33,7 +33,7 @@ import type { Route } from "./+types/clusters.grid";
 
 export function meta() {
   return [
-    { title: "PhotoDB - Face Clusters" },
+    { title: "Storyteller - Face Clusters" },
     {
       name: "description",
       content: "Browse face clusters sorted by face count",

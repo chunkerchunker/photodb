@@ -56,7 +56,7 @@ import type { Route } from "./+types/cluster.$id.grid";
 
 export function meta({ params }: Route.MetaArgs) {
   return [
-    { title: `PhotoDB - Cluster ${params.id}` },
+    { title: `Storyteller - Cluster ${params.id}` },
     {
       name: "description",
       content: `View all faces in cluster ${params.id}`,

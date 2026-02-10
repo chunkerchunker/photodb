@@ -12,7 +12,7 @@ import type { Route } from "./+types/cluster.$id.wall";
 
 export function meta({ params }: Route.MetaArgs) {
   return [
-    { title: `PhotoDB - Cluster ${params.id} - 3D Wall` },
+    { title: `Storyteller - Cluster ${params.id} - 3D Wall` },
     { name: "description", content: `View faces in cluster ${params.id} in 3D wall view` },
   ];
 }

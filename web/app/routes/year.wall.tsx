@@ -10,7 +10,7 @@ import { getMonthsInYear } from "~/lib/db.server";
 import type { Route } from "./+types/year.wall";
 
 export function meta({ params }: Route.MetaArgs) {
-  return [{ title: `PhotoDB - ${params.year} - Photo Wall` }];
+  return [{ title: `Storyteller - ${params.year} - Photo Wall` }];
 }
 
 import { dataWithViewMode } from "~/lib/cookies.server";

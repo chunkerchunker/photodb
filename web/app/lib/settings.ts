@@ -1,5 +1,5 @@
 /**
- * Project-level display settings for the PhotoDB web UI.
+ * Project-level display settings for the Storyteller web UI.
  * These settings control how data is filtered and displayed.
  */
 

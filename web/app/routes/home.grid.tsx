@@ -6,7 +6,7 @@ import { getYearsWithPhotos } from "~/lib/db.server";
 import type { Route } from "./+types/home.grid";
 
 export function meta() {
-  return [{ title: "PhotoDB - Years" }, { name: "description", content: "Browse your photo collection by year" }];
+  return [{ title: "Storyteller - Years" }, { name: "description", content: "Browse your photo collection by year" }];
 }
 
 // Middleware to set cookie needs to be handled via headers in React Router usually,

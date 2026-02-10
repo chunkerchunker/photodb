@@ -211,7 +211,7 @@ function FaceOverlay({
 
 export function meta({ params }: Route.MetaArgs) {
   return [
-    { title: `PhotoDB - Photo ${params.id}` },
+    { title: `Storyteller - Photo ${params.id}` },
     { name: "description", content: `View details for photo ${params.id}` },
   ];
 }

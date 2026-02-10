@@ -17,7 +17,7 @@ import type { Route } from "./+types/people.grid";
 
 export function meta() {
   return [
-    { title: "PhotoDB - People" },
+    { title: "Storyteller - People" },
     {
       name: "description",
       content: "Browse identified people",

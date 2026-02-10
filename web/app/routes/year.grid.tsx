@@ -8,7 +8,7 @@ import { getMonthsInYear } from "~/lib/db.server";
 import type { Route } from "./+types/year.grid";
 
 export function meta({ params }: Route.MetaArgs) {
-  return [{ title: `PhotoDB - ${params.year}` }, { name: "description", content: `Browse photos from ${params.year}` }];
+  return [{ title: `Storyteller - ${params.year}` }, { name: "description", content: `Browse photos from ${params.year}` }];
 }
 
 import { dataWithViewMode } from "~/lib/cookies.server";

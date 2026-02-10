@@ -12,7 +12,7 @@ import type { Route } from "./+types/people.wall";
 
 export function meta() {
   return [
-    { title: "PhotoDB - People - 3D Wall" },
+    { title: "Storyteller - People - 3D Wall" },
     { name: "description", content: "Browse identified people in 3D wall view" },
   ];
 }

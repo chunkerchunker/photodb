@@ -43,7 +43,7 @@ import type { Route } from "./+types/face.$id.similar";
 
 export function meta({ params }: Route.MetaArgs) {
   return [
-    { title: `PhotoDB - Similar Faces` },
+    { title: `Storyteller - Similar Faces` },
     {
       name: "description",
       content: `Find faces similar to face ${params.id}`,

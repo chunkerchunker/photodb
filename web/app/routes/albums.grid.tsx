@@ -13,7 +13,7 @@ import type { Route } from "./+types/albums.grid";
 const LIMIT = 24;
 
 export function meta() {
-  return [{ title: "PhotoDB - Albums" }, { name: "description", content: "Browse your photo albums" }];
+  return [{ title: "Storyteller - Albums" }, { name: "description", content: "Browse your photo albums" }];
 }
 
 export async function loader({ request }: Route.LoaderArgs) {

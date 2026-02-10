@@ -12,7 +12,7 @@ import type { Route } from "./+types/clusters.wall";
 
 export function meta() {
   return [
-    { title: "PhotoDB - Face Clusters - 3D Wall" },
+    { title: "Storyteller - Face Clusters - 3D Wall" },
     { name: "description", content: "Browse face clusters in 3D wall view" },
   ];
 }

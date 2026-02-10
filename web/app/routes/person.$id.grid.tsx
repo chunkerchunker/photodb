@@ -19,7 +19,7 @@ import type { Route } from "./+types/person.$id.grid";
 export function meta({ data }: Route.MetaArgs) {
   const personName = data?.person?.person_name || "Person";
   return [
-    { title: `PhotoDB - ${personName}` },
+    { title: `Storyteller - ${personName}` },
     { name: "description", content: `View ${personName}'s photo clusters` },
   ];
 }

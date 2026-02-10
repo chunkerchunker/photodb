@@ -11,7 +11,7 @@ import type { Route } from "./+types/clusters.hidden";
 
 export function meta() {
   return [
-    { title: "PhotoDB - Hidden Clusters" },
+    { title: "Storyteller - Hidden Clusters" },
     {
       name: "description",
       content: "View and manage hidden face clusters",

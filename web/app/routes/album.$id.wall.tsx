@@ -13,7 +13,7 @@ import type { Route } from "./+types/album.$id.wall";
 export function meta({ data }: Route.MetaArgs) {
   const albumName = data?.album?.name || "Album";
   return [
-    { title: `PhotoDB - ${albumName} - Wall` },
+    { title: `Storyteller - ${albumName} - Wall` },
     { name: "description", content: `Browse ${albumName} in wall view` },
   ];
 }

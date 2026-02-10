@@ -44,7 +44,8 @@ export default function PeopleWallView({ loaderData }: Route.ComponentProps) {
   const tiles: WallTile[] = useMemo(
     () =>
       people.map((person) => {
-        const imageUrl = person.photo_id ? `/api/image/${person.photo_id}` : null;
+        // Use direct face image URL (pre-extracted face crops)
+        const imageUrl = person.detection_id ? `/api/face/${person.detection_id}` : null;
         const displayName = person.person_name || `Person ${person.id}`;
 
         return {
@@ -55,19 +56,6 @@ export default function PeopleWallView({ loaderData }: Route.ComponentProps) {
           navigateTo: `/person/${person.id}/wall`,
           metadata: {
             count: person.total_face_count,
-            // Pass bbox data for face cropping (rectangular tiles)
-            bbox:
-              person.bbox_x !== null
-                ? {
-                    x: person.bbox_x,
-                    y: person.bbox_y,
-                    width: person.bbox_width,
-                    height: person.bbox_height,
-                    imageWidth: person.med_width,
-                    imageHeight: person.med_height,
-                  }
-                : undefined,
-            // Set isCircular: true to use circular tiles instead
           },
         };
       }),

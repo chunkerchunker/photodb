@@ -54,8 +54,6 @@ export default function ClustersWallView({ loaderData }: Route.ComponentProps) {
           metadata: {
             subtitle: isPerson ? undefined : `${item.face_count} photo${item.face_count !== 1 ? "s" : ""}`,
             count: item.face_count,
-            // Use circular tiles for face display
-            isCircular: true,
           },
         };
       }),

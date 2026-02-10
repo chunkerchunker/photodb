@@ -47,7 +47,8 @@ export default function PersonWallView({ loaderData }: Route.ComponentProps) {
       clusters
         .filter((cluster) => !cluster.hidden)
         .map((cluster) => {
-          const imageUrl = cluster.photo_id ? `/api/image/${cluster.photo_id}` : null;
+          // Use direct face image URL (pre-extracted face crops)
+          const imageUrl = cluster.detection_id ? `/api/face/${cluster.detection_id}` : null;
 
           return {
             id: cluster.id,
@@ -57,19 +58,6 @@ export default function PersonWallView({ loaderData }: Route.ComponentProps) {
             metadata: {
               subtitle: `${cluster.face_count} photo${cluster.face_count !== 1 ? "s" : ""}`,
               count: cluster.face_count,
-              // Pass bbox data for face cropping (rectangular tiles)
-              bbox:
-                cluster.bbox_x !== null
-                  ? {
-                      x: cluster.bbox_x,
-                      y: cluster.bbox_y,
-                      width: cluster.bbox_width,
-                      height: cluster.bbox_height,
-                      imageWidth: cluster.med_width,
-                      imageHeight: cluster.med_height,
-                    }
-                  : undefined,
-              // Set isCircular: true to use circular tiles instead
             },
           };
         }),

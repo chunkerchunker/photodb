@@ -1,13 +1,75 @@
-import { Camera, Images, User, Users } from "lucide-react";
+import { Camera, FolderOpen, Images, LogOut, Shield, User, Users } from "lucide-react";
 import { Link } from "react-router";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "~/components/ui/dropdown-menu";
+import { getFaceCropStyle } from "~/lib/face-crop";
+
+export interface UserAvatarInfo {
+  firstName: string;
+  lastName?: string | null;
+  avatarPhotoId: number | null;
+  avatarBboxX: number | null;
+  avatarBboxY: number | null;
+  avatarBboxWidth: number | null;
+  avatarBboxHeight: number | null;
+  avatarMedWidth: number | null;
+  avatarMedHeight: number | null;
+}
 
 interface HeaderProps {
   viewAction?: React.ReactNode;
   breadcrumbs?: { label: string; to?: string }[];
   homeTo?: string;
+  user?: UserAvatarInfo;
+  isAdmin?: boolean;
 }
 
-export function Header({ viewAction, breadcrumbs = [], homeTo = "/" }: HeaderProps) {
+function UserAvatar({ user }: { user?: UserAvatarInfo }) {
+  const hasAvatar =
+    user?.avatarPhotoId &&
+    user.avatarBboxX !== null &&
+    user.avatarBboxY !== null &&
+    user.avatarBboxWidth !== null &&
+    user.avatarBboxHeight !== null &&
+    user.avatarMedWidth !== null &&
+    user.avatarMedHeight !== null;
+
+  if (hasAvatar) {
+    return (
+      <div className="relative w-8 h-8 bg-white/20 rounded-full overflow-hidden ring-2 ring-white/30 hover:ring-white/50 transition-all">
+        <img
+          src={`/api/image/${user.avatarPhotoId}`}
+          alt={user.firstName}
+          className="absolute max-w-none max-h-none"
+          style={getFaceCropStyle(
+            {
+              bbox_x: user.avatarBboxX!,
+              bbox_y: user.avatarBboxY!,
+              bbox_width: user.avatarBboxWidth!,
+              bbox_height: user.avatarBboxHeight!,
+            },
+            user.avatarMedWidth!,
+            user.avatarMedHeight!,
+            32,
+          )}
+        />
+      </div>
+    );
+  }
+
+  return (
+    <div className="w-8 h-8 bg-white/20 rounded-full flex items-center justify-center ring-2 ring-white/30 hover:ring-white/50 transition-all">
+      <User className="h-4 w-4 text-white" />
+    </div>
+  );
+}
+
+export function Header({ viewAction, breadcrumbs = [], homeTo = "/", user, isAdmin }: HeaderProps) {
   return (
     <nav className="absolute top-0 left-0 right-0 z-50 bg-gradient-to-b from-black/80 to-transparent pb-4 pointer-events-none">
       <div className="container mx-auto px-4 pointer-events-auto">
@@ -57,11 +119,49 @@ export function Header({ viewAction, breadcrumbs = [], homeTo = "/" }: HeaderPro
               <span>Clusters</span>
             </Link>
 
-            <form method="post" action="/logout">
-              <button type="submit" className="text-sm text-white/80 hover:text-white transition-colors">
-                Sign out
-              </button>
-            </form>
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <button type="button" className="focus:outline-none cursor-pointer">
+                  <UserAvatar user={user} />
+                </button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end" className="w-48">
+                {user && (
+                  <>
+                    <div className="px-2 py-1.5 text-sm font-medium text-gray-900">
+                      {user.firstName} {user.lastName || ""}
+                    </div>
+                    <DropdownMenuSeparator />
+                  </>
+                )}
+                <DropdownMenuItem asChild>
+                  <Link to="/collections" className="flex items-center cursor-pointer">
+                    <FolderOpen className="h-4 w-4 mr-2" />
+                    Collections
+                  </Link>
+                </DropdownMenuItem>
+                {isAdmin && (
+                  <DropdownMenuItem asChild>
+                    <Link to="/admin/users" className="flex items-center cursor-pointer">
+                      <Shield className="h-4 w-4 mr-2" />
+                      Admin
+                    </Link>
+                  </DropdownMenuItem>
+                )}
+                <DropdownMenuSeparator />
+                <DropdownMenuItem asChild>
+                  <form method="post" action="/logout" className="w-full">
+                    <button
+                      type="submit"
+                      className="flex items-center w-full text-left cursor-pointer text-red-600"
+                    >
+                      <LogOut className="h-4 w-4 mr-2" />
+                      Sign out
+                    </button>
+                  </form>
+                </DropdownMenuItem>
+              </DropdownMenuContent>
+            </DropdownMenu>
           </div>
         </div>
       </div>

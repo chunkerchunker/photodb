@@ -3,6 +3,13 @@ import { index, type RouteConfig, route } from "@react-router/dev/routes";
 export default [
   route("login", "routes/login.tsx"),
   route("logout", "routes/logout.tsx"),
+  route("collections", "routes/collections.tsx"),
+  route("api/collections/switch", "routes/api.collections.switch.tsx"),
+
+  // Admin routes
+  route("admin/users", "routes/admin.users.tsx"),
+  route("api/admin/impersonate", "routes/api.admin.impersonate.tsx"),
+  route("api/admin/stop-impersonate", "routes/api.admin.stop-impersonate.tsx"),
 
   // Redirectors (Root paths)
   index("routes/home.redirect.tsx"),

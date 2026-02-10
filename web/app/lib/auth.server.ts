@@ -47,14 +47,23 @@ function signPayload(payload: string): string {
   return crypto.createHmac("sha256", SESSION_SECRET).update(payload).digest("hex");
 }
 
-function encodeSession(userId: number, expiresAt: Date): string {
-  const payload = JSON.stringify({ user_id: userId, exp: expiresAt.getTime() });
-  const encoded = Buffer.from(payload).toString("base64url");
+interface SessionPayload {
+  user_id: number;
+  exp: number;
+  impersonating_user_id?: number;
+}
+
+function encodeSession(userId: number, expiresAt: Date, impersonatingUserId?: number): string {
+  const payload: SessionPayload = { user_id: userId, exp: expiresAt.getTime() };
+  if (impersonatingUserId) {
+    payload.impersonating_user_id = impersonatingUserId;
+  }
+  const encoded = Buffer.from(JSON.stringify(payload)).toString("base64url");
   const signature = signPayload(encoded);
   return `${encoded}.${signature}`;
 }
 
-function decodeSession(token: string): { user_id: number; exp: number } | null {
+function decodeSession(token: string): SessionPayload | null {
   const [encoded, signature] = token.split(".");
   if (!encoded || !signature) return null;
   const expected = signPayload(encoded);
@@ -68,7 +77,7 @@ function decodeSession(token: string): { user_id: number; exp: number } | null {
 
   try {
     const payload = Buffer.from(encoded, "base64url").toString("utf-8");
-    const parsed = JSON.parse(payload) as { user_id: number; exp: number };
+    const parsed = JSON.parse(payload) as SessionPayload;
     if (!parsed?.user_id || !parsed?.exp) return null;
     if (Date.now() > parsed.exp) return null;
     return parsed;
@@ -95,6 +104,18 @@ export async function verifyPassword(password: string, storedHash: string): Prom
   return crypto.timingSafeEqual(expected, derivedKey);
 }
 
+/**
+ * Session info including the real user and optional impersonation state.
+ */
+export interface SessionInfo {
+  realUser: AppUser;
+  effectiveUser: AppUser;
+  isImpersonating: boolean;
+}
+
+/**
+ * Get the session user (the real logged-in user, not impersonated).
+ */
 export async function getSessionUser(request: Request): Promise<AppUser | null> {
   const cookies = parseCookies(request.headers.get("Cookie"));
   const token = cookies[SESSION_COOKIE_NAME];
@@ -102,6 +123,38 @@ export async function getSessionUser(request: Request): Promise<AppUser | null> 
   const session = decodeSession(token);
   if (!session) return null;
   return await getUserById(session.user_id);
+}
+
+/**
+ * Get full session info including impersonation state.
+ */
+export async function getSessionInfo(request: Request): Promise<SessionInfo | null> {
+  const cookies = parseCookies(request.headers.get("Cookie"));
+  const token = cookies[SESSION_COOKIE_NAME];
+  if (!token) return null;
+  const session = decodeSession(token);
+  if (!session) return null;
+
+  const realUser = await getUserById(session.user_id);
+  if (!realUser) return null;
+
+  // Check for impersonation
+  if (session.impersonating_user_id && realUser.is_admin) {
+    const impersonatedUser = await getUserById(session.impersonating_user_id);
+    if (impersonatedUser) {
+      return {
+        realUser,
+        effectiveUser: impersonatedUser,
+        isImpersonating: true,
+      };
+    }
+  }
+
+  return {
+    realUser,
+    effectiveUser: realUser,
+    isImpersonating: false,
+  };
 }
 
 export async function requireUser(request: Request): Promise<AppUser> {
@@ -113,12 +166,29 @@ export async function requireUser(request: Request): Promise<AppUser> {
 }
 
 /**
+ * Require admin access. Returns the admin user or throws 403.
+ */
+export async function requireAdmin(request: Request): Promise<AppUser> {
+  const user = await requireUser(request);
+  if (!user.is_admin) {
+    throw new Response("Admin access required", { status: 403 });
+  }
+  return user;
+}
+
+/**
  * Get the collection ID for the current user.
  * Requires authentication - redirects to /login if not authenticated.
+ * Uses the effective user (impersonated user if active).
  * Returns the user's default_collection_id, or throws if the user has no default collection.
  */
 export async function requireCollectionId(request: Request): Promise<{ user: AppUser; collectionId: number }> {
-  const user = await requireUser(request);
+  const sessionInfo = await getSessionInfo(request);
+  if (!sessionInfo) {
+    throw redirect("/login");
+  }
+
+  const user = sessionInfo.effectiveUser;
 
   if (!user.default_collection_id) {
     // User exists but has no default collection - this shouldn't happen in normal operation
@@ -176,4 +246,45 @@ export async function handleLogout(request: Request) {
 
 export function getClearSessionCookie(): string {
   return buildClearCookie();
+}
+
+// ============================================================================
+// Admin Impersonation
+// ============================================================================
+
+/**
+ * Start impersonating a user. Only admins can impersonate.
+ * Returns a new session cookie with impersonation state.
+ */
+export async function startImpersonation(
+  request: Request,
+  targetUserId: number,
+): Promise<string> {
+  const admin = await requireAdmin(request);
+  const targetUser = await getUserById(targetUserId);
+
+  if (!targetUser) {
+    throw new Response("User not found", { status: 404 });
+  }
+
+  // Don't allow impersonating yourself
+  if (targetUser.id === admin.id) {
+    throw new Response("Cannot impersonate yourself", { status: 400 });
+  }
+
+  const expiresAt = new Date(Date.now() + SESSION_TTL_DAYS * 24 * 60 * 60 * 1000);
+  const token = encodeSession(admin.id, expiresAt, targetUser.id);
+  return buildSetCookie(token, expiresAt);
+}
+
+/**
+ * Stop impersonating and return to admin's own session.
+ * Returns a new session cookie without impersonation state.
+ */
+export async function stopImpersonation(request: Request): Promise<string> {
+  const admin = await requireAdmin(request);
+
+  const expiresAt = new Date(Date.now() + SESSION_TTL_DAYS * 24 * 60 * 60 * 1000);
+  const token = encodeSession(admin.id, expiresAt);
+  return buildSetCookie(token, expiresAt);
 }

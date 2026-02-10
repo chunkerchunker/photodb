@@ -5,6 +5,7 @@ import { CoverflowIcon } from "~/components/coverflow-icon";
 import { Header } from "~/components/header";
 import { Card, CardContent } from "~/components/ui/card";
 import { ViewSwitcher } from "~/components/view-switcher";
+import { useRootData } from "~/hooks/use-root-data";
 import { requireCollectionId } from "~/lib/auth.server";
 import { dataWithViewMode } from "~/lib/cookies.server";
 import { getAlbums, getAlbumsCount } from "~/lib/db.server";
@@ -36,6 +37,7 @@ export async function loader({ request }: Route.LoaderArgs) {
 type Album = Route.ComponentProps["loaderData"]["albums"][number];
 
 export default function AlbumsGridView({ loaderData }: Route.ComponentProps) {
+  const rootData = useRootData();
   const { albums: initialAlbums, totalAlbums, page: initialPage, hasMore: initialHasMore } = loaderData;
 
   const [albums, setAlbums] = useState<Album[]>(initialAlbums);
@@ -99,6 +101,7 @@ export default function AlbumsGridView({ loaderData }: Route.ComponentProps) {
   const headerContent = (
     <Header
       breadcrumbs={[{ label: "Albums" }]}
+      user={rootData?.userAvatar}
       viewAction={
         <ViewSwitcher
           modes={[

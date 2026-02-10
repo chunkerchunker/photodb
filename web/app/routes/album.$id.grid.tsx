@@ -4,6 +4,7 @@ import { Link, useFetcher } from "react-router";
 import { CoverflowIcon } from "~/components/coverflow-icon";
 import { Header } from "~/components/header";
 import { ViewSwitcher } from "~/components/view-switcher";
+import { useRootData } from "~/hooks/use-root-data";
 import { requireCollectionId } from "~/lib/auth.server";
 import { dataWithViewMode } from "~/lib/cookies.server";
 import { getAlbumById, getAlbumPhotos, getAlbumPhotosCount } from "~/lib/db.server";
@@ -42,6 +43,7 @@ export async function loader({ request, params }: Route.LoaderArgs) {
 type Photo = Route.ComponentProps["loaderData"]["photos"][number];
 
 export default function AlbumGridView({ loaderData }: Route.ComponentProps) {
+  const rootData = useRootData();
   const { album, photos: initialPhotos, totalPhotos, page: initialPage, hasMore: initialHasMore } = loaderData;
 
   const [photos, setPhotos] = useState<Photo[]>(initialPhotos);
@@ -105,6 +107,7 @@ export default function AlbumGridView({ loaderData }: Route.ComponentProps) {
   const headerContent = (
     <Header
       breadcrumbs={[{ label: "Albums", to: "/albums" }, { label: album.name }]}
+      user={rootData?.userAvatar}
       viewAction={
         <ViewSwitcher
           modes={[

@@ -5,6 +5,7 @@ import * as THREE from "three";
 import { CoverflowIcon } from "~/components/coverflow-icon";
 import { Header } from "~/components/header";
 import { ViewSwitcher } from "~/components/view-switcher";
+import { useRootData } from "~/hooks/use-root-data";
 import { requireCollectionId } from "~/lib/auth.server";
 import { getPhotoCountByMonth, getPhotosByMonth } from "~/lib/db.server";
 import type { Route } from "./+types/month.wall";
@@ -295,9 +296,10 @@ interface ThreeWallProps {
   month: string;
   totalPhotos: number;
   monthName: string;
+  rootData: ReturnType<typeof useRootData>;
 }
 
-function ThreeWall({ photos, year, month, totalPhotos, monthName }: ThreeWallProps) {
+function ThreeWall({ photos, year, month, totalPhotos, monthName, rootData }: ThreeWallProps) {
   const navigate = useNavigate();
 
   const containerRef = useRef<HTMLDivElement>(null);
@@ -1162,6 +1164,7 @@ function ThreeWall({ photos, year, month, totalPhotos, monthName }: ThreeWallPro
       <Header
         homeTo="/wall"
         breadcrumbs={[{ label: year.toString(), to: `/year/${year}/wall` }, { label: monthName }]}
+        user={rootData?.userAvatar}
         viewAction={
           <ViewSwitcher
             modes={[
@@ -1220,6 +1223,7 @@ function ThreeWall({ photos, year, month, totalPhotos, monthName }: ThreeWallPro
 
 export default function MonthWallView({ loaderData }: Route.ComponentProps) {
   const { photos, totalPhotos, year, month, monthName } = loaderData;
+  const rootData = useRootData();
   const location = useLocation();
 
   if (photos.length === 0) {
@@ -1248,6 +1252,7 @@ export default function MonthWallView({ loaderData }: Route.ComponentProps) {
       month={month}
       totalPhotos={totalPhotos}
       monthName={monthName}
+      rootData={rootData}
     />
   );
 }

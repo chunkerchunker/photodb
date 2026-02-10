@@ -5,6 +5,7 @@ import { CoverflowIcon } from "~/components/coverflow-icon";
 import { Header } from "~/components/header";
 import { PhotoWall, type WallTile } from "~/components/photo-wall";
 import { ViewSwitcher } from "~/components/view-switcher";
+import { useRootData } from "~/hooks/use-root-data";
 import { requireCollectionId } from "~/lib/auth.server";
 import { dataWithViewMode } from "~/lib/cookies.server";
 import { getClusterDetails, getClusterFaces, getClusterFacesCount } from "~/lib/db.server";
@@ -42,6 +43,7 @@ export async function loader({ request, params }: Route.LoaderArgs) {
 }
 
 export default function ClusterWallView({ loaderData }: Route.ComponentProps) {
+  const rootData = useRootData();
   const { cluster, faces, totalFaces } = loaderData;
   const location = useLocation();
 
@@ -106,6 +108,7 @@ export default function ClusterWallView({ loaderData }: Route.ComponentProps) {
     <Header
       homeTo="/wall"
       breadcrumbs={[{ label: "Clusters", to: "/clusters" }, { label: displayName }]}
+      user={rootData?.userAvatar}
       viewAction={
         <ViewSwitcher
           modes={[

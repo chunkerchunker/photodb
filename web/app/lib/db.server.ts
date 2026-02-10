@@ -363,6 +363,7 @@ export type AppUser = {
   first_name: string;
   last_name: string;
   default_collection_id: number | null;
+  is_admin: boolean;
 };
 
 export async function getUserByUsername(username: string): Promise<AppUser | null> {
@@ -377,6 +378,46 @@ export async function getUserById(userId: number): Promise<AppUser | null> {
 
 export async function updateUserPasswordHash(userId: number, passwordHash: string): Promise<void> {
   await pool.query("UPDATE app_user SET password_hash = $1 WHERE id = $2", [passwordHash, userId]);
+}
+
+// ============================================================================
+// Admin Functions
+// ============================================================================
+
+export type UserListItem = {
+  id: number;
+  username: string;
+  first_name: string;
+  last_name: string;
+  is_admin: boolean;
+  default_collection_id: number | null;
+  collection_count: number;
+  created_at: string;
+};
+
+/**
+ * Get all users for admin user list.
+ * Returns users with their collection membership counts.
+ */
+export async function getAllUsers(): Promise<UserListItem[]> {
+  const query = `
+    SELECT
+      u.id,
+      u.username,
+      u.first_name,
+      u.last_name,
+      u.is_admin,
+      u.default_collection_id,
+      u.created_at,
+      COUNT(cm.collection_id)::int as collection_count
+    FROM app_user u
+    LEFT JOIN collection_member cm ON u.id = cm.user_id
+    GROUP BY u.id
+    ORDER BY u.created_at DESC
+  `;
+
+  const result = await pool.query(query);
+  return result.rows;
 }
 
 export async function getClusters(collectionId: number, limit = 50, offset = 0) {
@@ -1962,4 +2003,153 @@ export async function getAlbumPhotosCount(collectionId: number, albumId: string)
 
   const result = await pool.query(query, [albumId, collectionId]);
   return parseInt(result.rows[0].count, 10);
+}
+
+// ============================================================================
+// Collection Management
+// ============================================================================
+
+export type UserCollection = {
+  id: number;
+  name: string;
+  photo_count: number;
+  person_id: number | null;
+  person_name: string | null;
+  avatar_photo_id: number | null;
+  avatar_detection_id: number | null;
+  avatar_bbox_x: number | null;
+  avatar_bbox_y: number | null;
+  avatar_bbox_width: number | null;
+  avatar_bbox_height: number | null;
+  avatar_med_width: number | null;
+  avatar_med_height: number | null;
+};
+
+/**
+ * Get all collections a user is a member of, with linked person info for avatar.
+ * Avatar is derived from the person's largest cluster's representative detection.
+ */
+export async function getUserCollections(userId: number): Promise<UserCollection[]> {
+  const query = `
+    SELECT
+      c.id,
+      c.name,
+      COALESCE(pc.photo_count, 0)::int as photo_count,
+      cm.person_id,
+      CASE WHEN per.id IS NOT NULL
+        THEN TRIM(CONCAT(per.first_name, ' ', COALESCE(per.last_name, '')))
+        ELSE NULL
+      END as person_name,
+      p.id as avatar_photo_id,
+      pd.id as avatar_detection_id,
+      pd.face_bbox_x as avatar_bbox_x,
+      pd.face_bbox_y as avatar_bbox_y,
+      pd.face_bbox_width as avatar_bbox_width,
+      pd.face_bbox_height as avatar_bbox_height,
+      p.med_width as avatar_med_width,
+      p.med_height as avatar_med_height
+    FROM collection_member cm
+    JOIN collection c ON cm.collection_id = c.id
+    LEFT JOIN person per ON cm.person_id = per.id
+    LEFT JOIN (
+      SELECT collection_id, COUNT(*)::int as photo_count
+      FROM photo
+      GROUP BY collection_id
+    ) pc ON c.id = pc.collection_id
+    LEFT JOIN LATERAL (
+      SELECT cl.representative_detection_id
+      FROM cluster cl
+      WHERE cl.person_id = per.id
+        AND cl.representative_detection_id IS NOT NULL
+        AND (cl.hidden = false OR cl.hidden IS NULL)
+      ORDER BY cl.face_count DESC
+      LIMIT 1
+    ) rep ON per.id IS NOT NULL
+    LEFT JOIN person_detection pd ON pd.id = rep.representative_detection_id
+    LEFT JOIN photo p ON pd.photo_id = p.id
+    WHERE cm.user_id = $1
+    ORDER BY c.name
+  `;
+
+  const result = await pool.query(query, [userId]);
+  return result.rows;
+}
+
+export type CollectionMemberInfo = {
+  collection_id: number;
+  collection_name: string;
+  person_id: number | null;
+  person_name: string | null;
+  avatar_photo_id: number | null;
+  avatar_detection_id: number | null;
+  avatar_bbox_x: number | null;
+  avatar_bbox_y: number | null;
+  avatar_bbox_width: number | null;
+  avatar_bbox_height: number | null;
+  avatar_med_width: number | null;
+  avatar_med_height: number | null;
+};
+
+/**
+ * Get collection member info for a specific user and collection.
+ * Returns linked person info for avatar display.
+ * Avatar is derived from the person's largest cluster's representative detection.
+ */
+export async function getCollectionMemberInfo(
+  userId: number,
+  collectionId: number,
+): Promise<CollectionMemberInfo | null> {
+  const query = `
+    SELECT
+      c.id as collection_id,
+      c.name as collection_name,
+      cm.person_id,
+      CASE WHEN per.id IS NOT NULL
+        THEN TRIM(CONCAT(per.first_name, ' ', COALESCE(per.last_name, '')))
+        ELSE NULL
+      END as person_name,
+      p.id as avatar_photo_id,
+      pd.id as avatar_detection_id,
+      pd.face_bbox_x as avatar_bbox_x,
+      pd.face_bbox_y as avatar_bbox_y,
+      pd.face_bbox_width as avatar_bbox_width,
+      pd.face_bbox_height as avatar_bbox_height,
+      p.med_width as avatar_med_width,
+      p.med_height as avatar_med_height
+    FROM collection_member cm
+    JOIN collection c ON cm.collection_id = c.id
+    LEFT JOIN person per ON cm.person_id = per.id
+    LEFT JOIN LATERAL (
+      SELECT cl.representative_detection_id
+      FROM cluster cl
+      WHERE cl.person_id = per.id
+        AND cl.representative_detection_id IS NOT NULL
+        AND (cl.hidden = false OR cl.hidden IS NULL)
+      ORDER BY cl.face_count DESC
+      LIMIT 1
+    ) rep ON per.id IS NOT NULL
+    LEFT JOIN person_detection pd ON pd.id = rep.representative_detection_id
+    LEFT JOIN photo p ON pd.photo_id = p.id
+    WHERE cm.user_id = $1 AND cm.collection_id = $2
+  `;
+
+  const result = await pool.query(query, [userId, collectionId]);
+  return result.rows[0] || null;
+}
+
+/**
+ * Update user's default collection.
+ */
+export async function updateUserDefaultCollection(userId: number, collectionId: number): Promise<void> {
+  // Verify user is member of this collection
+  const memberCheck = await pool.query(
+    "SELECT 1 FROM collection_member WHERE user_id = $1 AND collection_id = $2",
+    [userId, collectionId],
+  );
+
+  if (memberCheck.rows.length === 0) {
+    throw new Error("User is not a member of this collection");
+  }
+
+  await pool.query("UPDATE app_user SET default_collection_id = $1 WHERE id = $2", [collectionId, userId]);
 }

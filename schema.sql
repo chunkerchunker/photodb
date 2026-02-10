@@ -8,6 +8,7 @@ CREATE TABLE IF NOT EXISTS app_user(
     first_name text NOT NULL,
     last_name text NOT NULL,
     default_collection_id bigint,
+    is_admin boolean DEFAULT false,
     created_at timestamptz DEFAULT now()
 );
 
@@ -24,10 +25,12 @@ CREATE TABLE IF NOT EXISTS collection(
 CREATE TABLE IF NOT EXISTS collection_member(
     collection_id bigint NOT NULL,
     user_id bigint NOT NULL,
+    person_id bigint,  -- Links this member to their person record in the collection
     created_at timestamptz DEFAULT now(),
     PRIMARY KEY (collection_id, user_id),
     FOREIGN KEY (collection_id) REFERENCES collection(id) ON DELETE CASCADE,
-    FOREIGN KEY (user_id) REFERENCES app_user(id) ON DELETE CASCADE
+    FOREIGN KEY (user_id) REFERENCES app_user(id) ON DELETE CASCADE,
+    FOREIGN KEY (person_id) REFERENCES person(id) ON DELETE SET NULL
 );
 
 -- Add default collection FK after collection exists (nullable to avoid cyclic bootstrapping)
@@ -117,6 +120,9 @@ CREATE INDEX IF NOT EXISTS idx_album_collection_id ON album(collection_id);
 CREATE INDEX IF NOT EXISTS idx_album_collection_name ON album(collection_id, name);
 CREATE INDEX IF NOT EXISTS idx_photo_album_album_id ON photo_album(album_id);
 CREATE INDEX IF NOT EXISTS idx_photo_album_photo_id ON photo_album(photo_id);
+
+-- Collection member indexes
+CREATE INDEX IF NOT EXISTS idx_collection_member_person_id ON collection_member(person_id);
 
 CREATE INDEX IF NOT EXISTS idx_metadata_captured_at ON metadata(captured_at);
 CREATE INDEX IF NOT EXISTS idx_metadata_collection_captured_at ON metadata(collection_id, captured_at);
@@ -245,6 +251,7 @@ CREATE TABLE IF NOT EXISTS person_detection(
     face_bbox_width real,
     face_bbox_height real,
     face_confidence real,
+    face_path text, -- Path to cropped face image (WebP in faces/ subdir)
 
     -- Body bounding box (nullable - may have face-only detection)
     body_bbox_x real,

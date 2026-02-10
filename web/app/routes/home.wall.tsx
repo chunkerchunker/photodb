@@ -5,6 +5,7 @@ import { CoverflowIcon } from "~/components/coverflow-icon";
 import { Header } from "~/components/header";
 import { PhotoWall, type WallTile } from "~/components/photo-wall";
 import { ViewSwitcher } from "~/components/view-switcher";
+import { useRootData } from "~/hooks/use-root-data";
 import { requireCollectionId } from "~/lib/auth.server";
 import { getYearsWithPhotos } from "~/lib/db.server";
 import type { Route } from "./+types/home.wall";
@@ -30,6 +31,7 @@ export async function loader({ request }: Route.LoaderArgs) {
 export default function HomeWallView({ loaderData }: Route.ComponentProps) {
   const { years } = loaderData;
   const location = useLocation();
+  const rootData = useRootData();
 
   // Convert years to wall tiles (memoized to prevent effect re-runs)
   const tiles: WallTile[] = useMemo(
@@ -59,6 +61,7 @@ export default function HomeWallView({ loaderData }: Route.ComponentProps) {
 
   const headerContent = (
     <Header
+      user={rootData?.userAvatar}
       homeTo="/wall"
       viewAction={
         <ViewSwitcher

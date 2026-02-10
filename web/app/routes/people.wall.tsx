@@ -5,6 +5,7 @@ import { CoverflowIcon } from "~/components/coverflow-icon";
 import { Header } from "~/components/header";
 import { PhotoWall, type WallTile } from "~/components/photo-wall";
 import { ViewSwitcher } from "~/components/view-switcher";
+import { useRootData } from "~/hooks/use-root-data";
 import { requireCollectionId } from "~/lib/auth.server";
 import { dataWithViewMode } from "~/lib/cookies.server";
 import { getPeople, getPeopleCount } from "~/lib/db.server";
@@ -35,6 +36,7 @@ export async function loader({ request }: Route.LoaderArgs) {
 }
 
 export default function PeopleWallView({ loaderData }: Route.ComponentProps) {
+  const rootData = useRootData();
   const { people, totalPeople, sort } = loaderData;
   const location = useLocation();
 
@@ -87,6 +89,7 @@ export default function PeopleWallView({ loaderData }: Route.ComponentProps) {
     <Header
       homeTo="/wall"
       breadcrumbs={[{ label: "People" }]}
+      user={rootData?.userAvatar}
       viewAction={
         <ViewSwitcher
           modes={[

@@ -1,8 +1,10 @@
-import { isRouteErrorResponse, Links, Meta, Outlet, redirect, Scripts, ScrollRestoration } from "react-router";
+import { isRouteErrorResponse, Links, Meta, Outlet, redirect, Scripts, ScrollRestoration, useLoaderData } from "react-router";
 
 import type { Route } from "./+types/root";
 import "./app.css";
-import { getSessionUser } from "~/lib/auth.server";
+import type { UserAvatarInfo } from "~/components/header";
+import { getSessionInfo } from "~/lib/auth.server";
+import { getCollectionMemberInfo } from "~/lib/db.server";
 
 export const links: Route.LinksFunction = () => [
   { rel: "preconnect", href: "https://fonts.googleapis.com" },
@@ -17,7 +19,21 @@ export const links: Route.LinksFunction = () => [
   },
 ];
 
-export async function loader({ request }: Route.LoaderArgs) {
+export type RootLoaderData = {
+  user: {
+    id: number;
+    firstName: string;
+    lastName: string | null;
+    isAdmin: boolean;
+  };
+  userAvatar: UserAvatarInfo;
+  impersonation: {
+    isImpersonating: boolean;
+    realAdminName: string | null;
+  };
+} | null;
+
+export async function loader({ request }: Route.LoaderArgs): Promise<RootLoaderData> {
   const { pathname } = new URL(request.url);
   const publicPaths = new Set<string>(["/login", "/logout"]);
 
@@ -25,12 +41,56 @@ export async function loader({ request }: Route.LoaderArgs) {
     return null;
   }
 
-  const user = await getSessionUser(request);
-  if (!user) {
+  const sessionInfo = await getSessionInfo(request);
+  if (!sessionInfo) {
     throw redirect("/login");
   }
 
-  return { user };
+  const { realUser, effectiveUser, isImpersonating } = sessionInfo;
+
+  // Get collection member info for avatar (for the effective user)
+  let userAvatar: UserAvatarInfo = {
+    firstName: effectiveUser.first_name,
+    lastName: effectiveUser.last_name,
+    avatarPhotoId: null,
+    avatarBboxX: null,
+    avatarBboxY: null,
+    avatarBboxWidth: null,
+    avatarBboxHeight: null,
+    avatarMedWidth: null,
+    avatarMedHeight: null,
+  };
+
+  if (effectiveUser.default_collection_id) {
+    const memberInfo = await getCollectionMemberInfo(effectiveUser.id, effectiveUser.default_collection_id);
+    if (memberInfo) {
+      userAvatar = {
+        firstName: effectiveUser.first_name,
+        lastName: effectiveUser.last_name,
+        avatarPhotoId: memberInfo.avatar_photo_id,
+        avatarBboxX: memberInfo.avatar_bbox_x,
+        avatarBboxY: memberInfo.avatar_bbox_y,
+        avatarBboxWidth: memberInfo.avatar_bbox_width,
+        avatarBboxHeight: memberInfo.avatar_bbox_height,
+        avatarMedWidth: memberInfo.avatar_med_width,
+        avatarMedHeight: memberInfo.avatar_med_height,
+      };
+    }
+  }
+
+  return {
+    user: {
+      id: effectiveUser.id,
+      firstName: effectiveUser.first_name,
+      lastName: effectiveUser.last_name,
+      isAdmin: realUser.is_admin,
+    },
+    userAvatar,
+    impersonation: {
+      isImpersonating,
+      realAdminName: isImpersonating ? `${realUser.first_name} ${realUser.last_name}`.trim() : null,
+    },
+  };
 }
 
 export function Layout({ children }: { children: React.ReactNode }) {
@@ -52,7 +112,8 @@ export function Layout({ children }: { children: React.ReactNode }) {
 }
 
 export default function App() {
-  return <Outlet />;
+  const data = useLoaderData<typeof loader>();
+  return <Outlet context={data} />;
 }
 
 export function ErrorBoundary({ error }: Route.ErrorBoundaryProps) {

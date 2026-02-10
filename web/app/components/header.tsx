@@ -1,4 +1,4 @@
-import { Camera, FolderOpen, Images, LogOut, Shield, User, Users } from "lucide-react";
+import { Camera, FolderOpen, Images, LogOut, Shield, User, UserX, Users } from "lucide-react";
 import { Link } from "react-router";
 import {
   DropdownMenu,
@@ -27,6 +27,7 @@ interface HeaderProps {
   homeTo?: string;
   user?: UserAvatarInfo;
   isAdmin?: boolean;
+  isImpersonating?: boolean;
 }
 
 function UserAvatar({ user }: { user?: UserAvatarInfo }) {
@@ -69,7 +70,7 @@ function UserAvatar({ user }: { user?: UserAvatarInfo }) {
   );
 }
 
-export function Header({ viewAction, breadcrumbs = [], homeTo = "/", user, isAdmin }: HeaderProps) {
+export function Header({ viewAction, breadcrumbs = [], homeTo = "/", user, isAdmin, isImpersonating }: HeaderProps) {
   return (
     <nav className="absolute top-0 left-0 right-0 z-50 bg-gradient-to-b from-black/80 to-transparent pb-4 pointer-events-none">
       <div className="container mx-auto px-4 pointer-events-auto">
@@ -150,13 +151,22 @@ export function Header({ viewAction, breadcrumbs = [], homeTo = "/", user, isAdm
                 )}
                 <DropdownMenuSeparator />
                 <DropdownMenuItem asChild>
-                  <form method="post" action="/logout" className="w-full">
+                  <form method="post" action={isImpersonating ? "/api/admin/stop-impersonate" : "/logout"} className="w-full">
                     <button
                       type="submit"
-                      className="flex items-center w-full text-left cursor-pointer text-red-600"
+                      className={`flex items-center w-full text-left cursor-pointer ${isImpersonating ? "text-amber-600" : "text-red-600"}`}
                     >
-                      <LogOut className="h-4 w-4 mr-2" />
-                      Sign out
+                      {isImpersonating ? (
+                        <>
+                          <UserX className="h-4 w-4 mr-2" />
+                          Stop Impersonating
+                        </>
+                      ) : (
+                        <>
+                          <LogOut className="h-4 w-4 mr-2" />
+                          Sign out
+                        </>
+                      )}
                     </button>
                   </form>
                 </DropdownMenuItem>

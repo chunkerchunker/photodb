@@ -95,6 +95,7 @@ export default function PersonWallView({ loaderData }: Route.ComponentProps) {
       breadcrumbs={[{ label: "People", to: "/people" }, { label: displayName }]}
       user={rootData?.userAvatar}
       isAdmin={rootData?.user?.isAdmin}
+      isImpersonating={rootData?.impersonation?.isImpersonating}
       viewAction={
         <ViewSwitcher
           modes={[

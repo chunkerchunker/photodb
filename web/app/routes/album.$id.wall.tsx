@@ -74,6 +74,7 @@ export default function AlbumWallView({ loaderData }: Route.ComponentProps) {
       breadcrumbs={[{ label: "Albums", to: "/albums" }, { label: album.name }]}
       user={rootData?.userAvatar}
       isAdmin={rootData?.user?.isAdmin}
+      isImpersonating={rootData?.impersonation?.isImpersonating}
       viewAction={
         <ViewSwitcher
           modes={[

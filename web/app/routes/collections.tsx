@@ -44,6 +44,7 @@ export default function CollectionsPage({ loaderData }: Route.ComponentProps) {
       <Header
         user={rootData?.userAvatar}
         isAdmin={rootData?.user?.isAdmin}
+        isImpersonating={rootData?.impersonation?.isImpersonating}
         breadcrumbs={[{ label: "Collections" }]}
       />
       <div className="h-16 bg-gray-900" />

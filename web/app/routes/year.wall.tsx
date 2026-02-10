@@ -68,6 +68,7 @@ export default function YearWallView({ loaderData }: Route.ComponentProps) {
     <Header
       user={rootData?.userAvatar}
       isAdmin={rootData?.user?.isAdmin}
+      isImpersonating={rootData?.impersonation?.isImpersonating}
       homeTo="/wall"
       breadcrumbs={[{ label: year.toString() }]}
       viewAction={

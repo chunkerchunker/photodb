@@ -63,6 +63,7 @@ export default function HomeWallView({ loaderData }: Route.ComponentProps) {
     <Header
       user={rootData?.userAvatar}
       isAdmin={rootData?.user?.isAdmin}
+      isImpersonating={rootData?.impersonation?.isImpersonating}
       homeTo="/wall"
       viewAction={
         <ViewSwitcher

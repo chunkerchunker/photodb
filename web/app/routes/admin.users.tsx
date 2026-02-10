@@ -1,7 +1,6 @@
 import { Shield, UserCog, Users } from "lucide-react";
 import { useFetcher } from "react-router";
 import { Header } from "~/components/header";
-import { ImpersonationBanner } from "~/components/impersonation-banner";
 import { Button } from "~/components/ui/button";
 import { Card, CardContent } from "~/components/ui/card";
 import { useRootData } from "~/hooks/use-root-data";
@@ -26,7 +25,6 @@ export default function AdminUsersPage({ loaderData }: Route.ComponentProps) {
   const { users } = loaderData;
   const rootData = useRootData();
   const fetcher = useFetcher();
-  const isImpersonating = rootData?.impersonation?.isImpersonating ?? false;
 
   const handleImpersonate = (userId: number) => {
     fetcher.submit(
@@ -37,18 +35,13 @@ export default function AdminUsersPage({ loaderData }: Route.ComponentProps) {
 
   return (
     <div className="min-h-screen bg-gray-50">
-      {isImpersonating && rootData?.impersonation?.realAdminName && (
-        <ImpersonationBanner
-          realAdminName={rootData.impersonation.realAdminName}
-          impersonatedUserName={`${rootData.userAvatar.firstName} ${rootData.userAvatar.lastName || ""}`.trim()}
-        />
-      )}
       <Header
         user={rootData?.userAvatar}
         isAdmin={rootData?.user?.isAdmin}
+        isImpersonating={rootData?.impersonation?.isImpersonating}
         breadcrumbs={[{ label: "Admin" }, { label: "Users" }]}
       />
-      <div className={`h-16 bg-gray-900 ${isImpersonating ? "mt-10" : ""}`} />
+      <div className="h-16 bg-gray-900" />
 
       <main className="container mx-auto px-4 py-6">
         <div className="space-y-6">

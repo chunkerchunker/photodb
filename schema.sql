@@ -8,7 +8,7 @@ CREATE TABLE IF NOT EXISTS app_user(
     first_name text NOT NULL,
     last_name text NOT NULL,
     default_collection_id bigint,
-    is_admin boolean DEFAULT false,
+    is_admin boolean NOT NULL DEFAULT false,
     created_at timestamptz DEFAULT now()
 );
 

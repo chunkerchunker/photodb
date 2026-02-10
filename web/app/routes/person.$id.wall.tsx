@@ -63,8 +63,8 @@ export default function PersonWallView({ loaderData }: Route.ComponentProps) {
                       y: cluster.bbox_y,
                       width: cluster.bbox_width,
                       height: cluster.bbox_height,
-                      imageWidth: cluster.normalized_width,
-                      imageHeight: cluster.normalized_height,
+                      imageWidth: cluster.med_width,
+                      imageHeight: cluster.med_height,
                     }
                   : undefined,
               // Set isCircular: true to use circular tiles instead

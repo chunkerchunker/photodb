@@ -463,7 +463,7 @@ def create_photos(
 
             # Check if photo already exists
             cur.execute(
-                "SELECT id FROM photo WHERE collection_id = %s AND filename = %s",
+                "SELECT id FROM photo WHERE collection_id = %s AND orig_path = %s",
                 (collection_id, filename),
             )
             existing = cur.fetchone()
@@ -474,8 +474,8 @@ def create_photos(
                 cur.execute(
                     """
                     INSERT INTO photo (
-                        collection_id, filename, normalized_path,
-                        width, height, normalized_width, normalized_height,
+                        collection_id, orig_path, med_path,
+                        width, height, med_width, med_height,
                         created_at, updated_at
                     )
                     VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)

@@ -318,7 +318,7 @@ class AgeGenderStage(BaseStage):
         Process age/gender estimation for detections in a photo.
 
         Args:
-            photo: Photo record with normalized_path
+            photo: Photo record with med_path
             file_path: Original file path (used for logging)
 
         Returns:
@@ -331,13 +331,13 @@ class AgeGenderStage(BaseStage):
         photo_id = photo.id  # Capture for type narrowing
 
         try:
-            # Check for normalized path
-            if not photo.normalized_path:
-                logger.warning(f"No normalized path for photo {photo_id}, skipping age/gender")
+            # Check for medium path
+            if not photo.med_path:
+                logger.warning(f"No medium path for photo {photo_id}, skipping age/gender")
                 return False
 
-            # Build full path to normalized image
-            normalized_path = Path(self.config["IMG_PATH"]) / photo.normalized_path
+            # Build full path to medium image
+            normalized_path = Path(self.config["IMG_PATH"]) / photo.med_path
             if not normalized_path.exists():
                 logger.error(f"Normalized image not found: {normalized_path}")
                 return False

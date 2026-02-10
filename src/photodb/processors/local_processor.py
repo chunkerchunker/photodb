@@ -162,7 +162,7 @@ class LocalProcessor(BaseProcessor):
                         stage_obj.process(file_path)
 
                         # Check if the stage actually succeeded by looking at processing status
-                        photo = stage_obj.repository.get_photo_by_filename(
+                        photo = stage_obj.repository.get_photo_by_orig_path(
                             str(file_path),
                             collection_id=int(self.config.get("COLLECTION_ID", 1)),
                         )
@@ -312,9 +312,9 @@ class LocalProcessor(BaseProcessor):
                 photos = self.repository.get_photos_by_directory(str(directory))
                 # Create generator that matches the pattern (consistent with glob)
                 file_iter = (
-                    Path(p.filename)
+                    Path(p.orig_path)
                     for p in photos
-                    if Path(p.filename).match(pattern)
+                    if Path(p.orig_path).match(pattern)
                 )
 
             for file_path in file_iter:

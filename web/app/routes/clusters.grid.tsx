@@ -460,8 +460,8 @@ export default function ClustersView({ loaderData }: Route.ComponentProps) {
                                   <div className="text-center space-y-3">
                                     {item.photo_id &&
                                     item.bbox_x !== null &&
-                                    item.normalized_width &&
-                                    item.normalized_height ? (
+                                    item.med_width &&
+                                    item.med_height ? (
                                       <div className="relative w-32 h-32 mx-auto bg-gray-100 rounded-lg border overflow-hidden">
                                         <img
                                           src={`/api/image/${item.photo_id}`}
@@ -476,8 +476,8 @@ export default function ClustersView({ loaderData }: Route.ComponentProps) {
                                               bbox_width: item.bbox_width,
                                               bbox_height: item.bbox_height,
                                             },
-                                            item.normalized_width,
-                                            item.normalized_height,
+                                            item.med_width,
+                                            item.med_height,
                                           )}
                                           loading="lazy"
                                         />

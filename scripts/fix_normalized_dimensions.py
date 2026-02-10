@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Find and fix photos with incorrect normalized_width/normalized_height in the database.
+Find and fix photos with incorrect med_width/med_height in the database.
 
 This script detects photos where the stored dimensions don't match the actual
 PNG file dimensions (typically caused by EXIF rotation not being accounted for
@@ -51,20 +51,20 @@ def find_dimension_mismatches(conn, photo_ids: list[int] | None = None) -> list[
         if photo_ids:
             # Check specific photos
             cursor.execute("""
-                SELECT id, normalized_path, normalized_width, normalized_height
+                SELECT id, med_path, med_width, med_height
                 FROM photo
                 WHERE id = ANY(%s)
-                  AND normalized_path IS NOT NULL
+                  AND med_path IS NOT NULL
                 ORDER BY id
             """, (photo_ids,))
         else:
             # Get all photos with normalized paths
             cursor.execute("""
-                SELECT id, normalized_path, normalized_width, normalized_height
+                SELECT id, med_path, med_width, med_height
                 FROM photo
-                WHERE normalized_path IS NOT NULL
-                  AND normalized_width IS NOT NULL
-                  AND normalized_height IS NOT NULL
+                WHERE med_path IS NOT NULL
+                  AND med_width IS NOT NULL
+                  AND med_height IS NOT NULL
                 ORDER BY id
             """)
         photos = cursor.fetchall()
@@ -75,7 +75,7 @@ def find_dimension_mismatches(conn, photo_ids: list[int] | None = None) -> list[
         if (i + 1) % 1000 == 0:
             print(f"  Checked {i + 1}/{len(photos)}...")
 
-        path = Path(photo["normalized_path"])
+        path = Path(photo["med_path"])
         if not path.exists():
             continue
 
@@ -87,8 +87,8 @@ def find_dimension_mismatches(conn, photo_ids: list[int] | None = None) -> list[
             print(f"  WARNING: Could not open {path}: {e}")
             continue
 
-        stored_width = photo["normalized_width"]
-        stored_height = photo["normalized_height"]
+        stored_width = photo["med_width"]
+        stored_height = photo["med_height"]
 
         # Check if dimensions match
         if actual_width != stored_width or actual_height != stored_height:
@@ -142,7 +142,7 @@ def fix_dimensions(conn, mismatches: list[dict], dry_run: bool = True):
         for m in mismatches:
             cursor.execute("""
                 UPDATE photo
-                SET normalized_width = %s, normalized_height = %s, updated_at = NOW()
+                SET med_width = %s, med_height = %s, updated_at = NOW()
                 WHERE id = %s
             """, (m["actual_width"], m["actual_height"], m["id"]))
 

@@ -139,7 +139,7 @@ export default function PersonDetailView({ loaderData }: Route.ComponentProps) {
         {/* Person Header */}
         <div className="flex items-start justify-between">
           <div className="flex items-center space-x-4">
-            {person.photo_id && person.bbox_x !== null && person.normalized_width && person.normalized_height ? (
+            {person.photo_id && person.bbox_x !== null && person.med_width && person.med_height ? (
               <div className="relative w-24 h-24 bg-gray-100 rounded-lg border overflow-hidden">
                 <img
                   src={`/api/image/${person.photo_id}`}
@@ -152,8 +152,8 @@ export default function PersonDetailView({ loaderData }: Route.ComponentProps) {
                       bbox_width: person.bbox_width,
                       bbox_height: person.bbox_height,
                     },
-                    person.normalized_width,
-                    person.normalized_height,
+                    person.med_width,
+                    person.med_height,
                     96,
                   )}
                 />
@@ -222,8 +222,8 @@ export default function PersonDetailView({ loaderData }: Route.ComponentProps) {
                                 <div className="text-center space-y-3">
                                   {cluster.photo_id &&
                                   cluster.bbox_x !== null &&
-                                  cluster.normalized_width &&
-                                  cluster.normalized_height ? (
+                                  cluster.med_width &&
+                                  cluster.med_height ? (
                                     <div className="relative w-32 h-32 mx-auto bg-gray-100 rounded-lg border overflow-hidden">
                                       <img
                                         src={`/api/image/${cluster.photo_id}`}
@@ -236,8 +236,8 @@ export default function PersonDetailView({ loaderData }: Route.ComponentProps) {
                                             bbox_width: cluster.bbox_width,
                                             bbox_height: cluster.bbox_height,
                                           },
-                                          cluster.normalized_width,
-                                          cluster.normalized_height,
+                                          cluster.med_width,
+                                          cluster.med_height,
                                         )}
                                         loading="lazy"
                                       />
@@ -288,8 +288,8 @@ export default function PersonDetailView({ loaderData }: Route.ComponentProps) {
                           <div className="text-center space-y-3">
                             {cluster.photo_id &&
                             cluster.bbox_x !== null &&
-                            cluster.normalized_width &&
-                            cluster.normalized_height ? (
+                            cluster.med_width &&
+                            cluster.med_height ? (
                               <div className="relative w-32 h-32 mx-auto bg-gray-100 rounded-lg border overflow-hidden">
                                 <img
                                   src={`/api/image/${cluster.photo_id}`}
@@ -302,8 +302,8 @@ export default function PersonDetailView({ loaderData }: Route.ComponentProps) {
                                       bbox_width: cluster.bbox_width,
                                       bbox_height: cluster.bbox_height,
                                     },
-                                    cluster.normalized_width,
-                                    cluster.normalized_height,
+                                    cluster.med_width,
+                                    cluster.med_height,
                                   )}
                                   loading="lazy"
                                 />

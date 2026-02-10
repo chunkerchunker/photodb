@@ -120,25 +120,25 @@ class EnrichStage(BaseStage):
         if force:
             return True
 
-        photo = self.repository.get_photo_by_filename(
+        photo = self.repository.get_photo_by_orig_path(
             str(file_path), collection_id=self.collection_id
         )
         if not photo or photo.id is None:
             return False
 
-        # Check if photo has normalized image and no existing analysis
-        return photo.normalized_path != "" and not self.repository.has_llm_analysis(photo.id)
+        # Check if photo has medium image and no existing analysis
+        return photo.med_path != "" and not self.repository.has_llm_analysis(photo.id)
 
     def process_photo(self, photo: Photo, file_path: Path) -> bool:
         """Process individual photo for LLM analysis (synchronous fallback).
 
-        Note: file_path parameter not used - we use the normalized image path instead.
+        Note: file_path parameter not used - we use the medium image path instead.
         """
         if photo.id is None:
             logger.error(f"Photo {file_path} has no ID")
             return False
-        if not photo.normalized_path:
-            logger.error(f"Photo {photo.id} has no normalized path")
+        if not photo.med_path:
+            logger.error(f"Photo {photo.id} has no medium path")
             return False
 
         photo_id = photo.id  # Capture for type narrowing
@@ -159,8 +159,8 @@ class EnrichStage(BaseStage):
                 self.repository.create_llm_analysis(placeholder_analysis)
                 return True
 
-            # Get normalized image path
-            normalized_path = Path(photo.normalized_path)
+            # Get medium image path
+            normalized_path = Path(photo.med_path)
 
             if not normalized_path.exists():
                 logger.error(f"Normalized image not found: {normalized_path}")
@@ -240,14 +240,14 @@ class EnrichStage(BaseStage):
         photo_ids = []
 
         for photo in photos:
-            if not photo.normalized_path or photo.id is None:
-                logger.warning("Skipping photo - missing normalized path or ID")
+            if not photo.med_path or photo.id is None:
+                logger.warning("Skipping photo - missing medium path or ID")
                 continue
 
-            normalized_path = Path(photo.normalized_path)
+            normalized_path = Path(photo.med_path)
 
             if not normalized_path.exists():
-                logger.warning(f"Skipping {photo.id} - normalized image not found")
+                logger.warning(f"Skipping {photo.id} - medium image not found")
                 continue
 
             metadata = self.repository.get_metadata(photo.id)
@@ -321,14 +321,14 @@ class EnrichStage(BaseStage):
             photo_ids = []
             with open(input_file_path, "w") as f:
                 for i, photo in enumerate(photos):
-                    if not photo.normalized_path or photo.id is None:
-                        logger.warning("Skipping photo - missing normalized path or ID")
+                    if not photo.med_path or photo.id is None:
+                        logger.warning("Skipping photo - missing medium path or ID")
                         continue
 
-                    normalized_path = Path(photo.normalized_path)
+                    normalized_path = Path(photo.med_path)
 
                     if not normalized_path.exists():
-                        logger.warning(f"Skipping {photo.id} - normalized image not found")
+                        logger.warning(f"Skipping {photo.id} - medium image not found")
                         continue
 
                     metadata = self.repository.get_metadata(photo.id)

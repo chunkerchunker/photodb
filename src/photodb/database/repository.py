@@ -49,33 +49,34 @@ class PhotoRepository:
         with self.pool.transaction() as conn:
             with conn.cursor() as cursor:
                 cursor.execute(
-                    """INSERT INTO photo (collection_id, filename, normalized_path, width, height, 
-                                         normalized_width, normalized_height, created_at, updated_at)
-                       VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s) RETURNING id""",
+                    """INSERT INTO photo (collection_id, orig_path, full_path, med_path, width, height,
+                                         med_width, med_height, created_at, updated_at)
+                       VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s) RETURNING id""",
                     (
                         photo.collection_id,
-                        photo.filename,
-                        photo.normalized_path,
+                        photo.orig_path,
+                        photo.full_path,
+                        photo.med_path,
                         photo.width,
                         photo.height,
-                        photo.normalized_width,
-                        photo.normalized_height,
+                        photo.med_width,
+                        photo.med_height,
                         photo.created_at,
                         photo.updated_at,
                     ),
                 )
                 photo.id = cursor.fetchone()[0]
 
-    def get_photo_by_filename(
-        self, filename: str, collection_id: Optional[int] = None
+    def get_photo_by_orig_path(
+        self, orig_path: str, collection_id: Optional[int] = None
     ) -> Optional[Photo]:
-        """Get photo by filename."""
+        """Get photo by original path."""
         collection_id = self._resolve_collection_id(collection_id)
         with self.pool.get_connection() as conn:
             with conn.cursor(row_factory=dict_row) as cursor:
                 cursor.execute(
-                    "SELECT * FROM photo WHERE collection_id = %s AND filename = %s",
-                    (collection_id, filename),
+                    "SELECT * FROM photo WHERE collection_id = %s AND orig_path = %s",
+                    (collection_id, orig_path),
                 )
                 row = cursor.fetchone()
 
@@ -106,16 +107,17 @@ class PhotoRepository:
         with self.pool.transaction() as conn:
             with conn.cursor() as cursor:
                 cursor.execute(
-                    """UPDATE photo 
-                       SET normalized_path = %s, width = %s, height = %s,
-                           normalized_width = %s, normalized_height = %s, updated_at = %s
+                    """UPDATE photo
+                       SET full_path = %s, med_path = %s, width = %s, height = %s,
+                           med_width = %s, med_height = %s, updated_at = %s
                        WHERE id = %s""",
                     (
-                        photo.normalized_path,
+                        photo.full_path,
+                        photo.med_path,
                         photo.width,
                         photo.height,
-                        photo.normalized_width,
-                        photo.normalized_height,
+                        photo.med_width,
+                        photo.med_height,
                         photo.updated_at,
                         photo.id,
                     ),
@@ -340,9 +342,9 @@ class PhotoRepository:
             with conn.cursor(row_factory=dict_row) as cursor:
                 cursor.execute(
                     """SELECT p.* FROM photo p
-                       WHERE p.normalized_path IS NOT NULL
+                       WHERE p.med_path IS NOT NULL
                        AND NOT EXISTS (
-                           SELECT 1 FROM llm_analysis la 
+                           SELECT 1 FROM llm_analysis la
                            WHERE la.photo_id = p.id AND la.error_message IS NULL
                        )
                        LIMIT %s""",

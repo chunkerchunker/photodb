@@ -35,7 +35,7 @@ class BaseStage(ABC):
         if force:
             return True
 
-        photo = self.repository.get_photo_by_filename(str(file_path), collection_id=self.collection_id)
+        photo = self.repository.get_photo_by_orig_path(str(file_path), collection_id=self.collection_id)
         if not photo or photo.id is None:
             return True
 
@@ -73,11 +73,11 @@ class BaseStage(ABC):
 
     def _get_or_create_photo(self, file_path: Path) -> Photo:
         """Get existing photo or create new one."""
-        filename = str(file_path.resolve())
-        photo = self.repository.get_photo_by_filename(filename, collection_id=self.collection_id)
+        orig_path = str(file_path.resolve())
+        photo = self.repository.get_photo_by_orig_path(orig_path, collection_id=self.collection_id)
 
         if not photo:
-            photo = Photo.create(filename=filename, collection_id=self.collection_id)
+            photo = Photo.create(orig_path=orig_path, collection_id=self.collection_id)
             self.repository.create_photo(photo)
             logger.debug(f"Created new photo record: {photo.id}")
 

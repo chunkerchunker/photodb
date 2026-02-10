@@ -59,17 +59,18 @@ CREATE TABLE IF NOT EXISTS album (
 CREATE TABLE IF NOT EXISTS photo(
     id bigserial PRIMARY KEY,
     collection_id bigint NOT NULL,
-    filename text NOT NULL, -- Relative path from INGEST_PATH
-    normalized_path text, -- Path to normalized image in IMG_PATH
+    orig_path text NOT NULL, -- Original file path (relative from INGEST_PATH)
+    full_path text, -- Path to full-size normalized image (WebP in full/ subdir)
+    med_path text, -- Path to medium-sized normalized image (WebP in med/ subdir)
     width integer, -- Original image width in pixels
     height integer, -- Original image height in pixels
-    normalized_width integer, -- Normalized image width in pixels
-    normalized_height integer, -- Normalized image height in pixels
+    med_width integer, -- Medium image width in pixels
+    med_height integer, -- Medium image height in pixels
     created_at timestamptz DEFAULT now(),
     updated_at timestamptz DEFAULT now(),
     FOREIGN KEY (collection_id) REFERENCES collection(id) ON DELETE CASCADE,
-    UNIQUE (collection_id, filename),
-    UNIQUE (collection_id, normalized_path)
+    UNIQUE (collection_id, orig_path),
+    UNIQUE (collection_id, med_path)
 );
 
 -- Photo-Album junction table: Many-to-many relationship between photos and albums

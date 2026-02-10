@@ -207,8 +207,8 @@ interface SearchCluster {
   bbox_y?: number;
   bbox_width?: number;
   bbox_height?: number;
-  normalized_width?: number;
-  normalized_height?: number;
+  med_width?: number;
+  med_height?: number;
 }
 
 type Face = Route.ComponentProps["loaderData"]["faces"][number];
@@ -250,7 +250,7 @@ const FaceCard = memo(function FaceCard({
           </div>
         )}
         <div className="text-center space-y-1">
-          {face.photo_id && face.bbox_x !== null && face.normalized_width && face.normalized_height ? (
+          {face.photo_id && face.bbox_x !== null && face.med_width && face.med_height ? (
             <div className="relative w-28 h-28 mx-auto">
               <div className="group relative w-full h-full bg-gray-100 rounded-lg border overflow-hidden">
                 <Link to={`/photo/${face.photo_id}`} onClick={(e) => e.stopPropagation()} className="cursor-pointer">
@@ -265,8 +265,8 @@ const FaceCard = memo(function FaceCard({
                         bbox_width: face.bbox_width,
                         bbox_height: face.bbox_height,
                       },
-                      face.normalized_width,
-                      face.normalized_height,
+                      face.med_width,
+                      face.med_height,
                       112,
                     )}
                     loading="lazy"
@@ -288,8 +288,8 @@ const FaceCard = memo(function FaceCard({
                   // Scale so face in preview is same size as thumbnail (112px)
                   const thumbSize = 112;
                   const faceScale = thumbSize / face.bbox_width;
-                  const scaledW = face.normalized_width * faceScale;
-                  const scaledH = face.normalized_height * faceScale;
+                  const scaledW = face.med_width * faceScale;
+                  const scaledH = face.med_height * faceScale;
                   // Position image so face top-left aligns with thumbnail top-left
                   const imgLeft = -face.bbox_x * faceScale;
                   const imgTop = -face.bbox_y * faceScale;
@@ -612,7 +612,7 @@ export default function ClusterDetailView({ loaderData }: Route.ComponentProps) 
 
         <div className="flex items-center justify-between">
           <div className="flex items-center space-x-3">
-            {cluster.rep_photo_id && cluster.rep_bbox_x !== null && cluster.rep_normalized_width ? (
+            {cluster.rep_photo_id && cluster.rep_bbox_x !== null && cluster.rep_med_width ? (
               <div className="relative w-12 h-12 bg-gray-100 rounded-lg border overflow-hidden flex-shrink-0">
                 <img
                   src={`/api/image/${cluster.rep_photo_id}`}
@@ -625,8 +625,8 @@ export default function ClusterDetailView({ loaderData }: Route.ComponentProps) 
                       bbox_width: cluster.rep_bbox_width,
                       bbox_height: cluster.rep_bbox_height,
                     },
-                    cluster.rep_normalized_width,
-                    cluster.rep_normalized_height,
+                    cluster.rep_med_width,
+                    cluster.rep_med_height,
                     48,
                   )}
                 />
@@ -762,7 +762,7 @@ export default function ClusterDetailView({ loaderData }: Route.ComponentProps) 
                             )}
                           >
                             <div className="flex items-center space-x-3">
-                              {result.photo_id && result.bbox_x !== undefined && result.normalized_width ? (
+                              {result.photo_id && result.bbox_x !== undefined && result.med_width ? (
                                 <div className="relative w-12 h-12 bg-gray-100 rounded border overflow-hidden flex-shrink-0">
                                   <img
                                     src={`/api/image/${result.photo_id}`}
@@ -775,8 +775,8 @@ export default function ClusterDetailView({ loaderData }: Route.ComponentProps) 
                                         bbox_width: result.bbox_width || 0.1,
                                         bbox_height: result.bbox_height || 0.1,
                                       },
-                                      result.normalized_width,
-                                      result.normalized_height || result.normalized_width,
+                                      result.med_width,
+                                      result.med_height || result.med_width,
                                       48,
                                     )}
                                   />

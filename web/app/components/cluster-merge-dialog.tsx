@@ -22,8 +22,8 @@ interface SearchCluster {
   bbox_y?: number;
   bbox_width?: number;
   bbox_height?: number;
-  normalized_width?: number;
-  normalized_height?: number;
+  med_width?: number;
+  med_height?: number;
 }
 
 interface LinkPreview {
@@ -227,7 +227,7 @@ export function ClusterLinkDialog({
                   >
                     <div className="flex items-center justify-between">
                       <div className="flex items-center space-x-3">
-                        {result.photo_id && result.bbox_x !== undefined && result.normalized_width ? (
+                        {result.photo_id && result.bbox_x !== undefined && result.med_width ? (
                           <div className="relative w-12 h-12 bg-gray-100 rounded border overflow-hidden flex-shrink-0">
                             <img
                               src={`/api/image/${result.photo_id}`}
@@ -240,8 +240,8 @@ export function ClusterLinkDialog({
                                   bbox_width: result.bbox_width || 0.1,
                                   bbox_height: result.bbox_height || 0.1,
                                 },
-                                result.normalized_width,
-                                result.normalized_height || result.normalized_width,
+                                result.med_width,
+                                result.med_height || result.med_width,
                               )}
                             />
                           </div>

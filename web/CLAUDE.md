@@ -257,7 +257,7 @@ export default function MonthPage({ loaderData }: Route.ComponentProps) {
 Images are served through the `/api/image/:id` endpoint:
 
 ```typescript
-// Serves images directly from normalized_path with proper MIME types
+// Serves images directly from med_path with proper MIME types
 export async function loader({ params }: Route.LoaderArgs) {
   const photoId = parseInt(params.id);
   const imageBuffer = await getImageBuffer(photoId);
@@ -269,7 +269,7 @@ export async function loader({ params }: Route.LoaderArgs) {
 
   return new Response(imageBuffer, {
     headers: {
-      "Content-Type": getMimeType(photo.normalized_path),
+      "Content-Type": getMimeType(photo.med_path),
       "Cache-Control": "public, max-age=31536000, immutable",
     },
   });
@@ -300,7 +300,7 @@ When adding new features or modifying existing functionality:
 The web frontend integrates seamlessly with the PhotoDB processing pipeline:
 
 - **Shared Database**: Uses the same PostgreSQL database as Python CLI tools
-- **File Paths**: Reads `normalized_path` from photos processed by `process-local`  
+- **File Paths**: Reads `med_path` from photos processed by `process-local`  
 - **Metadata**: Displays EXIF data extracted by the metadata stage
 - **AI Analysis**: Shows LLM descriptions and analysis from `enrich-photos`
 - **Face Detection**: Displays detected faces and person identification

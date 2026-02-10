@@ -60,8 +60,8 @@ export default function ClustersWallView({ loaderData }: Route.ComponentProps) {
                     y: item.bbox_y,
                     width: item.bbox_width,
                     height: item.bbox_height,
-                    imageWidth: item.normalized_width,
-                    imageHeight: item.normalized_height,
+                    imageWidth: item.med_width,
+                    imageHeight: item.med_height,
                   }
                 : undefined,
             // Set isCircular: true to use circular tiles instead

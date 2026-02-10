@@ -251,8 +251,8 @@ export default function PeopleView({ loaderData }: Route.ComponentProps) {
                                 <div className="text-center space-y-3">
                                   {person.photo_id &&
                                   person.bbox_x !== null &&
-                                  person.normalized_width &&
-                                  person.normalized_height ? (
+                                  person.med_width &&
+                                  person.med_height ? (
                                     <div className="relative w-32 h-32 mx-auto bg-gray-100 rounded-lg border overflow-hidden">
                                       <img
                                         src={`/api/image/${person.photo_id}`}
@@ -265,8 +265,8 @@ export default function PeopleView({ loaderData }: Route.ComponentProps) {
                                             bbox_width: person.bbox_width,
                                             bbox_height: person.bbox_height,
                                           },
-                                          person.normalized_width,
-                                          person.normalized_height,
+                                          person.med_width,
+                                          person.med_height,
                                         )}
                                         loading="lazy"
                                       />

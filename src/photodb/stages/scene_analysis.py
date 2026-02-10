@@ -68,11 +68,11 @@ class SceneAnalysisStage(BaseStage):
         photo_id = photo.id  # Capture for type narrowing
 
         try:
-            if not photo.normalized_path:
-                logger.warning(f"No normalized path for photo {photo_id}")
+            if not photo.med_path:
+                logger.warning(f"No medium path for photo {photo_id}")
                 return False
 
-            normalized_path = Path(self.config["IMG_PATH"]) / photo.normalized_path
+            normalized_path = Path(self.config["IMG_PATH"]) / photo.med_path
             if not normalized_path.exists():
                 logger.error(f"Normalized image not found: {normalized_path}")
                 return False

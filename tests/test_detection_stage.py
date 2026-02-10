@@ -81,10 +81,10 @@ class TestDetectionStageUnit:
             stage = DetectionStage(mock_repository, config)
             assert isinstance(stage, BaseStage)
 
-    def test_process_photo_skips_without_normalized_path(
+    def test_process_photo_skips_without_med_path(
         self, mock_repository, config, mock_person_detector
     ):
-        """Test that process_photo returns False if photo has no normalized_path."""
+        """Test that process_photo returns False if photo has no med_path."""
         with patch(
             "src.photodb.stages.detection.PersonDetector",
             return_value=mock_person_detector,
@@ -95,12 +95,12 @@ class TestDetectionStageUnit:
             stage = DetectionStage(mock_repository, config)
             photo = Photo(
                 id=1,
-                filename="/path/to/photo.jpg",
-                normalized_path=None,  # No normalized path
+                orig_path="/path/to/photo.jpg",
+                med_path=None,  # No medium path
                 width=640,
                 height=480,
-                normalized_width=None,
-                normalized_height=None,
+                med_width=None,
+                med_height=None,
                 created_at=datetime.now(timezone.utc),
                 updated_at=datetime.now(timezone.utc),
             )
@@ -109,10 +109,10 @@ class TestDetectionStageUnit:
             assert result is False
             mock_person_detector.detect.assert_not_called()
 
-    def test_process_photo_skips_nonexistent_normalized_file(
+    def test_process_photo_skips_nonexistent_med_file(
         self, mock_repository, config, mock_person_detector, temp_dir
     ):
-        """Test that process_photo returns False if normalized file doesn't exist."""
+        """Test that process_photo returns False if medium file doesn't exist."""
         with patch(
             "src.photodb.stages.detection.PersonDetector",
             return_value=mock_person_detector,
@@ -123,12 +123,12 @@ class TestDetectionStageUnit:
             stage = DetectionStage(mock_repository, config)
             photo = Photo(
                 id=1,
-                filename="/path/to/photo.jpg",
-                normalized_path="nonexistent.jpg",  # File doesn't exist
+                orig_path="/path/to/photo.jpg",
+                med_path="nonexistent.jpg",  # File doesn't exist
                 width=640,
                 height=480,
-                normalized_width=None,
-                normalized_height=None,
+                med_width=None,
+                med_height=None,
                 created_at=datetime.now(timezone.utc),
                 updated_at=datetime.now(timezone.utc),
             )
@@ -164,12 +164,12 @@ class TestDetectionStageUnit:
             stage = DetectionStage(mock_repository, config)
             photo = Photo(
                 id=1,
-                filename="/path/to/photo.jpg",
-                normalized_path=sample_image.name,
+                orig_path="/path/to/photo.jpg",
+                med_path=sample_image.name,
                 width=640,
                 height=480,
-                normalized_width=640,
-                normalized_height=480,
+                med_width=640,
+                med_height=480,
                 created_at=datetime.now(timezone.utc),
                 updated_at=datetime.now(timezone.utc),
             )
@@ -197,12 +197,12 @@ class TestDetectionStageUnit:
             stage = DetectionStage(mock_repository, config)
             photo = Photo(
                 id=1,
-                filename="/path/to/photo.jpg",
-                normalized_path=sample_image.name,
+                orig_path="/path/to/photo.jpg",
+                med_path=sample_image.name,
                 width=640,
                 height=480,
-                normalized_width=640,
-                normalized_height=480,
+                med_width=640,
+                med_height=480,
                 created_at=datetime.now(timezone.utc),
                 updated_at=datetime.now(timezone.utc),
             )
@@ -240,12 +240,12 @@ class TestDetectionStageUnit:
             stage = DetectionStage(mock_repository, config)
             photo = Photo(
                 id=1,
-                filename="/path/to/photo.jpg",
-                normalized_path=sample_image.name,
+                orig_path="/path/to/photo.jpg",
+                med_path=sample_image.name,
                 width=640,
                 height=480,
-                normalized_width=640,
-                normalized_height=480,
+                med_width=640,
+                med_height=480,
                 created_at=datetime.now(timezone.utc),
                 updated_at=datetime.now(timezone.utc),
             )
@@ -294,12 +294,12 @@ class TestDetectionStageUnit:
             stage = DetectionStage(mock_repository, config)
             photo = Photo(
                 id=1,
-                filename="/path/to/photo.jpg",
-                normalized_path=sample_image.name,
+                orig_path="/path/to/photo.jpg",
+                med_path=sample_image.name,
                 width=640,
                 height=480,
-                normalized_width=640,
-                normalized_height=480,
+                med_width=640,
+                med_height=480,
                 created_at=datetime.now(timezone.utc),
                 updated_at=datetime.now(timezone.utc),
             )
@@ -353,12 +353,12 @@ class TestDetectionStageUnit:
             stage = DetectionStage(mock_repository, config)
             photo = Photo(
                 id=1,
-                filename="/path/to/photo.jpg",
-                normalized_path=sample_image.name,
+                orig_path="/path/to/photo.jpg",
+                med_path=sample_image.name,
                 width=640,
                 height=480,
-                normalized_width=640,
-                normalized_height=480,
+                med_width=640,
+                med_height=480,
                 created_at=datetime.now(timezone.utc),
                 updated_at=datetime.now(timezone.utc),
             )
@@ -413,12 +413,12 @@ class TestDetectionStageUnit:
             stage = DetectionStage(mock_repository, config)
             photo = Photo(
                 id=1,
-                filename="/path/to/photo.jpg",
-                normalized_path=sample_image.name,
+                orig_path="/path/to/photo.jpg",
+                med_path=sample_image.name,
                 width=640,
                 height=480,
-                normalized_width=640,
-                normalized_height=480,
+                med_width=640,
+                med_height=480,
                 created_at=datetime.now(timezone.utc),
                 updated_at=datetime.now(timezone.utc),
             )
@@ -456,12 +456,12 @@ class TestDetectionStageUnit:
             stage = DetectionStage(mock_repository, config)
             photo = Photo(
                 id=1,
-                filename="/path/to/photo.jpg",
-                normalized_path=sample_image.name,
+                orig_path="/path/to/photo.jpg",
+                med_path=sample_image.name,
                 width=640,
                 height=480,
-                normalized_width=640,
-                normalized_height=480,
+                med_width=640,
+                med_height=480,
                 created_at=datetime.now(timezone.utc),
                 updated_at=datetime.now(timezone.utc),
             )
@@ -524,12 +524,12 @@ class TestDetectionStageUnit:
             stage = DetectionStage(mock_repository, config)
             photo = Photo(
                 id=1,
-                filename="/path/to/photo.jpg",
-                normalized_path=sample_image.name,
+                orig_path="/path/to/photo.jpg",
+                med_path=sample_image.name,
                 width=640,
                 height=480,
-                normalized_width=640,
-                normalized_height=480,
+                med_width=640,
+                med_height=480,
                 created_at=datetime.now(timezone.utc),
                 updated_at=datetime.now(timezone.utc),
             )
@@ -561,12 +561,12 @@ class TestDetectionStageUnit:
             stage = DetectionStage(mock_repository, config)
             photo = Photo(
                 id=1,
-                filename="/path/to/photo.jpg",
-                normalized_path=sample_image.name,
+                orig_path="/path/to/photo.jpg",
+                med_path=sample_image.name,
                 width=640,
                 height=480,
-                normalized_width=640,
-                normalized_height=480,
+                med_width=640,
+                med_height=480,
                 created_at=datetime.now(timezone.utc),
                 updated_at=datetime.now(timezone.utc),
             )
@@ -590,12 +590,12 @@ class TestDetectionStageUnit:
             stage = DetectionStage(mock_repository, config)
             photo = Photo(
                 id=1,
-                filename="/path/to/photo.jpg",
-                normalized_path=sample_image.name,
+                orig_path="/path/to/photo.jpg",
+                med_path=sample_image.name,
                 width=640,
                 height=480,
-                normalized_width=640,
-                normalized_height=480,
+                med_width=640,
+                med_height=480,
                 created_at=datetime.now(timezone.utc),
                 updated_at=datetime.now(timezone.utc),
             )
@@ -633,12 +633,12 @@ class TestDetectionStageUnit:
             stage = DetectionStage(mock_repository, config)
             photo = Photo(
                 id=1,
-                filename="/path/to/photo.jpg",
-                normalized_path=sample_image.name,
+                orig_path="/path/to/photo.jpg",
+                med_path=sample_image.name,
                 width=640,
                 height=480,
-                normalized_width=640,
-                normalized_height=480,
+                med_width=640,
+                med_height=480,
                 created_at=datetime.now(timezone.utc),
                 updated_at=datetime.now(timezone.utc),
             )
@@ -667,12 +667,12 @@ class TestDetectionStageUnit:
             stage = DetectionStage(mock_repository, config)
             photo = Photo(
                 id=1,
-                filename="/path/to/photo.jpg",
-                normalized_path=sample_image.name,
+                orig_path="/path/to/photo.jpg",
+                med_path=sample_image.name,
                 width=640,
                 height=480,
-                normalized_width=640,
-                normalized_height=480,
+                med_width=640,
+                med_height=480,
                 created_at=datetime.now(timezone.utc),
                 updated_at=datetime.now(timezone.utc),
             )

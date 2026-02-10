@@ -10,30 +10,36 @@ import warnings
 class Photo:
     id: Optional[int]
     collection_id: int
-    filename: str
-    normalized_path: str | None
+    orig_path: str
+    full_path: str | None
+    med_path: str | None
     width: Optional[int]
     height: Optional[int]
-    normalized_width: Optional[int]
-    normalized_height: Optional[int]
+    med_width: Optional[int]
+    med_height: Optional[int]
     created_at: datetime
     updated_at: datetime
 
     @classmethod
     def create(
-        cls, filename: str, collection_id: int, normalized_path: Optional[str] = None
+        cls,
+        orig_path: str,
+        collection_id: int,
+        full_path: Optional[str] = None,
+        med_path: Optional[str] = None,
     ) -> "Photo":
         """Create a new photo record."""
         now = datetime.now(timezone.utc)
         return cls(
             id=None,  # Will be assigned by database
             collection_id=collection_id,
-            filename=filename,
-            normalized_path=normalized_path,
+            orig_path=orig_path,
+            full_path=full_path,
+            med_path=med_path,
             width=None,
             height=None,
-            normalized_width=None,
-            normalized_height=None,
+            med_width=None,
+            med_height=None,
             created_at=now,
             updated_at=now,
         )
@@ -42,12 +48,13 @@ class Photo:
         return {
             "id": self.id,
             "collection_id": self.collection_id,
-            "filename": self.filename,
-            "normalized_path": self.normalized_path,
+            "orig_path": self.orig_path,
+            "full_path": self.full_path,
+            "med_path": self.med_path,
             "width": self.width,
             "height": self.height,
-            "normalized_width": self.normalized_width,
-            "normalized_height": self.normalized_height,
+            "med_width": self.med_width,
+            "med_height": self.med_height,
             "created_at": self.created_at,
             "updated_at": self.updated_at,
         }

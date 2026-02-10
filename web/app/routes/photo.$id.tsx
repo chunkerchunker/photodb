@@ -529,11 +529,17 @@ export default function PhotoDetail({ loaderData }: Route.ComponentProps) {
                       </div>
                       <div>
                         <span className="font-medium">Original Path:</span>
-                        <div className="text-xs text-gray-600 break-all">{photo.filename}</div>
+                        <div className="text-xs text-gray-600 break-all">{photo.orig_path}</div>
                       </div>
+                      {photo.full_path && (
+                        <div>
+                          <span className="font-medium">Full Size Path:</span>
+                          <div className="text-xs text-gray-600 break-all">{photo.full_path}</div>
+                        </div>
+                      )}
                       <div>
-                        <span className="font-medium">Normalized Path:</span>
-                        <div className="text-xs text-gray-600 break-all">{photo.normalized_path}</div>
+                        <span className="font-medium">Medium Path:</span>
+                        <div className="text-xs text-gray-600 break-all">{photo.med_path}</div>
                       </div>
                       {photo.captured_at && (
                         <div>

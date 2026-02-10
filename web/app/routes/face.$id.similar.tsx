@@ -58,8 +58,8 @@ interface SimilarFace {
   bbox_width: number;
   bbox_height: number;
   photo_id: string;
-  normalized_width: number;
-  normalized_height: number;
+  med_width: number;
+  med_height: number;
   cluster_id?: string;
   cluster_face_count?: number;
   person_name?: string;
@@ -79,8 +79,8 @@ interface SearchCluster {
   bbox_y?: number;
   bbox_width?: number;
   bbox_height?: number;
-  normalized_width?: number;
-  normalized_height?: number;
+  med_width?: number;
+  med_height?: number;
 }
 
 function getFaceCropStyle(
@@ -167,8 +167,8 @@ const SimilarFaceCard = memo(function SimilarFaceCard({
                           bbox_width: face.bbox_width,
                           bbox_height: face.bbox_height,
                         },
-                        face.normalized_width,
-                        face.normalized_height,
+                        face.med_width,
+                        face.med_height,
                         112,
                       )}
                       loading="lazy"
@@ -189,8 +189,8 @@ const SimilarFaceCard = memo(function SimilarFaceCard({
                   (() => {
                     const thumbSize = 112;
                     const faceScale = thumbSize / face.bbox_width;
-                    const scaledW = face.normalized_width * faceScale;
-                    const scaledH = face.normalized_height * faceScale;
+                    const scaledW = face.med_width * faceScale;
+                    const scaledH = face.med_height * faceScale;
                     const imgLeft = -face.bbox_x * faceScale;
                     const imgTop = -face.bbox_y * faceScale;
                     const originX = -imgLeft + thumbSize / 2;
@@ -450,8 +450,8 @@ export default function SimilarFacesPage({ loaderData }: Route.ComponentProps) {
         bbox_y?: number;
         bbox_width?: number;
         bbox_height?: number;
-        normalized_width?: number;
-        normalized_height?: number;
+        med_width?: number;
+        med_height?: number;
       }
     >();
     for (const f of similarFaces) {
@@ -469,8 +469,8 @@ export default function SimilarFacesPage({ loaderData }: Route.ComponentProps) {
             bbox_y: f.bbox_y,
             bbox_width: f.bbox_width,
             bbox_height: f.bbox_height,
-            normalized_width: f.normalized_width,
-            normalized_height: f.normalized_height,
+            med_width: f.med_width,
+            med_height: f.med_height,
           });
         }
       }
@@ -639,8 +639,8 @@ export default function SimilarFacesPage({ loaderData }: Route.ComponentProps) {
                         bbox_width: face.bbox_width,
                         bbox_height: face.bbox_height,
                       },
-                      face.normalized_width,
-                      face.normalized_height,
+                      face.med_width,
+                      face.med_height,
                       96,
                     )}
                   />
@@ -787,7 +787,7 @@ export default function SimilarFacesPage({ loaderData }: Route.ComponentProps) {
                                         onClick={() => handleAddToCluster(match.clusterId)}
                                       >
                                         <div className="flex items-center space-x-3">
-                                          {match.photo_id && match.bbox_x !== undefined && match.normalized_width ? (
+                                          {match.photo_id && match.bbox_x !== undefined && match.med_width ? (
                                             <div className="relative w-12 h-12 bg-gray-100 rounded border overflow-hidden flex-shrink-0">
                                               <img
                                                 src={`/api/image/${match.photo_id}`}
@@ -800,8 +800,8 @@ export default function SimilarFacesPage({ loaderData }: Route.ComponentProps) {
                                                     bbox_width: match.bbox_width || 0.1,
                                                     bbox_height: match.bbox_height || 0.1,
                                                   },
-                                                  match.normalized_width,
-                                                  match.normalized_height || match.normalized_width,
+                                                  match.med_width,
+                                                  match.med_height || match.med_width,
                                                   48,
                                                 )}
                                               />
@@ -843,7 +843,7 @@ export default function SimilarFacesPage({ loaderData }: Route.ComponentProps) {
                                         onClick={() => handleAddToCluster(result.id)}
                                       >
                                         <div className="flex items-center space-x-3">
-                                          {result.photo_id && result.bbox_x !== undefined && result.normalized_width ? (
+                                          {result.photo_id && result.bbox_x !== undefined && result.med_width ? (
                                             <div className="relative w-12 h-12 bg-gray-100 rounded border overflow-hidden flex-shrink-0">
                                               <img
                                                 src={`/api/image/${result.photo_id}`}
@@ -856,8 +856,8 @@ export default function SimilarFacesPage({ loaderData }: Route.ComponentProps) {
                                                     bbox_width: result.bbox_width || 0.1,
                                                     bbox_height: result.bbox_height || 0.1,
                                                   },
-                                                  result.normalized_width,
-                                                  result.normalized_height || result.normalized_width,
+                                                  result.med_width,
+                                                  result.med_height || result.med_width,
                                                   48,
                                                 )}
                                               />

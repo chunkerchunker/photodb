@@ -188,8 +188,8 @@ export default function HiddenClustersView({ loaderData }: Route.ComponentProps)
                       <Link to={`/cluster/${cluster.id}`}>
                         {cluster.photo_id &&
                         cluster.bbox_x !== null &&
-                        cluster.normalized_width &&
-                        cluster.normalized_height ? (
+                        cluster.med_width &&
+                        cluster.med_height ? (
                           <div className="relative w-32 h-32 mx-auto bg-gray-100 rounded-lg border overflow-hidden opacity-60 hover:opacity-100 transition-opacity">
                             <img
                               src={`/api/image/${cluster.photo_id}`}
@@ -202,8 +202,8 @@ export default function HiddenClustersView({ loaderData }: Route.ComponentProps)
                                   bbox_width: cluster.bbox_width,
                                   bbox_height: cluster.bbox_height,
                                 },
-                                cluster.normalized_width,
-                                cluster.normalized_height,
+                                cluster.med_width,
+                                cluster.med_height,
                               )}
                               loading="lazy"
                             />

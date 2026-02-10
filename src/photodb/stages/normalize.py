@@ -17,24 +17,38 @@ ORIENTATION_SWAPS_DIMENSIONS = {5, 6, 7, 8}
 
 
 class NormalizeStage(BaseStage):
-    """Stage 1: Normalize photos to PNG format with standard sizes."""
+    """Stage 1: Normalize photos to WebP format with standard sizes."""
+
+    # WebP quality for lossy compression (0-100)
+    WEBP_QUALITY = 95
+
+    # Subdirectory for medium-sized images (preparation for multiple sizes)
+    MED_SUBDIR = "med"
+
+    # Subdirectory for full-sized images
+    FULL_SUBDIR = "full"
 
     def __init__(self, repository, config):
         super().__init__(repository, config)
-        self.output_dir = Path(config.get("IMG_PATH", "./photos/processed"))
+        self.base_output_dir = Path(config.get("IMG_PATH", "./photos/processed"))
+        self.output_dir = self.base_output_dir / self.MED_SUBDIR
+        self.full_output_dir = self.base_output_dir / self.FULL_SUBDIR
 
     def process_photo(self, photo: Photo, file_path: Path) -> bool:
-        """Normalize a photo to PNG format.
+        """Normalize a photo to WebP format (both medium and full-size versions).
 
         Returns:
             bool: True if processing was successful, False otherwise
         """
         image = None
+        full_image = None
         try:
             self.output_dir.mkdir(parents=True, exist_ok=True)
+            self.full_output_dir.mkdir(parents=True, exist_ok=True)
 
-            output_filename = f"{self._generate_photo_id(Path(photo.filename))}.png"
-            output_path = self.output_dir / output_filename
+            output_filename = f"{self._generate_photo_id(Path(photo.orig_path))}.webp"
+            med_output_path = self.output_dir / output_filename
+            full_output_path = self.full_output_dir / output_filename
 
             # Open image using ImageHandler (orientation applied at save time)
             image = ImageHandler.open_image(file_path)
@@ -61,7 +75,15 @@ class NormalizeStage(BaseStage):
             except Exception as e:
                 logger.debug(f"Could not read EXIF orientation: {e}")
 
-            # Resize if needed
+            # Create full-size WebP (no resize, just format conversion with rotation baking)
+            full_image = ImageHandler.open_image(file_path)
+            ImageHandler.save_as_webp(
+                full_image, full_output_path, quality=self.WEBP_QUALITY, original_path=file_path
+            )
+            logger.debug(f"Full-size photo saved to {full_output_path}")
+            photo.full_path = str(full_output_path)
+
+            # Resize for medium version if needed
             if new_size and new_size != original_size:
                 logger.debug(f"Resizing to: {new_size[0]}x{new_size[1]}")
                 image = ImageHandler.resize_image(image, new_size)
@@ -69,22 +91,24 @@ class NormalizeStage(BaseStage):
             else:
                 pre_rotation_width, pre_rotation_height = original_size
 
-            # Save as PNG using ImageHandler (this is the slow part!)
-            # Note: save_as_png applies EXIF rotation
-            ImageHandler.save_as_png(image, output_path, optimize=True, original_path=file_path)
-            logger.debug(f"Normalized photo saved to {output_path}")
+            # Save medium as WebP using ImageHandler
+            # Note: save_as_webp applies EXIF rotation
+            ImageHandler.save_as_webp(
+                image, med_output_path, quality=self.WEBP_QUALITY, original_path=file_path
+            )
+            logger.debug(f"Medium photo saved to {med_output_path}")
 
             # Store final dimensions (accounting for EXIF rotation)
             if exif_swaps_dimensions:
-                photo.normalized_width = pre_rotation_height
-                photo.normalized_height = pre_rotation_width
+                photo.med_width = pre_rotation_height
+                photo.med_height = pre_rotation_width
             else:
-                photo.normalized_width = pre_rotation_width
-                photo.normalized_height = pre_rotation_height
-            logger.debug(f"Final dimensions: {photo.normalized_width}x{photo.normalized_height}")
+                photo.med_width = pre_rotation_width
+                photo.med_height = pre_rotation_height
+            logger.debug(f"Final dimensions: {photo.med_width}x{photo.med_height}")
 
             # Only update DB after image processing is complete
-            photo.normalized_path = str(output_path)
+            photo.med_path = str(med_output_path)
             self.repository.update_photo(photo)
             return True
 
@@ -92,6 +116,8 @@ class NormalizeStage(BaseStage):
             logger.error(f"Failed to normalize photo {file_path}: {e}")
             return False
         finally:
-            # CRITICAL: Always close the image to free file handles
+            # CRITICAL: Always close images to free file handles
             if image:
                 image.close()
+            if full_image:
+                full_image.close()

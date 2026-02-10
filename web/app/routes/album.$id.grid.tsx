@@ -158,7 +158,7 @@ export default function AlbumGridView({ loaderData }: Route.ComponentProps) {
             >
               <img
                 src={`/api/image/${photo.id}`}
-                alt={photo.description || photo.filename}
+                alt={photo.description || photo.orig_path}
                 className="w-full h-full object-cover group-hover:scale-105 transition-transform"
                 loading="lazy"
               />

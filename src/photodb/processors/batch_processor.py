@@ -55,7 +55,7 @@ class BatchProcessor(BaseProcessor):
             self.enrich_stage.process(file_path)
 
             # Check if it succeeded
-            photo = self.repository.get_photo_by_filename(
+            photo = self.repository.get_photo_by_orig_path(
                 str(file_path), collection_id=int(self.config.get("COLLECTION_ID", 1))
             )
             if photo:
@@ -137,7 +137,7 @@ class BatchProcessor(BaseProcessor):
                 logger.info(f"Reached maximum photo limit ({self.max_photos}), skipping remaining")
                 break
 
-            photo = self.repository.get_photo_by_filename(
+            photo = self.repository.get_photo_by_orig_path(
                 str(file_path), collection_id=int(self.config.get("COLLECTION_ID", 1))
             )
             if photo and self.enrich_stage.should_process(file_path, self.force):

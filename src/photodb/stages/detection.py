@@ -16,8 +16,6 @@ logger = logging.getLogger(__name__)
 class DetectionStage(BaseStage):
     """Stage for detecting faces and bodies, extracting embeddings using PersonDetector."""
 
-    stage_name = "detection"
-
     def __init__(self, repository, config: dict):
         super().__init__(repository, config)
 

@@ -51,7 +51,6 @@ class ClusteringStage(BaseStage):
     Uses PersonDetection model instead of the deprecated Face model.
     """
 
-    stage_name = "clustering"
     force: bool = False  # Set by processor before process_photo is called
 
     def __init__(self, repository, config: dict):

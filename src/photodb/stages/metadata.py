@@ -2,7 +2,6 @@ from pathlib import Path
 import logging
 from datetime import datetime
 from typing import Dict, Any, Optional
-from PIL.ExifTags import TAGS, GPSTAGS
 
 from .base import BaseStage
 from ..database.models import Photo, Metadata
@@ -181,113 +180,11 @@ class MetadataStage(BaseStage):
             # Convert unknown types to string and remove null bytes
             return str(obj).replace("\x00", "")
 
-    def _extract_camera_info(self, metadata: Dict[str, Any]) -> Dict[str, Any]:
-        """Extract camera information from metadata."""
-        camera_info = {}
-
-        if "camera_make" in metadata:
-            camera_info["make"] = metadata["camera_make"]
-
-        if "camera_model" in metadata:
-            camera_info["model"] = metadata["camera_model"]
-
-        if "lens_model" in metadata:
-            camera_info["lens"] = metadata["lens_model"]
-
-        if "iso" in metadata:
-            camera_info["iso"] = metadata["iso"]
-
-        if "f_number" in metadata:
-            camera_info["aperture"] = f"f/{metadata['f_number']}"
-
-        if "exposure_time" in metadata:
-            exp = metadata["exposure_time"]
-            if isinstance(exp, (int, float)):
-                if exp < 1:
-                    camera_info["shutter"] = f"1/{int(1 / exp)}s"
-                else:
-                    camera_info["shutter"] = f"{exp}s"
-
-        return camera_info
-
     def _update_metadata(self, metadata: Metadata) -> None:
         """Update existing metadata record."""
         # PostgreSQL repository handles updates automatically with ON CONFLICT
         # Just create/update the metadata - the repository will handle it
         self.repository.create_metadata(metadata)
-
-    # Keeping old methods for backwards compatibility
-    def _parse_exif(self, exif_data: dict, metadata: Metadata) -> Metadata:
-        """Parse EXIF data into metadata."""
-        for tag_id, value in exif_data.items():
-            tag = TAGS.get(tag_id, tag_id)
-
-            if tag == "DateTime":
-                try:
-                    metadata.captured_at = datetime.strptime(value, "%Y:%m:%d %H:%M:%S")
-                except ValueError:
-                    logger.debug(f"Could not parse DateTime: {value}")
-
-            elif tag == "DateTimeOriginal":
-                try:
-                    metadata.captured_at = datetime.strptime(value, "%Y:%m:%d %H:%M:%S")
-                except ValueError:
-                    logger.debug(f"Could not parse DateTimeOriginal: {value}")
-
-            elif tag == "GPSInfo":
-                gps_data = self._parse_gps(value)
-                if "latitude" in gps_data:
-                    metadata.latitude = gps_data["latitude"]
-                if "longitude" in gps_data:
-                    metadata.longitude = gps_data["longitude"]
-                metadata.extra["gps"] = gps_data
-
-            elif tag in ["Make", "Model", "LensModel", "Software"]:
-                metadata.extra[tag.lower()] = str(value)
-
-            elif tag in ["ISO", "ISOSpeedRatings"]:
-                metadata.extra["iso"] = value
-
-            elif tag in ["FNumber", "ExposureTime", "FocalLength"]:
-                metadata.extra[tag.lower()] = self._format_rational(value)
-
-        return metadata
-
-    def _parse_gps(self, gps_info: dict) -> Dict[str, Any]:
-        """Parse GPS information from EXIF."""
-        gps_data = {}
-
-        for key, value in gps_info.items():
-            decode = GPSTAGS.get(key, key)
-            gps_data[decode] = value
-
-        if "GPSLatitude" in gps_data and "GPSLongitude" in gps_data:
-            lat = self._convert_to_degrees(gps_data["GPSLatitude"])
-            lon = self._convert_to_degrees(gps_data["GPSLongitude"])
-
-            if "GPSLatitudeRef" in gps_data and gps_data["GPSLatitudeRef"] == "S":
-                lat = -lat
-            if "GPSLongitudeRef" in gps_data and gps_data["GPSLongitudeRef"] == "W":
-                lon = -lon
-
-            gps_data["latitude"] = lat
-            gps_data["longitude"] = lon
-
-        return gps_data
-
-    def _convert_to_degrees(self, value) -> float:
-        """Convert GPS coordinates to decimal degrees."""
-        d = float(value[0])
-        m = float(value[1])
-        s = float(value[2])
-        return d + (m / 60.0) + (s / 3600.0)
-
-    def _format_rational(self, value) -> float:
-        """Format EXIF rational values."""
-        if hasattr(value, "numerator") and hasattr(value, "denominator"):
-            if value.denominator != 0:
-                return float(value.numerator) / float(value.denominator)
-        return float(value)
 
     def _infer_date_from_filename(self, filename: str) -> Optional[datetime]:
         """Infer date from filename if possible."""

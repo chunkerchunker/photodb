@@ -410,8 +410,6 @@ class EnrichStage(BaseStage):
             logger.error(f"Error submitting Bedrock batch job: {e}")
             return None
 
-    # Note: _create_batch_request method removed - now using Instructor's native batch processing
-
     def monitor_batch(self, batch_id: str) -> Optional[dict]:
         """Monitor the status of a batch job based on provider."""
         if not self.api_available:

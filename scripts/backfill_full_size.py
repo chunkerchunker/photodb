@@ -100,39 +100,12 @@ def find_photos_to_backfill(conn, photo_ids: list[int] | None = None) -> list[di
                 ORDER BY id
                 """
             )
-        return [dict(row) for row in cursor.fetchall()]
+        return cursor.fetchall()
 
 
 def generate_photo_id(orig_path: Path) -> str:
     """Generate a unique photo ID based on the original path."""
     return hashlib.sha256(str(orig_path).encode()).hexdigest()[:16]
-
-
-def save_as_webp(image: Image.Image, output_path: Path, quality: int, original_path: Path) -> None:
-    """Save image as WebP with EXIF rotation baked in."""
-    # Apply EXIF orientation by opening original to get EXIF data
-    try:
-        with Image.open(original_path) as orig:
-            # Get EXIF and apply orientation
-            image = ImageOps.exif_transpose(image)
-    except Exception:
-        # If we can't read EXIF, just use the image as-is
-        pass
-
-    # Convert to RGB if needed (WebP doesn't support all modes)
-    if image.mode in ("RGBA", "LA"):
-        # Keep alpha for RGBA
-        pass
-    elif image.mode != "RGB":
-        image = image.convert("RGB")
-
-    # Save with high quality lossy compression
-    image.save(
-        output_path,
-        "WEBP",
-        quality=quality,
-        method=6,  # Best compression method
-    )
 
 
 def process_photo(

@@ -1,7 +1,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import dotenv from "dotenv";
-import { getPhotoById } from "./db.server";
+import { getDetectionFacePath, getPhotoById } from "./db.server";
 
 // Load environment variables from .env file
 dotenv.config({ path: path.join(process.cwd(), "..", ".env") });
@@ -62,6 +62,20 @@ export async function getImageBuffer(
     console.error(`Failed to read image: ${imagePath}`, error);
     return null;
   }
+}
+
+export async function getFacePath(collectionId: number, detectionId: number): Promise<string | null> {
+  const facePath = await getDetectionFacePath(collectionId, detectionId);
+  if (!facePath) {
+    return null;
+  }
+
+  if (!fs.existsSync(facePath)) {
+    console.error(`Face image not found: ${facePath}`);
+    return null;
+  }
+
+  return facePath;
 }
 
 export function getMimeType(filePath: string): string {

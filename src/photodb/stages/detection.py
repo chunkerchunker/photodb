@@ -6,11 +6,19 @@ import os
 from pathlib import Path
 import logging
 
+from PIL import Image
+
 from .base import BaseStage
 from ..database.models import Photo, PersonDetection
 from ..utils.person_detector import PersonDetector
 
 logger = logging.getLogger(__name__)
+
+# Subdirectory for face crops (matches pattern of full/ and med/ in normalize stage)
+FACES_SUBDIR = "faces"
+
+# WebP quality for face crops
+FACE_WEBP_QUALITY = 95
 
 
 class DetectionStage(BaseStage):
@@ -23,6 +31,7 @@ class DetectionStage(BaseStage):
         force_cpu = os.getenv("DETECTION_FORCE_CPU", "false").lower() == "true"
 
         self.detector = PersonDetector(force_cpu=force_cpu)
+        self.faces_output_dir = Path(self.config.get("IMG_PATH", "./photos/processed")) / FACES_SUBDIR
         logger.debug(f"DetectionStage initialized with device: {self.detector.device}")
 
     def process_photo(self, photo: Photo, file_path: Path) -> bool:
@@ -33,6 +42,7 @@ class DetectionStage(BaseStage):
 
         photo_id = photo.id  # Capture for type narrowing
 
+        image = None
         try:
             # Check if medium file exists
             if not photo.med_path:
@@ -66,15 +76,30 @@ class DetectionStage(BaseStage):
                 # No detections found, but processing succeeded
                 return True
 
+            # Ensure faces output directory exists
+            self.faces_output_dir.mkdir(parents=True, exist_ok=True)
+
+            # Open image for face cropping
+            image = Image.open(normalized_path)
+
             # Process each detection
             detections_saved = 0
+            face_index = 0
             for detection_data in result["detections"]:
                 face_data = detection_data.get("face")
                 body_data = detection_data.get("body")
 
+                # Crop and save face if present
+                face_path = None
+                if face_data is not None:
+                    face_path = self._crop_and_save_face(
+                        image, face_data, photo_id, face_index
+                    )
+                    face_index += 1
+
                 # Create PersonDetection record
                 detection = self._create_detection_record(
-                    photo_id, photo.collection_id, face_data, body_data
+                    photo_id, photo.collection_id, face_data, body_data, face_path
                 )
 
                 # Save detection to database
@@ -95,6 +120,49 @@ class DetectionStage(BaseStage):
         except Exception as e:
             logger.error(f"Detection failed for {file_path}: {e}")
             return False
+        finally:
+            if image:
+                image.close()
+
+    def _crop_and_save_face(
+        self,
+        image: Image.Image,
+        face_data: dict,
+        photo_id: int,
+        face_index: int,
+    ) -> str | None:
+        """Crop face from image and save as WebP. Returns the face path or None on failure."""
+        try:
+            bbox = face_data["bbox"]
+            x1, y1, x2, y2 = int(bbox["x1"]), int(bbox["y1"]), int(bbox["x2"]), int(bbox["y2"])
+
+            # Ensure coordinates are within image bounds
+            x1 = max(0, x1)
+            y1 = max(0, y1)
+            x2 = min(image.width, x2)
+            y2 = min(image.height, y2)
+
+            # Skip if crop is invalid
+            if x2 <= x1 or y2 <= y1:
+                logger.warning(f"Invalid face bbox for photo {photo_id}: {bbox}")
+                return None
+
+            # Crop the face
+            face_crop = image.crop((x1, y1, x2, y2))
+
+            # Generate output filename: {photo_id}_{face_index}.webp
+            output_filename = f"{photo_id}_{face_index}.webp"
+            output_path = self.faces_output_dir / output_filename
+
+            # Save as WebP
+            face_crop.save(output_path, "WEBP", quality=FACE_WEBP_QUALITY)
+
+            # Return the full path as stored in DB
+            return str(output_path)
+
+        except Exception as e:
+            logger.error(f"Failed to crop face for photo {photo_id}: {e}")
+            return None
 
     def _create_detection_record(
         self,
@@ -102,6 +170,7 @@ class DetectionStage(BaseStage):
         collection_id: int,
         face_data: dict | None,
         body_data: dict | None,
+        face_path: str | None = None,
     ) -> PersonDetection:
         """Create a PersonDetection record from detector output."""
         # Extract face bounding box if present
@@ -142,6 +211,7 @@ class DetectionStage(BaseStage):
             face_bbox_width=face_bbox_width,
             face_bbox_height=face_bbox_height,
             face_confidence=face_confidence,
+            face_path=face_path,
             body_bbox_x=body_bbox_x,
             body_bbox_y=body_bbox_y,
             body_bbox_width=body_bbox_width,

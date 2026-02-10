@@ -51,7 +51,8 @@ export default function ClusterWallView({ loaderData }: Route.ComponentProps) {
   const tiles: WallTile[] = useMemo(
     () =>
       faces.map((face) => {
-        const imageUrl = face.photo_id ? `/api/image/${face.photo_id}` : null;
+        // Use direct face image URL (pre-extracted face crops)
+        const imageUrl = face.face_path ? `/api/face/${face.id}` : null;
 
         return {
           id: face.id,
@@ -61,19 +62,8 @@ export default function ClusterWallView({ loaderData }: Route.ComponentProps) {
           metadata: {
             subtitle: `Face #${face.id}`,
             count: 1,
-            // Pass bbox data for face cropping (rectangular tiles)
-            bbox:
-              face.bbox_x !== null
-                ? {
-                    x: face.bbox_x,
-                    y: face.bbox_y,
-                    width: face.bbox_width,
-                    height: face.bbox_height,
-                    imageWidth: face.med_width,
-                    imageHeight: face.med_height,
-                  }
-                : undefined,
-            // Set isCircular: true to use circular tiles instead
+            // Use circular tiles for face display
+            isCircular: true,
           },
         };
       }),

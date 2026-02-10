@@ -28,7 +28,6 @@ import { useInfiniteScroll } from "~/hooks/use-infinite-scroll";
 import { requireCollectionId } from "~/lib/auth.server";
 import { dataWithViewMode } from "~/lib/cookies.server";
 import { getClustersGroupedByPerson, getClustersGroupedCount, getHiddenClustersCount } from "~/lib/db.server";
-import { getFaceCropStyle } from "~/lib/face-crop";
 import type { Route } from "./+types/clusters.grid";
 
 export function meta() {
@@ -458,27 +457,14 @@ export default function ClustersView({ loaderData }: Route.ComponentProps) {
                               >
                                 <CardContent className="p-4">
                                   <div className="text-center space-y-3">
-                                    {item.photo_id &&
-                                    item.bbox_x !== null &&
-                                    item.med_width &&
-                                    item.med_height ? (
-                                      <div className="relative w-32 h-32 mx-auto bg-gray-100 rounded-lg border overflow-hidden">
+                                    {item.detection_id ? (
+                                      <div className="w-32 h-32 mx-auto bg-gray-100 rounded-lg border overflow-hidden">
                                         <img
-                                          src={`/api/image/${item.photo_id}`}
+                                          src={`/api/face/${item.detection_id}`}
                                           alt={
                                             isPerson ? item.person_name || `Person ${item.id}` : `Cluster ${item.id}`
                                           }
-                                          className="absolute max-w-none max-h-none"
-                                          style={getFaceCropStyle(
-                                            {
-                                              bbox_x: item.bbox_x,
-                                              bbox_y: item.bbox_y,
-                                              bbox_width: item.bbox_width,
-                                              bbox_height: item.bbox_height,
-                                            },
-                                            item.med_width,
-                                            item.med_height,
-                                          )}
+                                          className="w-full h-full object-cover"
                                           loading="lazy"
                                         />
                                       </div>

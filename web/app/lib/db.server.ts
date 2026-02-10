@@ -423,8 +423,7 @@ export async function getAllUsers(): Promise<UserListItem[]> {
 export async function getClusters(collectionId: number, limit = 50, offset = 0) {
   const query = `
     SELECT c.id, c.face_count, c.representative_detection_id,
-           pd.face_bbox_x as bbox_x, pd.face_bbox_y as bbox_y,
-           pd.face_bbox_width as bbox_width, pd.face_bbox_height as bbox_height,
+           pd.face_path,
            p.id as photo_id, p.med_path, p.orig_path,
            p.med_width, p.med_height,
            TRIM(CONCAT(per.first_name, ' ', COALESCE(per.last_name, ''))) as person_name
@@ -519,16 +518,10 @@ export async function getClustersGroupedByPerson(collectionId: number, limit = 5
     )
     SELECT
       combined.*,
-      pd.face_bbox_x as bbox_x,
-      pd.face_bbox_y as bbox_y,
-      pd.face_bbox_width as bbox_width,
-      pd.face_bbox_height as bbox_height,
-      p.id as photo_id,
-      p.med_width,
-      p.med_height
+      pd.face_path,
+      pd.id as detection_id
     FROM combined
     LEFT JOIN person_detection pd ON combined.representative_detection_id = pd.id
-    LEFT JOIN photo p ON pd.photo_id = p.id
     ORDER BY combined.face_count DESC, combined.id
     LIMIT $2 OFFSET $3
   `;
@@ -570,14 +563,10 @@ export async function getClustersGroupedCount(collectionId: number) {
 export async function getHiddenClusters(collectionId: number, limit = 50, offset = 0) {
   const query = `
     SELECT c.id, c.face_count, c.representative_detection_id,
-           pd.face_bbox_x as bbox_x, pd.face_bbox_y as bbox_y,
-           pd.face_bbox_width as bbox_width, pd.face_bbox_height as bbox_height,
-           p.id as photo_id, p.med_path, p.orig_path,
-           p.med_width, p.med_height,
+           pd.face_path, pd.id as detection_id,
            TRIM(CONCAT(per.first_name, ' ', COALESCE(per.last_name, ''))) as person_name
     FROM cluster c
     LEFT JOIN person_detection pd ON c.representative_detection_id = pd.id
-    LEFT JOIN photo p ON pd.photo_id = p.id
     LEFT JOIN person per ON c.person_id = per.id
     WHERE c.face_count > 0 AND c.hidden = true
       AND c.collection_id = $1
@@ -609,15 +598,11 @@ export async function getNamedClusters(collectionId: number, limit = 50, offset 
 
   const query = `
     SELECT c.id, c.face_count, c.representative_detection_id,
-           pd.face_bbox_x as bbox_x, pd.face_bbox_y as bbox_y,
-           pd.face_bbox_width as bbox_width, pd.face_bbox_height as bbox_height,
-           p.id as photo_id, p.med_path, p.orig_path,
-           p.med_width, p.med_height,
+           pd.face_path, pd.id as detection_id,
            TRIM(CONCAT(per.first_name, ' ', COALESCE(per.last_name, ''))) as person_name
     FROM cluster c
     INNER JOIN person per ON c.person_id = per.id
     LEFT JOIN person_detection pd ON c.representative_detection_id = pd.id
-    LEFT JOIN photo p ON pd.photo_id = p.id
     WHERE c.face_count > 0 AND (c.hidden = false OR c.hidden IS NULL)
       AND c.collection_id = $1
     ORDER BY ${orderBy}
@@ -680,19 +665,11 @@ export async function getPeople(collectionId: number, limit = 50, offset = 0, so
       ps.cluster_count,
       -- Use person's representative if set, otherwise use fallback from largest cluster
       COALESCE(per.representative_detection_id, ps.fallback_representative_detection_id) as representative_detection_id,
-      pd.face_bbox_x as bbox_x,
-      pd.face_bbox_y as bbox_y,
-      pd.face_bbox_width as bbox_width,
-      pd.face_bbox_height as bbox_height,
-      p.id as photo_id,
-      p.med_path,
-      p.orig_path,
-      p.med_width,
-      p.med_height
+      pd.face_path,
+      pd.id as detection_id
     FROM person per
     INNER JOIN person_stats ps ON per.id = ps.person_id
     LEFT JOIN person_detection pd ON COALESCE(per.representative_detection_id, ps.fallback_representative_detection_id) = pd.id
-    LEFT JOIN photo p ON pd.photo_id = p.id
     WHERE per.collection_id = $1
     ORDER BY ${orderBy}
     LIMIT $2 OFFSET $3
@@ -753,17 +730,11 @@ export async function getPersonById(collectionId: number, personId: string) {
       COALESCE(ps.total_face_count, 0)::integer as total_face_count,
       COALESCE(ps.cluster_count, 0)::integer as cluster_count,
       COALESCE(per.representative_detection_id, ps.fallback_representative_detection_id) as representative_detection_id,
-      pd.face_bbox_x as bbox_x,
-      pd.face_bbox_y as bbox_y,
-      pd.face_bbox_width as bbox_width,
-      pd.face_bbox_height as bbox_height,
-      p.id as photo_id,
-      p.med_width,
-      p.med_height
+      pd.face_path,
+      pd.id as detection_id
     FROM person per
     LEFT JOIN person_stats ps ON per.id = ps.person_id
     LEFT JOIN person_detection pd ON COALESCE(per.representative_detection_id, ps.fallback_representative_detection_id) = pd.id
-    LEFT JOIN photo p ON pd.photo_id = p.id
     WHERE per.id = $1 AND per.collection_id = $2
   `;
 
@@ -777,13 +748,9 @@ export async function getPersonById(collectionId: number, personId: string) {
 export async function getClustersByPerson(collectionId: number, personId: string) {
   const query = `
     SELECT c.id, c.face_count::integer as face_count, c.representative_detection_id, c.hidden, c.verified,
-           pd.face_bbox_x as bbox_x, pd.face_bbox_y as bbox_y,
-           pd.face_bbox_width as bbox_width, pd.face_bbox_height as bbox_height,
-           p.id as photo_id, p.med_path, p.orig_path,
-           p.med_width, p.med_height
+           pd.face_path, pd.id as detection_id
     FROM cluster c
     LEFT JOIN person_detection pd ON c.representative_detection_id = pd.id
-    LEFT JOIN photo p ON pd.photo_id = p.id
     WHERE c.person_id = $1 AND c.collection_id = $2 AND c.face_count > 0
     ORDER BY c.face_count DESC, c.id
   `;
@@ -1016,14 +983,11 @@ export async function getClusterDetails(collectionId: number, clusterId: string)
            per.gender as person_gender, per.gender_confidence as person_gender_confidence,
            per.estimated_birth_year, per.birth_year_stddev,
            TRIM(CONCAT(per.first_name, ' ', COALESCE(per.last_name, ''))) as person_name,
-           rep.face_bbox_x as rep_bbox_x, rep.face_bbox_y as rep_bbox_y,
-           rep.face_bbox_width as rep_bbox_width, rep.face_bbox_height as rep_bbox_height,
-           rep.photo_id as rep_photo_id,
-           p.med_width as rep_med_width, p.med_height as rep_med_height
+           rep.face_path as rep_face_path,
+           rep.id as rep_detection_id
     FROM cluster c
     LEFT JOIN person per ON c.person_id = per.id
     LEFT JOIN person_detection rep ON c.representative_detection_id = rep.id
-    LEFT JOIN photo p ON rep.photo_id = p.id
     WHERE c.id = $1 AND c.collection_id = $2
   `;
 
@@ -1033,11 +997,12 @@ export async function getClusterDetails(collectionId: number, clusterId: string)
 
 export async function getClusterFaces(collectionId: number, clusterId: string, limit = 24, offset = 0) {
   const query = `
-    SELECT pd.id, pd.face_bbox_x as bbox_x, pd.face_bbox_y as bbox_y,
+    SELECT pd.id, pd.face_path,
+           pd.face_bbox_x as bbox_x, pd.face_bbox_y as bbox_y,
            pd.face_bbox_width as bbox_width, pd.face_bbox_height as bbox_height,
            pd.cluster_confidence, pd.photo_id,
            pd.age_estimate, pd.gender, pd.gender_confidence,
-           p.med_path, p.orig_path, p.med_width, p.med_height
+           p.med_width, p.med_height
     FROM person_detection pd
     JOIN photo p ON pd.photo_id = p.id
     WHERE pd.cluster_id = $1 AND pd.collection_id = $2
@@ -1262,13 +1227,10 @@ export async function searchClusters(collectionId: number, query: string, exclud
   // Search by cluster ID or person name
   const searchQuery = `
     SELECT c.id, c.face_count, c.representative_detection_id,
-           pd.face_bbox_x as bbox_x, pd.face_bbox_y as bbox_y,
-           pd.face_bbox_width as bbox_width, pd.face_bbox_height as bbox_height,
-           p.id as photo_id, p.med_width, p.med_height,
+           pd.face_path, pd.id as detection_id,
            TRIM(CONCAT(per.first_name, ' ', COALESCE(per.last_name, ''))) as person_name
     FROM cluster c
     LEFT JOIN person_detection pd ON c.representative_detection_id = pd.id
-    LEFT JOIN photo p ON pd.photo_id = p.id
     LEFT JOIN person per ON c.person_id = per.id
     WHERE c.face_count > 0
       AND (c.hidden = false OR c.hidden IS NULL)
@@ -1562,11 +1524,12 @@ export async function addFacesToCluster(collectionId: number, clusterId: string,
 
 export async function getFaceDetails(collectionId: number, detectionId: number) {
   const query = `
-    SELECT pd.id, pd.face_bbox_x as bbox_x, pd.face_bbox_y as bbox_y,
+    SELECT pd.id, pd.face_path,
+           pd.face_bbox_x as bbox_x, pd.face_bbox_y as bbox_y,
            pd.face_bbox_width as bbox_width, pd.face_bbox_height as bbox_height,
            pd.face_confidence as confidence, pd.cluster_id, pd.cluster_status,
            pd.age_estimate, pd.gender, pd.gender_confidence,
-           pd.photo_id, p.med_path, p.med_width, p.med_height,
+           pd.photo_id, p.med_width, p.med_height,
            TRIM(CONCAT(per.first_name, ' ', COALESCE(per.last_name, ''))) as person_name
     FROM person_detection pd
     JOIN photo p ON pd.photo_id = p.id
@@ -1680,11 +1643,11 @@ export async function getSimilarFaces(
       SELECT photo_id FROM person_detection WHERE id = $1 AND collection_id = $5
     ),
     candidates AS (
-      SELECT pd.id, pd.face_bbox_x as bbox_x, pd.face_bbox_y as bbox_y,
-             pd.face_bbox_width as bbox_width, pd.face_bbox_height as bbox_height,
+      SELECT pd.id, pd.face_path,
+             pd.face_bbox_x, pd.face_bbox_y, pd.face_bbox_width, pd.face_bbox_height,
              pd.face_confidence as confidence, pd.cluster_id, pd.cluster_status, pd.cluster_confidence,
              pd.age_estimate, pd.gender, pd.gender_confidence,
-             p.id as photo_id, p.med_path, p.med_width, p.med_height,
+             p.id as photo_id, p.med_width, p.med_height,
              c.face_count as cluster_face_count,
              TRIM(CONCAT(per.first_name, ' ', COALESCE(per.last_name, ''))) as person_name,
              fe.embedding <=> te.embedding as distance
@@ -1701,10 +1664,12 @@ export async function getSimilarFaces(
       ORDER BY fe.embedding <=> te.embedding ASC
       LIMIT $3
     )
-    SELECT id, bbox_x, bbox_y, bbox_width, bbox_height, confidence,
+    SELECT id, face_path,
+           face_bbox_x, face_bbox_y, face_bbox_width, face_bbox_height,
+           confidence,
            cluster_id, cluster_status, cluster_confidence,
            age_estimate, gender, gender_confidence,
-           photo_id, med_path, med_width, med_height,
+           photo_id, med_width, med_height,
            cluster_face_count, person_name,
            1 - distance as similarity
     FROM candidates
@@ -2015,14 +1980,8 @@ export type UserCollection = {
   photo_count: number;
   person_id: number | null;
   person_name: string | null;
-  avatar_photo_id: number | null;
   avatar_detection_id: number | null;
-  avatar_bbox_x: number | null;
-  avatar_bbox_y: number | null;
-  avatar_bbox_width: number | null;
-  avatar_bbox_height: number | null;
-  avatar_med_width: number | null;
-  avatar_med_height: number | null;
+  avatar_face_path: string | null;
 };
 
 /**
@@ -2040,14 +1999,8 @@ export async function getUserCollections(userId: number): Promise<UserCollection
         THEN TRIM(CONCAT(per.first_name, ' ', COALESCE(per.last_name, '')))
         ELSE NULL
       END as person_name,
-      p.id as avatar_photo_id,
       pd.id as avatar_detection_id,
-      pd.face_bbox_x as avatar_bbox_x,
-      pd.face_bbox_y as avatar_bbox_y,
-      pd.face_bbox_width as avatar_bbox_width,
-      pd.face_bbox_height as avatar_bbox_height,
-      p.med_width as avatar_med_width,
-      p.med_height as avatar_med_height
+      pd.face_path as avatar_face_path
     FROM collection_member cm
     JOIN collection c ON cm.collection_id = c.id
     LEFT JOIN person per ON cm.person_id = per.id
@@ -2066,7 +2019,6 @@ export async function getUserCollections(userId: number): Promise<UserCollection
       LIMIT 1
     ) rep ON per.id IS NOT NULL
     LEFT JOIN person_detection pd ON pd.id = rep.representative_detection_id
-    LEFT JOIN photo p ON pd.photo_id = p.id
     WHERE cm.user_id = $1
     ORDER BY c.name
   `;
@@ -2080,14 +2032,8 @@ export type CollectionMemberInfo = {
   collection_name: string;
   person_id: number | null;
   person_name: string | null;
-  avatar_photo_id: number | null;
   avatar_detection_id: number | null;
-  avatar_bbox_x: number | null;
-  avatar_bbox_y: number | null;
-  avatar_bbox_width: number | null;
-  avatar_bbox_height: number | null;
-  avatar_med_width: number | null;
-  avatar_med_height: number | null;
+  avatar_face_path: string | null;
 };
 
 /**
@@ -2108,14 +2054,8 @@ export async function getCollectionMemberInfo(
         THEN TRIM(CONCAT(per.first_name, ' ', COALESCE(per.last_name, '')))
         ELSE NULL
       END as person_name,
-      p.id as avatar_photo_id,
       pd.id as avatar_detection_id,
-      pd.face_bbox_x as avatar_bbox_x,
-      pd.face_bbox_y as avatar_bbox_y,
-      pd.face_bbox_width as avatar_bbox_width,
-      pd.face_bbox_height as avatar_bbox_height,
-      p.med_width as avatar_med_width,
-      p.med_height as avatar_med_height
+      pd.face_path as avatar_face_path
     FROM collection_member cm
     JOIN collection c ON cm.collection_id = c.id
     LEFT JOIN person per ON cm.person_id = per.id
@@ -2129,7 +2069,6 @@ export async function getCollectionMemberInfo(
       LIMIT 1
     ) rep ON per.id IS NOT NULL
     LEFT JOIN person_detection pd ON pd.id = rep.representative_detection_id
-    LEFT JOIN photo p ON pd.photo_id = p.id
     WHERE cm.user_id = $1 AND cm.collection_id = $2
   `;
 
@@ -2142,14 +2081,27 @@ export async function getCollectionMemberInfo(
  */
 export async function updateUserDefaultCollection(userId: number, collectionId: number): Promise<void> {
   // Verify user is member of this collection
-  const memberCheck = await pool.query(
-    "SELECT 1 FROM collection_member WHERE user_id = $1 AND collection_id = $2",
-    [userId, collectionId],
-  );
+  const memberCheck = await pool.query("SELECT 1 FROM collection_member WHERE user_id = $1 AND collection_id = $2", [
+    userId,
+    collectionId,
+  ]);
 
   if (memberCheck.rows.length === 0) {
     throw new Error("User is not a member of this collection");
   }
 
   await pool.query("UPDATE app_user SET default_collection_id = $1 WHERE id = $2", [collectionId, userId]);
+}
+
+/**
+ * Get face_path for a detection (used by face image API).
+ */
+export async function getDetectionFacePath(collectionId: number, detectionId: number): Promise<string | null> {
+  const query = `
+    SELECT pd.face_path
+    FROM person_detection pd
+    WHERE pd.id = $1 AND pd.collection_id = $2
+  `;
+  const result = await pool.query(query, [detectionId, collectionId]);
+  return result.rows[0]?.face_path || null;
 }

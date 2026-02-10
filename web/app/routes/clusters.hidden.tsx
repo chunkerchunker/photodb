@@ -66,33 +66,6 @@ export async function loader({ request }: Route.LoaderArgs) {
   }
 }
 
-function getFaceCropStyle(
-  bbox: {
-    bbox_x: number;
-    bbox_y: number;
-    bbox_width: number;
-    bbox_height: number;
-  },
-  imageWidth: number,
-  imageHeight: number,
-) {
-  const containerSize = 128;
-  const scaleX = containerSize / bbox.bbox_width;
-  const scaleY = containerSize / bbox.bbox_height;
-
-  const left = -bbox.bbox_x * scaleX;
-  const top = -bbox.bbox_y * scaleY;
-  const width = imageWidth * scaleX;
-  const height = imageHeight * scaleY;
-
-  return {
-    transform: `translate(${left}px, ${top}px)`,
-    transformOrigin: "0 0",
-    width: `${width}px`,
-    height: `${height}px`,
-  };
-}
-
 type Cluster = Route.ComponentProps["loaderData"]["clusters"][number];
 
 export default function HiddenClustersView({ loaderData }: Route.ComponentProps) {
@@ -186,25 +159,12 @@ export default function HiddenClustersView({ loaderData }: Route.ComponentProps)
                   <CardContent className="p-4">
                     <div className="text-center space-y-3">
                       <Link to={`/cluster/${cluster.id}`}>
-                        {cluster.photo_id &&
-                        cluster.bbox_x !== null &&
-                        cluster.med_width &&
-                        cluster.med_height ? (
-                          <div className="relative w-32 h-32 mx-auto bg-gray-100 rounded-lg border overflow-hidden opacity-60 hover:opacity-100 transition-opacity">
+                        {cluster.detection_id ? (
+                          <div className="w-32 h-32 mx-auto bg-gray-100 rounded-lg border overflow-hidden opacity-60 hover:opacity-100 transition-opacity">
                             <img
-                              src={`/api/image/${cluster.photo_id}`}
+                              src={`/api/face/${cluster.detection_id}`}
                               alt={`Cluster ${cluster.id}`}
-                              className="absolute max-w-none max-h-none"
-                              style={getFaceCropStyle(
-                                {
-                                  bbox_x: cluster.bbox_x,
-                                  bbox_y: cluster.bbox_y,
-                                  bbox_width: cluster.bbox_width,
-                                  bbox_height: cluster.bbox_height,
-                                },
-                                cluster.med_width,
-                                cluster.med_height,
-                              )}
+                              className="w-full h-full object-cover"
                               loading="lazy"
                             />
                           </div>

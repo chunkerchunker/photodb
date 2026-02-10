@@ -53,13 +53,15 @@ export function meta({ params }: Route.MetaArgs) {
 
 interface SimilarFace {
   id: string;
-  bbox_x: number;
-  bbox_y: number;
-  bbox_width: number;
-  bbox_height: number;
+  face_path?: string;
   photo_id: string;
-  med_width: number;
-  med_height: number;
+  // Bounding box for zoom preview (in medium image coordinates)
+  face_bbox_x?: number;
+  face_bbox_y?: number;
+  face_bbox_width?: number;
+  face_bbox_height?: number;
+  med_width?: number;
+  med_height?: number;
   cluster_id?: string;
   cluster_face_count?: number;
   person_name?: string;
@@ -74,40 +76,7 @@ interface SearchCluster {
   id: string;
   face_count: number;
   person_name?: string;
-  photo_id?: string;
-  bbox_x?: number;
-  bbox_y?: number;
-  bbox_width?: number;
-  bbox_height?: number;
-  med_width?: number;
-  med_height?: number;
-}
-
-function getFaceCropStyle(
-  bbox: {
-    bbox_x: number;
-    bbox_y: number;
-    bbox_width: number;
-    bbox_height: number;
-  },
-  imageWidth: number,
-  imageHeight: number,
-  containerSize = 128,
-) {
-  const scaleX = containerSize / bbox.bbox_width;
-  const scaleY = containerSize / bbox.bbox_height;
-
-  const left = -bbox.bbox_x * scaleX;
-  const top = -bbox.bbox_y * scaleY;
-  const width = imageWidth * scaleX;
-  const height = imageHeight * scaleY;
-
-  return {
-    transform: `translate(${left}px, ${top}px)`,
-    transformOrigin: "0 0",
-    width: `${width}px`,
-    height: `${height}px`,
-  };
+  detection_id?: number;
 }
 
 // Memoized face card to prevent re-renders when other faces' selection changes
@@ -115,23 +84,29 @@ const SimilarFaceCard = memo(function SimilarFaceCard({
   face,
   isSelected,
   isClustered,
-  isPreviewVisible,
   onToggleSelection,
-  onZoomEnter,
-  onZoomLeave,
   onUnlinkFace,
 }: {
   face: SimilarFace;
   isSelected: boolean;
   isClustered: boolean;
-  isPreviewVisible: boolean;
   onToggleSelection: (faceId: number) => void;
-  onZoomEnter: (faceId: number) => void;
-  onZoomLeave: () => void;
   onUnlinkFace: (faceId: string) => void;
 }) {
   const faceIdNum = parseInt(face.id, 10);
   const navigate = useNavigate();
+  const [showZoomPreview, setShowZoomPreview] = useState(false);
+  const [cardRect, setCardRect] = useState<DOMRect | null>(null);
+  const cardRef = useRef<HTMLDivElement>(null);
+
+  // Check if we have bbox data for zoom preview
+  const hasBbox =
+    face.face_bbox_x !== undefined &&
+    face.face_bbox_y !== undefined &&
+    face.face_bbox_width !== undefined &&
+    face.face_bbox_height !== undefined &&
+    face.med_width &&
+    face.med_height;
 
   return (
     <ContextMenu>
@@ -153,62 +128,79 @@ const SimilarFaceCard = memo(function SimilarFaceCard({
               </div>
             )}
             <div className="text-center space-y-1">
-              <div className="relative w-28 h-28 mx-auto">
-                <div className="group relative w-full h-full bg-gray-100 rounded-lg border overflow-hidden">
-                  <Link to={`/photo/${face.photo_id}`} onClick={(e) => e.stopPropagation()} className="cursor-pointer">
+              <div ref={cardRef} className="w-28 h-28 mx-auto relative group">
+                <Link to={`/photo/${face.photo_id}`} onClick={(e) => e.stopPropagation()} className="cursor-pointer">
+                  <div className="w-full h-full bg-gray-100 rounded-lg border overflow-hidden">
                     <img
-                      src={`/api/image/${face.photo_id}`}
+                      src={`/api/face/${face.id}`}
                       alt={`Similar face ${face.id}`}
-                      className="absolute max-w-none max-h-none"
-                      style={getFaceCropStyle(
-                        {
-                          bbox_x: face.bbox_x,
-                          bbox_y: face.bbox_y,
-                          bbox_width: face.bbox_width,
-                          bbox_height: face.bbox_height,
-                        },
-                        face.med_width,
-                        face.med_height,
-                        112,
-                      )}
+                      className="w-full h-full object-cover"
                       loading="lazy"
                     />
-                  </Link>
-                  {/* Zoom icon */}
-                  <div
-                    className="absolute top-1 right-1 z-10 w-5 h-5 bg-black/50 text-white rounded flex items-center justify-center cursor-zoom-in opacity-0 group-hover:opacity-100 transition-opacity duration-200"
-                    onMouseEnter={() => onZoomEnter(faceIdNum)}
-                    onMouseLeave={onZoomLeave}
+                  </div>
+                </Link>
+                {/* Zoom preview button - top right */}
+                {hasBbox && (
+                  <button
+                    type="button"
+                    className="absolute top-1 right-1 p-1 bg-black/50 rounded text-white opacity-0 group-hover:opacity-100 transition-opacity hover:bg-black/70 z-10"
                     onClick={(e) => e.stopPropagation()}
+                    onMouseEnter={() => {
+                      if (cardRef.current) {
+                        setCardRect(cardRef.current.getBoundingClientRect());
+                      }
+                      setShowZoomPreview(true);
+                    }}
+                    onMouseLeave={() => setShowZoomPreview(false)}
                   >
                     <ZoomIn className="h-3 w-3" />
-                  </div>
-                </div>
-                {/* Preview overlay - shows full image with face aligned over card */}
-                {isPreviewVisible &&
+                  </button>
+                )}
+                {/* Preview overlay - rendered in fixed viewport container */}
+                {showZoomPreview &&
+                  hasBbox &&
+                  cardRect &&
                   (() => {
                     const thumbSize = 112;
-                    const faceScale = thumbSize / face.bbox_width;
-                    const scaledW = face.med_width * faceScale;
-                    const scaledH = face.med_height * faceScale;
-                    const imgLeft = -face.bbox_x * faceScale;
-                    const imgTop = -face.bbox_y * faceScale;
-                    const originX = -imgLeft + thumbSize / 2;
-                    const originY = -imgTop + thumbSize / 2;
+
+                    // Detection runs on medium image, so bbox is in medium coords
+                    // Face crop has dimensions bbox_width x bbox_height (medium pixels)
+                    // Scale to match object-cover on the thumbnail
+                    const faceScale = Math.max(
+                      thumbSize / face.face_bbox_width!,
+                      thumbSize / face.face_bbox_height!,
+                    );
+
+                    // Scaled face dimensions (matches thumbnail's object-cover)
+                    const scaledFaceW = face.face_bbox_width! * faceScale;
+                    const scaledFaceH = face.face_bbox_height! * faceScale;
+
+                    // Centering offset (matches object-cover centering)
+                    const centerOffsetX = (thumbSize - scaledFaceW) / 2;
+                    const centerOffsetY = (thumbSize - scaledFaceH) / 2;
+
+                    // Medium image dimensions after scaling
+                    const scaledW = face.med_width! * faceScale;
+                    const scaledH = face.med_height! * faceScale;
+
+                    // Position relative to card's screen position
+                    const imgLeft = cardRect.left + (-face.face_bbox_x! * faceScale + centerOffsetX);
+                    const imgTop = cardRect.top + (-face.face_bbox_y! * faceScale + centerOffsetY);
 
                     return (
-                      <img
-                        src={`/api/image/${face.photo_id}`}
-                        alt={`Face ${face.id} preview`}
-                        className="absolute z-50 max-w-none max-h-none pointer-events-none rounded-xl shadow-2xl animate-in fade-in zoom-in-95 duration-150"
-                        style={{
-                          width: `${scaledW}px`,
-                          height: `${scaledH}px`,
-                          left: `${imgLeft}px`,
-                          top: `${imgTop}px`,
-                          transformOrigin: `${originX}px ${originY}px`,
-                        }}
-                      />
+                      <div className="fixed inset-0 overflow-hidden pointer-events-none z-50">
+                        <img
+                          src={`/api/image/${face.photo_id}`}
+                          alt={`Face ${face.id} preview`}
+                          className="absolute max-w-none max-h-none rounded-xl shadow-2xl"
+                          style={{
+                            width: `${scaledW}px`,
+                            height: `${scaledH}px`,
+                            left: `${imgLeft}px`,
+                            top: `${imgTop}px`,
+                          }}
+                        />
+                      </div>
                     );
                   })()}
               </div>
@@ -364,27 +356,11 @@ export default function SimilarFacesPage({ loaderData }: Route.ComponentProps) {
   const [isSearching, setIsSearching] = useState(false);
   const [sliderValue, setSliderValue] = useState(threshold);
   const [hideClustered, setHideClustered] = useState(false);
-  const [previewFaceId, setPreviewFaceId] = useState<number | null>(null);
-  const previewTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   const fetcher = useFetcher();
   const navigate = useNavigate();
 
   // Memoized Set for O(1) selection lookup
   const selectedFacesSet = useMemo(() => new Set(selectedFaces), [selectedFaces]);
-
-  const handleZoomMouseEnter = useCallback((faceId: number) => {
-    previewTimeoutRef.current = setTimeout(() => {
-      setPreviewFaceId(faceId);
-    }, 400);
-  }, []);
-
-  const handleZoomMouseLeave = useCallback(() => {
-    if (previewTimeoutRef.current) {
-      clearTimeout(previewTimeoutRef.current);
-      previewTimeoutRef.current = null;
-    }
-    setPreviewFaceId(null);
-  }, []);
 
   // Load hideClustered preference from localStorage
   useEffect(() => {
@@ -444,14 +420,8 @@ export default function SimilarFacesPage({ loaderData }: Route.ComponentProps) {
         name: string;
         clusterId: string;
         count: number;
-        // Thumbnail data from a representative face
-        photo_id?: string;
-        bbox_x?: number;
-        bbox_y?: number;
-        bbox_width?: number;
-        bbox_height?: number;
-        med_width?: number;
-        med_height?: number;
+        // Detection ID for face thumbnail
+        detectionId?: string;
       }
     >();
     for (const f of similarFaces) {
@@ -464,13 +434,7 @@ export default function SimilarFacesPage({ loaderData }: Route.ComponentProps) {
             name: f.person_name,
             clusterId: f.cluster_id,
             count: 1,
-            photo_id: f.photo_id,
-            bbox_x: f.bbox_x,
-            bbox_y: f.bbox_y,
-            bbox_width: f.bbox_width,
-            bbox_height: f.bbox_height,
-            med_width: f.med_width,
-            med_height: f.med_height,
+            detectionId: f.id,
           });
         }
       }
@@ -626,23 +590,12 @@ export default function SimilarFacesPage({ loaderData }: Route.ComponentProps) {
         <Card>
           <CardContent className="p-4">
             <div className="flex items-center space-x-4">
-              <div className="relative w-24 h-24 bg-gray-100 rounded-lg border overflow-hidden">
+              <div className="w-24 h-24 bg-gray-100 rounded-lg border overflow-hidden">
                 <Link to={`/photo/${face.photo_id}`}>
                   <img
-                    src={`/api/image/${face.photo_id}`}
+                    src={`/api/face/${face.id}`}
                     alt={`Source face ${face.id}`}
-                    className="absolute max-w-none max-h-none"
-                    style={getFaceCropStyle(
-                      {
-                        bbox_x: face.bbox_x,
-                        bbox_y: face.bbox_y,
-                        bbox_width: face.bbox_width,
-                        bbox_height: face.bbox_height,
-                      },
-                      face.med_width,
-                      face.med_height,
-                      96,
-                    )}
+                    className="w-full h-full object-cover"
                   />
                 </Link>
               </div>
@@ -667,9 +620,6 @@ export default function SimilarFacesPage({ loaderData }: Route.ComponentProps) {
                   <Link to={`/photo/${face.photo_id}`} className="text-blue-600 hover:underline">
                     Photo #{face.photo_id}
                   </Link>
-                </p>
-                <p className="text-xs text-gray-400">
-                  Face size: {Math.round(face.bbox_width)}×{Math.round(face.bbox_height)}px
                 </p>
                 {possibleMatches.length > 0 && (
                   <div className="flex items-center gap-2 pt-1">
@@ -787,23 +737,12 @@ export default function SimilarFacesPage({ loaderData }: Route.ComponentProps) {
                                         onClick={() => handleAddToCluster(match.clusterId)}
                                       >
                                         <div className="flex items-center space-x-3">
-                                          {match.photo_id && match.bbox_x !== undefined && match.med_width ? (
-                                            <div className="relative w-12 h-12 bg-gray-100 rounded border overflow-hidden flex-shrink-0">
+                                          {match.detectionId ? (
+                                            <div className="w-12 h-12 bg-gray-100 rounded border overflow-hidden flex-shrink-0">
                                               <img
-                                                src={`/api/image/${match.photo_id}`}
+                                                src={`/api/face/${match.detectionId}`}
                                                 alt={match.name}
-                                                className="absolute max-w-none max-h-none"
-                                                style={getFaceCropStyle(
-                                                  {
-                                                    bbox_x: match.bbox_x,
-                                                    bbox_y: match.bbox_y || 0,
-                                                    bbox_width: match.bbox_width || 0.1,
-                                                    bbox_height: match.bbox_height || 0.1,
-                                                  },
-                                                  match.med_width,
-                                                  match.med_height || match.med_width,
-                                                  48,
-                                                )}
+                                                className="w-full h-full object-cover"
                                               />
                                             </div>
                                           ) : (
@@ -843,23 +782,12 @@ export default function SimilarFacesPage({ loaderData }: Route.ComponentProps) {
                                         onClick={() => handleAddToCluster(result.id)}
                                       >
                                         <div className="flex items-center space-x-3">
-                                          {result.photo_id && result.bbox_x !== undefined && result.med_width ? (
-                                            <div className="relative w-12 h-12 bg-gray-100 rounded border overflow-hidden flex-shrink-0">
+                                          {result.detection_id ? (
+                                            <div className="w-12 h-12 bg-gray-100 rounded border overflow-hidden flex-shrink-0">
                                               <img
-                                                src={`/api/image/${result.photo_id}`}
+                                                src={`/api/face/${result.detection_id}`}
                                                 alt={`Cluster ${result.id}`}
-                                                className="absolute max-w-none max-h-none"
-                                                style={getFaceCropStyle(
-                                                  {
-                                                    bbox_x: result.bbox_x,
-                                                    bbox_y: result.bbox_y || 0,
-                                                    bbox_width: result.bbox_width || 0.1,
-                                                    bbox_height: result.bbox_height || 0.1,
-                                                  },
-                                                  result.med_width,
-                                                  result.med_height || result.med_width,
-                                                  48,
-                                                )}
+                                                className="w-full h-full object-cover"
                                               />
                                             </div>
                                           ) : (
@@ -921,10 +849,7 @@ export default function SimilarFacesPage({ loaderData }: Route.ComponentProps) {
                 face={similarFace}
                 isSelected={selectedFacesSet.has(parseInt(similarFace.id, 10))}
                 isClustered={!!similarFace.cluster_id}
-                isPreviewVisible={previewFaceId === parseInt(similarFace.id, 10)}
                 onToggleSelection={toggleFaceSelection}
-                onZoomEnter={handleZoomMouseEnter}
-                onZoomLeave={handleZoomMouseLeave}
                 onUnlinkFace={handleUnlinkFace}
               />
             ))}

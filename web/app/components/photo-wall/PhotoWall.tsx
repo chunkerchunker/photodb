@@ -4,7 +4,6 @@ import { useNavigate } from "react-router";
 import * as THREE from "three";
 import { createShadowMaterial, createTileMaterial } from "./shaders";
 import {
-  type BoundingBox,
   CAMERA_Z_DEFAULT,
   CAMERA_Z_MAX,
   CAMERA_Z_MIN,
@@ -89,11 +88,10 @@ function createLabelTexture(label: string, subtitle?: string): THREE.CanvasTextu
   return texture;
 }
 
-// Create a collage texture from multiple images with an optional label and bbox for face cropping
+// Create a collage texture from multiple images with an optional label
 async function createCollageTexture(
   imageUrls: string[],
   label?: string,
-  bbox?: BoundingBox,
   isCircular: boolean = false,
 ): Promise<HTMLCanvasElement> {
   const canvas = document.createElement("canvas");
@@ -125,99 +123,68 @@ async function createCollageTexture(
     .map((r) => (r as PromiseFulfilledResult<HTMLImageElement>).value);
 
   if (loadedImages.length > 0) {
-    // If bbox is provided, crop to the face region
-    if (bbox && loadedImages.length === 1) {
+    // For circular tiles with single image (face), fill the canvas
+    if (isCircular && loadedImages.length === 1) {
       const img = loadedImages[0];
 
-      // bbox coordinates are in pixels (relative to imageWidth/imageHeight)
-      // We need to scale them to the actual loaded image dimensions
-      const scaleX = img.width / bbox.imageWidth;
-      const scaleY = img.height / bbox.imageHeight;
+      // Draw image with cover fit
+      const imgAspect = img.width / img.height;
+      const canvasAspect = canvas.width / canvas.height;
+      let sx = 0,
+        sy = 0,
+        sw = img.width,
+        sh = img.height;
 
-      // Add padding around the face (20% on each side for context)
-      const padding = 0.2;
-
-      // For circular tiles, make the crop square; for rectangular, use bbox aspect with padding
-      const paddedWidth = bbox.width * (1 + padding * 2);
-      const paddedHeight = bbox.height * (1 + padding * 2);
-
-      // Center the crop on the face center
-      const faceCenterX = bbox.x + bbox.width / 2;
-      const faceCenterY = bbox.y + bbox.height / 2;
-      const paddedX = faceCenterX - paddedWidth / 2;
-      const paddedY = faceCenterY - paddedHeight / 2;
-
-      // Convert to actual image pixel coordinates
-      const sx = Math.max(0, paddedX * scaleX);
-      const sy = Math.max(0, paddedY * scaleY);
-      const sw = Math.min(paddedWidth * scaleX, img.width - sx);
-      const sh = Math.min(paddedHeight * scaleY, img.height - sy);
-
-      // Draw to fill the canvas (cover fit)
-      const srcAspect = sw / sh;
-      const destAspect = canvas.width / canvas.height;
-      let drawX = 0,
-        drawY = 0,
-        drawW = canvas.width,
-        drawH = canvas.height;
-
-      if (srcAspect > destAspect) {
-        // Source is wider - fit to height, center horizontally
-        drawW = canvas.height * srcAspect;
-        drawX = (canvas.width - drawW) / 2;
-      } else if (srcAspect < destAspect) {
-        // Source is taller - fit to width, center vertically
-        drawH = canvas.width / srcAspect;
-        drawY = (canvas.height - drawH) / 2;
+      if (imgAspect > canvasAspect) {
+        sw = img.height * canvasAspect;
+        sx = (img.width - sw) / 2;
+      } else {
+        sh = img.width / canvasAspect;
+        sy = (img.height - sh) / 2;
       }
 
-      ctx.drawImage(img, sx, sy, sw, sh, drawX, drawY, drawW, drawH);
-
-      // For circular tiles, don't draw label - it will be rendered separately
-      if (isCircular) {
-        return canvas;
-      }
-      // For rectangular tiles with bbox, continue to draw the label below
-    } else {
-      // Standard collage behavior for multiple images or no bbox
-      const cols = loadedImages.length === 1 ? 1 : 2;
-      const rows = loadedImages.length <= 2 ? 1 : 2;
-      const cellWidth = canvas.width / cols;
-      const cellHeight = canvas.height / rows;
-      const gap = 2;
-
-      loadedImages.slice(0, 4).forEach((img, i) => {
-        const col = i % cols;
-        const row = Math.floor(i / cols);
-        const x = col * cellWidth + gap / 2;
-        const y = row * cellHeight + gap / 2;
-        const w = cellWidth - gap;
-        const h = cellHeight - gap;
-
-        // Draw image with cover fit
-        const imgAspect = img.width / img.height;
-        const cellAspect = w / h;
-
-        let sx = 0,
-          sy = 0,
-          sw = img.width,
-          sh = img.height;
-
-        if (imgAspect > cellAspect) {
-          sw = img.height * cellAspect;
-          sx = (img.width - sw) / 2;
-        } else {
-          sh = img.width / cellAspect;
-          sy = (img.height - sh) / 2;
-        }
-
-        ctx.drawImage(img, sx, sy, sw, sh, x, y, w, h);
-      });
+      ctx.drawImage(img, sx, sy, sw, sh, 0, 0, canvas.width, canvas.height);
+      return canvas;
     }
+
+    // Standard collage behavior for multiple images or non-circular tiles
+    const cols = loadedImages.length === 1 ? 1 : 2;
+    const rows = loadedImages.length <= 2 ? 1 : 2;
+    const cellWidth = canvas.width / cols;
+    const cellHeight = canvas.height / rows;
+    const gap = 2;
+
+    loadedImages.slice(0, 4).forEach((img, i) => {
+      const col = i % cols;
+      const row = Math.floor(i / cols);
+      const x = col * cellWidth + gap / 2;
+      const y = row * cellHeight + gap / 2;
+      const w = cellWidth - gap;
+      const h = cellHeight - gap;
+
+      // Draw image with cover fit
+      const imgAspect = img.width / img.height;
+      const cellAspect = w / h;
+
+      let sx = 0,
+        sy = 0,
+        sw = img.width,
+        sh = img.height;
+
+      if (imgAspect > cellAspect) {
+        sw = img.height * cellAspect;
+        sx = (img.width - sw) / 2;
+      } else {
+        sh = img.width / cellAspect;
+        sy = (img.height - sh) / 2;
+      }
+
+      ctx.drawImage(img, sx, sy, sw, sh, x, y, w, h);
+    });
   }
 
-  // Draw label if provided
-  if (label) {
+  // Draw label if provided (for non-circular tiles)
+  if (label && !isCircular) {
     const fontSize = canvas.height * 0.25;
     ctx.font = `bold ${fontSize}px system-ui, -apple-system, sans-serif`;
     ctx.textAlign = "right";
@@ -317,17 +284,11 @@ export function PhotoWall({ tiles, sessionKey, headerContent, onTileClick }: Pho
         // Mark as loading
         loadedTexturesRef.current.set(tileData.tile.id, null as unknown as THREE.Texture);
 
-        // For tiles with bbox (face cropping), don't include label in texture (it's rendered separately)
-        const hasBbox = !!tileData.tile.metadata?.bbox;
-        const labelForTexture = hasBbox ? undefined : tileData.tile.label;
+        // For circular tiles (faces), don't include label in texture (it's rendered separately)
+        const labelForTexture = tileData.isCircular ? undefined : tileData.tile.label;
 
-        // Create collage texture with optional bbox for face cropping
-        createCollageTexture(
-          tileData.tile.imageUrls,
-          labelForTexture,
-          tileData.tile.metadata?.bbox,
-          tileData.isCircular,
-        )
+        // Create collage texture
+        createCollageTexture(tileData.tile.imageUrls, labelForTexture, tileData.isCircular)
           .then((canvas) => {
             const texture = new THREE.CanvasTexture(canvas);
             loadedTexturesRef.current.set(tileData.tile.id, texture);
@@ -718,8 +679,6 @@ export function PhotoWall({ tiles, sessionKey, headerContent, onTileClick }: Pho
 
       // Check if this is a circular (face) tile - explicitly set via isCircular flag
       const isCircular = !!tile.metadata?.isCircular;
-      // Check if tile has bbox (face cropping) - labels will be outside
-      const hasBbox = !!tile.metadata?.bbox;
 
       // For circular tiles, use square dimensions
       const tileW = isCircular ? TILE_HEIGHT : TILE_WIDTH;
@@ -758,9 +717,9 @@ export function PhotoWall({ tiles, sessionKey, headerContent, onTileClick }: Pho
       reflectionMesh.userData = { isReflection: true };
       wallContainer.add(reflectionMesh);
 
-      // Create label mesh for tiles with bbox (face cropping) - label is outside the face
+      // Create label mesh for circular tiles (faces) - label is outside the face
       let labelMesh: THREE.Mesh | undefined;
-      if (hasBbox && (tile.label || tile.metadata?.subtitle)) {
+      if (isCircular && (tile.label || tile.metadata?.subtitle)) {
         const labelTexture = createLabelTexture(tile.label || "", tile.metadata?.subtitle);
         // Match canvas aspect ratio (512x80 = 6.4:1)
         const labelWidth = tileW * 1.4;

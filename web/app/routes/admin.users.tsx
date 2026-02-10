@@ -9,10 +9,7 @@ import { getAllUsers } from "~/lib/db.server";
 import type { Route } from "./+types/admin.users";
 
 export function meta() {
-  return [
-    { title: "Storyteller - Admin - Users" },
-    { name: "description", content: "Manage users" },
-  ];
+  return [{ title: "Storyteller - Admin - Users" }, { name: "description", content: "Manage users" }];
 }
 
 export async function loader({ request }: Route.LoaderArgs) {
@@ -27,10 +24,7 @@ export default function AdminUsersPage({ loaderData }: Route.ComponentProps) {
   const fetcher = useFetcher();
 
   const handleImpersonate = (userId: number) => {
-    fetcher.submit(
-      { userId: userId.toString() },
-      { method: "post", action: "/api/admin/impersonate" },
-    );
+    fetcher.submit({ userId: userId.toString() }, { method: "post", action: "/api/admin/impersonate" });
   };
 
   return (
@@ -50,9 +44,7 @@ export default function AdminUsersPage({ loaderData }: Route.ComponentProps) {
             <h1 className="text-3xl font-bold text-gray-900">User Management</h1>
           </div>
 
-          <p className="text-gray-600">
-            View all users and impersonate them to troubleshoot issues.
-          </p>
+          <p className="text-gray-600">View all users and impersonate them to troubleshoot issues.</p>
 
           {users.length > 0 ? (
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
@@ -66,9 +58,7 @@ export default function AdminUsersPage({ loaderData }: Route.ComponentProps) {
                       <div className="flex items-start justify-between">
                         <div className="flex-1 min-w-0">
                           <div className="flex items-center space-x-2">
-                            <h3 className="font-semibold text-gray-900 truncate">
-                              {fullName}
-                            </h3>
+                            <h3 className="font-semibold text-gray-900 truncate">{fullName}</h3>
                             {user.is_admin && (
                               <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-purple-100 text-purple-800">
                                 Admin

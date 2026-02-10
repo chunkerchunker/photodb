@@ -1,4 +1,13 @@
-import { isRouteErrorResponse, Links, Meta, Outlet, redirect, Scripts, ScrollRestoration, useLoaderData } from "react-router";
+import {
+  isRouteErrorResponse,
+  Links,
+  Meta,
+  Outlet,
+  redirect,
+  Scripts,
+  ScrollRestoration,
+  useLoaderData,
+} from "react-router";
 
 import type { Route } from "./+types/root";
 import "./app.css";
@@ -52,13 +61,7 @@ export async function loader({ request }: Route.LoaderArgs): Promise<RootLoaderD
   let userAvatar: UserAvatarInfo = {
     firstName: effectiveUser.first_name,
     lastName: effectiveUser.last_name,
-    avatarPhotoId: null,
-    avatarBboxX: null,
-    avatarBboxY: null,
-    avatarBboxWidth: null,
-    avatarBboxHeight: null,
-    avatarMedWidth: null,
-    avatarMedHeight: null,
+    avatarDetectionId: null,
   };
 
   if (effectiveUser.default_collection_id) {
@@ -67,13 +70,7 @@ export async function loader({ request }: Route.LoaderArgs): Promise<RootLoaderD
       userAvatar = {
         firstName: effectiveUser.first_name,
         lastName: effectiveUser.last_name,
-        avatarPhotoId: memberInfo.avatar_photo_id,
-        avatarBboxX: memberInfo.avatar_bbox_x,
-        avatarBboxY: memberInfo.avatar_bbox_y,
-        avatarBboxWidth: memberInfo.avatar_bbox_width,
-        avatarBboxHeight: memberInfo.avatar_bbox_height,
-        avatarMedWidth: memberInfo.avatar_med_width,
-        avatarMedHeight: memberInfo.avatar_med_height,
+        avatarDetectionId: memberInfo.avatar_detection_id,
       };
     }
   }

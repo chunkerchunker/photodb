@@ -1284,11 +1284,11 @@ class PhotoRepository:
                 cursor.execute(
                     """INSERT INTO person_detection
                        (photo_id, collection_id, face_bbox_x, face_bbox_y, face_bbox_width, face_bbox_height,
-                        face_confidence, body_bbox_x, body_bbox_y, body_bbox_width, body_bbox_height,
+                        face_confidence, face_path, body_bbox_x, body_bbox_y, body_bbox_width, body_bbox_height,
                         body_confidence, age_estimate, gender, gender_confidence, mivolo_output,
                         person_id, cluster_status, cluster_id, cluster_confidence,
                         detector_model, detector_version, created_at)
-                       VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                       VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
                        RETURNING id""",
                     (
                         detection.photo_id,
@@ -1298,6 +1298,7 @@ class PhotoRepository:
                         detection.face_bbox_width,
                         detection.face_bbox_height,
                         detection.face_confidence,
+                        detection.face_path,
                         detection.body_bbox_x,
                         detection.body_bbox_y,
                         detection.body_bbox_width,

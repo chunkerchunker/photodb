@@ -1,12 +1,3 @@
-export interface BoundingBox {
-  x: number;
-  y: number;
-  width: number;
-  height: number;
-  imageWidth: number;
-  imageHeight: number;
-}
-
 export interface WallTile {
   id: string | number;
   imageUrls: string[];
@@ -15,7 +6,6 @@ export interface WallTile {
   metadata?: {
     subtitle?: string;
     count?: number;
-    bbox?: BoundingBox;
     isCircular?: boolean; // Set to true for circular face tiles, defaults to false (rectangular)
   };
 }

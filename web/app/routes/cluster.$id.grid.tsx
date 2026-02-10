@@ -50,7 +50,6 @@ import {
   setClusterPersonName,
   setClusterRepresentative,
 } from "~/lib/db.server";
-import { getFaceCropStyle } from "~/lib/face-crop";
 import { cn } from "~/lib/utils";
 import type { Route } from "./+types/cluster.$id.grid";
 
@@ -202,13 +201,7 @@ interface SearchCluster {
   id: string;
   face_count: number;
   person_name?: string;
-  photo_id?: string;
-  bbox_x?: number;
-  bbox_y?: number;
-  bbox_width?: number;
-  bbox_height?: number;
-  med_width?: number;
-  med_height?: number;
+  detection_id?: number;
 }
 
 type Face = Route.ComponentProps["loaderData"]["faces"][number];
@@ -250,25 +243,14 @@ const FaceCard = memo(function FaceCard({
           </div>
         )}
         <div className="text-center space-y-1">
-          {face.photo_id && face.bbox_x !== null && face.med_width && face.med_height ? (
+          {face.face_path ? (
             <div className="relative w-28 h-28 mx-auto">
               <div className="group relative w-full h-full bg-gray-100 rounded-lg border overflow-hidden">
                 <Link to={`/photo/${face.photo_id}`} onClick={(e) => e.stopPropagation()} className="cursor-pointer">
                   <img
-                    src={`/api/image/${face.photo_id}`}
+                    src={`/api/face/${face.id}`}
                     alt={`Face ${face.id}`}
-                    className="absolute max-w-none max-h-none"
-                    style={getFaceCropStyle(
-                      {
-                        bbox_x: face.bbox_x,
-                        bbox_y: face.bbox_y,
-                        bbox_width: face.bbox_width,
-                        bbox_height: face.bbox_height,
-                      },
-                      face.med_width,
-                      face.med_height,
-                      112,
-                    )}
+                    className="w-full h-full object-cover"
                     loading="lazy"
                   />
                 </Link>
@@ -284,6 +266,9 @@ const FaceCard = memo(function FaceCard({
               </div>
               {/* Preview overlay - shows full image with face aligned over card */}
               {isPreviewVisible &&
+                face.bbox_x !== null &&
+                face.med_width &&
+                face.med_height &&
                 (() => {
                   // Scale so face in preview is same size as thumbnail (112px)
                   const thumbSize = 112;
@@ -612,23 +597,12 @@ export default function ClusterDetailView({ loaderData }: Route.ComponentProps) 
 
         <div className="flex items-center justify-between">
           <div className="flex items-center space-x-3">
-            {cluster.rep_photo_id && cluster.rep_bbox_x !== null && cluster.rep_med_width ? (
-              <div className="relative w-12 h-12 bg-gray-100 rounded-lg border overflow-hidden flex-shrink-0">
+            {cluster.rep_detection_id ? (
+              <div className="w-12 h-12 bg-gray-100 rounded-lg border overflow-hidden flex-shrink-0">
                 <img
-                  src={`/api/image/${cluster.rep_photo_id}`}
+                  src={`/api/face/${cluster.rep_detection_id}`}
                   alt={displayName}
-                  className="absolute max-w-none max-h-none"
-                  style={getFaceCropStyle(
-                    {
-                      bbox_x: cluster.rep_bbox_x,
-                      bbox_y: cluster.rep_bbox_y,
-                      bbox_width: cluster.rep_bbox_width,
-                      bbox_height: cluster.rep_bbox_height,
-                    },
-                    cluster.rep_med_width,
-                    cluster.rep_med_height,
-                    48,
-                  )}
+                  className="w-full h-full object-cover"
                 />
               </div>
             ) : (
@@ -762,23 +736,12 @@ export default function ClusterDetailView({ loaderData }: Route.ComponentProps) 
                             )}
                           >
                             <div className="flex items-center space-x-3">
-                              {result.photo_id && result.bbox_x !== undefined && result.med_width ? (
-                                <div className="relative w-12 h-12 bg-gray-100 rounded border overflow-hidden flex-shrink-0">
+                              {result.detection_id ? (
+                                <div className="w-12 h-12 bg-gray-100 rounded border overflow-hidden flex-shrink-0">
                                   <img
-                                    src={`/api/image/${result.photo_id}`}
+                                    src={`/api/face/${result.detection_id}`}
                                     alt={`Cluster ${result.id}`}
-                                    className="absolute max-w-none max-h-none"
-                                    style={getFaceCropStyle(
-                                      {
-                                        bbox_x: result.bbox_x,
-                                        bbox_y: result.bbox_y || 0,
-                                        bbox_width: result.bbox_width || 0.1,
-                                        bbox_height: result.bbox_height || 0.1,
-                                      },
-                                      result.med_width,
-                                      result.med_height || result.med_width,
-                                      48,
-                                    )}
+                                    className="w-full h-full object-cover"
                                   />
                                 </div>
                               ) : (

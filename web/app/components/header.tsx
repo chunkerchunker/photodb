@@ -1,4 +1,4 @@
-import { Camera, FolderOpen, Images, LogOut, Shield, User, UserX, Users } from "lucide-react";
+import { Camera, FolderOpen, Images, LogOut, Shield, User, Users, UserX } from "lucide-react";
 import { Link } from "react-router";
 import {
   DropdownMenu,
@@ -7,18 +7,11 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "~/components/ui/dropdown-menu";
-import { getFaceCropStyle } from "~/lib/face-crop";
 
 export interface UserAvatarInfo {
   firstName: string;
   lastName?: string | null;
-  avatarPhotoId: number | null;
-  avatarBboxX: number | null;
-  avatarBboxY: number | null;
-  avatarBboxWidth: number | null;
-  avatarBboxHeight: number | null;
-  avatarMedWidth: number | null;
-  avatarMedHeight: number | null;
+  avatarDetectionId: number | null;
 }
 
 interface HeaderProps {
@@ -31,34 +24,10 @@ interface HeaderProps {
 }
 
 function UserAvatar({ user }: { user?: UserAvatarInfo }) {
-  const hasAvatar =
-    user?.avatarPhotoId &&
-    user.avatarBboxX !== null &&
-    user.avatarBboxY !== null &&
-    user.avatarBboxWidth !== null &&
-    user.avatarBboxHeight !== null &&
-    user.avatarMedWidth !== null &&
-    user.avatarMedHeight !== null;
-
-  if (hasAvatar) {
+  if (user?.avatarDetectionId) {
     return (
-      <div className="relative w-8 h-8 bg-white/20 rounded-full overflow-hidden ring-2 ring-white/30 hover:ring-white/50 transition-all">
-        <img
-          src={`/api/image/${user.avatarPhotoId}`}
-          alt={user.firstName}
-          className="absolute max-w-none max-h-none"
-          style={getFaceCropStyle(
-            {
-              bbox_x: user.avatarBboxX!,
-              bbox_y: user.avatarBboxY!,
-              bbox_width: user.avatarBboxWidth!,
-              bbox_height: user.avatarBboxHeight!,
-            },
-            user.avatarMedWidth!,
-            user.avatarMedHeight!,
-            32,
-          )}
-        />
+      <div className="w-8 h-8 bg-white/20 rounded-full overflow-hidden ring-2 ring-white/30 hover:ring-white/50 transition-all">
+        <img src={`/api/face/${user.avatarDetectionId}`} alt={user.firstName} className="w-full h-full object-cover" />
       </div>
     );
   }
@@ -151,7 +120,11 @@ export function Header({ viewAction, breadcrumbs = [], homeTo = "/", user, isAdm
                 )}
                 <DropdownMenuSeparator />
                 <DropdownMenuItem asChild>
-                  <form method="post" action={isImpersonating ? "/api/admin/stop-impersonate" : "/logout"} className="w-full">
+                  <form
+                    method="post"
+                    action={isImpersonating ? "/api/admin/stop-impersonate" : "/logout"}
+                    className="w-full"
+                  >
                     <button
                       type="submit"
                       className={`flex items-center w-full text-left cursor-pointer ${isImpersonating ? "text-amber-600" : "text-red-600"}`}

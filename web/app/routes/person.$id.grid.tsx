@@ -13,7 +13,6 @@ import { ViewSwitcher } from "~/components/view-switcher";
 import { requireCollectionId } from "~/lib/auth.server";
 import { dataWithViewMode } from "~/lib/cookies.server";
 import { getClustersByPerson, getPersonById, unlinkClusterFromPerson } from "~/lib/db.server";
-import { getFaceCropStyle } from "~/lib/face-crop";
 import type { Route } from "./+types/person.$id.grid";
 
 export function meta({ data }: Route.MetaArgs) {
@@ -139,23 +138,12 @@ export default function PersonDetailView({ loaderData }: Route.ComponentProps) {
         {/* Person Header */}
         <div className="flex items-start justify-between">
           <div className="flex items-center space-x-4">
-            {person.photo_id && person.bbox_x !== null && person.med_width && person.med_height ? (
-              <div className="relative w-24 h-24 bg-gray-100 rounded-lg border overflow-hidden">
+            {person.detection_id ? (
+              <div className="w-24 h-24 bg-gray-100 rounded-lg border overflow-hidden">
                 <img
-                  src={`/api/image/${person.photo_id}`}
+                  src={`/api/face/${person.detection_id}`}
                   alt={person.person_name || `Person ${person.id}`}
-                  className="absolute max-w-none max-h-none"
-                  style={getFaceCropStyle(
-                    {
-                      bbox_x: person.bbox_x,
-                      bbox_y: person.bbox_y,
-                      bbox_width: person.bbox_width,
-                      bbox_height: person.bbox_height,
-                    },
-                    person.med_width,
-                    person.med_height,
-                    96,
-                  )}
+                  className="w-full h-full object-cover"
                 />
               </div>
             ) : (
@@ -220,25 +208,12 @@ export default function PersonDetailView({ loaderData }: Route.ComponentProps) {
                             <Card className="hover:shadow-lg transition-all h-full">
                               <CardContent className="p-4">
                                 <div className="text-center space-y-3">
-                                  {cluster.photo_id &&
-                                  cluster.bbox_x !== null &&
-                                  cluster.med_width &&
-                                  cluster.med_height ? (
-                                    <div className="relative w-32 h-32 mx-auto bg-gray-100 rounded-lg border overflow-hidden">
+                                  {cluster.detection_id ? (
+                                    <div className="w-32 h-32 mx-auto bg-gray-100 rounded-lg border overflow-hidden">
                                       <img
-                                        src={`/api/image/${cluster.photo_id}`}
+                                        src={`/api/face/${cluster.detection_id}`}
                                         alt={`Cluster ${cluster.id}`}
-                                        className="absolute max-w-none max-h-none"
-                                        style={getFaceCropStyle(
-                                          {
-                                            bbox_x: cluster.bbox_x,
-                                            bbox_y: cluster.bbox_y,
-                                            bbox_width: cluster.bbox_width,
-                                            bbox_height: cluster.bbox_height,
-                                          },
-                                          cluster.med_width,
-                                          cluster.med_height,
-                                        )}
+                                        className="w-full h-full object-cover"
                                         loading="lazy"
                                       />
                                     </div>
@@ -286,25 +261,12 @@ export default function PersonDetailView({ loaderData }: Route.ComponentProps) {
                       <Card className="hover:shadow-lg transition-all h-full">
                         <CardContent className="p-4">
                           <div className="text-center space-y-3">
-                            {cluster.photo_id &&
-                            cluster.bbox_x !== null &&
-                            cluster.med_width &&
-                            cluster.med_height ? (
-                              <div className="relative w-32 h-32 mx-auto bg-gray-100 rounded-lg border overflow-hidden">
+                            {cluster.detection_id ? (
+                              <div className="w-32 h-32 mx-auto bg-gray-100 rounded-lg border overflow-hidden">
                                 <img
-                                  src={`/api/image/${cluster.photo_id}`}
+                                  src={`/api/face/${cluster.detection_id}`}
                                   alt={`Cluster ${cluster.id}`}
-                                  className="absolute max-w-none max-h-none grayscale"
-                                  style={getFaceCropStyle(
-                                    {
-                                      bbox_x: cluster.bbox_x,
-                                      bbox_y: cluster.bbox_y,
-                                      bbox_width: cluster.bbox_width,
-                                      bbox_height: cluster.bbox_height,
-                                    },
-                                    cluster.med_width,
-                                    cluster.med_height,
-                                  )}
+                                  className="w-full h-full object-cover grayscale"
                                   loading="lazy"
                                 />
                               </div>

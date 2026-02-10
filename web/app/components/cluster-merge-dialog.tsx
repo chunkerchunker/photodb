@@ -17,13 +17,7 @@ interface SearchCluster {
   id: string;
   face_count: number;
   person_name?: string;
-  photo_id?: string;
-  bbox_x?: number;
-  bbox_y?: number;
-  bbox_width?: number;
-  bbox_height?: number;
-  med_width?: number;
-  med_height?: number;
+  detection_id?: number;
 }
 
 interface LinkPreview {
@@ -42,33 +36,6 @@ interface LinkPreview {
   };
   willMergePersons?: boolean;
   sourcePersonWillBeDeleted?: boolean;
-}
-
-function getFaceCropStyle(
-  bbox: {
-    bbox_x: number;
-    bbox_y: number;
-    bbox_width: number;
-    bbox_height: number;
-  },
-  imageWidth: number,
-  imageHeight: number,
-  containerSize = 48,
-) {
-  const scaleX = containerSize / bbox.bbox_width;
-  const scaleY = containerSize / bbox.bbox_height;
-
-  const left = -bbox.bbox_x * scaleX;
-  const top = -bbox.bbox_y * scaleY;
-  const width = imageWidth * scaleX;
-  const height = imageHeight * scaleY;
-
-  return {
-    transform: `translate(${left}px, ${top}px)`,
-    transformOrigin: "0 0",
-    width: `${width}px`,
-    height: `${height}px`,
-  };
 }
 
 interface ClusterLinkDialogProps {
@@ -227,22 +194,12 @@ export function ClusterLinkDialog({
                   >
                     <div className="flex items-center justify-between">
                       <div className="flex items-center space-x-3">
-                        {result.photo_id && result.bbox_x !== undefined && result.med_width ? (
-                          <div className="relative w-12 h-12 bg-gray-100 rounded border overflow-hidden flex-shrink-0">
+                        {result.detection_id ? (
+                          <div className="w-12 h-12 bg-gray-100 rounded border overflow-hidden flex-shrink-0">
                             <img
-                              src={`/api/image/${result.photo_id}`}
+                              src={`/api/face/${result.detection_id}`}
                               alt={`Cluster ${result.id}`}
-                              className="absolute max-w-none max-h-none"
-                              style={getFaceCropStyle(
-                                {
-                                  bbox_x: result.bbox_x,
-                                  bbox_y: result.bbox_y || 0,
-                                  bbox_width: result.bbox_width || 0.1,
-                                  bbox_height: result.bbox_height || 0.1,
-                                },
-                                result.med_width,
-                                result.med_height || result.med_width,
-                              )}
+                              className="w-full h-full object-cover"
                             />
                           </div>
                         ) : (

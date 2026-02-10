@@ -256,10 +256,7 @@ export function getClearSessionCookie(): string {
  * Start impersonating a user. Only admins can impersonate.
  * Returns a new session cookie with impersonation state.
  */
-export async function startImpersonation(
-  request: Request,
-  targetUserId: number,
-): Promise<string> {
+export async function startImpersonation(request: Request, targetUserId: number): Promise<string> {
   const admin = await requireAdmin(request);
   const targetUser = await getUserById(targetUserId);
 

@@ -310,6 +310,7 @@ class PersonDetection:
     face_bbox_width: Optional[float] = None
     face_bbox_height: Optional[float] = None
     face_confidence: Optional[float] = None
+    face_path: Optional[str] = None  # Path to cropped face image
     # Body bounding box (optional - may have face only)
     body_bbox_x: Optional[float] = None
     body_bbox_y: Optional[float] = None
@@ -344,6 +345,7 @@ class PersonDetection:
         face_bbox_width: Optional[float] = None,
         face_bbox_height: Optional[float] = None,
         face_confidence: Optional[float] = None,
+        face_path: Optional[str] = None,
         body_bbox_x: Optional[float] = None,
         body_bbox_y: Optional[float] = None,
         body_bbox_width: Optional[float] = None,
@@ -370,6 +372,7 @@ class PersonDetection:
             face_bbox_width=face_bbox_width,
             face_bbox_height=face_bbox_height,
             face_confidence=face_confidence,
+            face_path=face_path,
             body_bbox_x=body_bbox_x,
             body_bbox_y=body_bbox_y,
             body_bbox_width=body_bbox_width,
@@ -416,6 +419,7 @@ class PersonDetection:
             "face_bbox_width": self.face_bbox_width,
             "face_bbox_height": self.face_bbox_height,
             "face_confidence": self.face_confidence,
+            "face_path": self.face_path,
             "body_bbox_x": self.body_bbox_x,
             "body_bbox_y": self.body_bbox_y,
             "body_bbox_width": self.body_bbox_width,

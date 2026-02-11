@@ -166,10 +166,7 @@ const SimilarFaceCard = memo(function SimilarFaceCard({
                     // Detection runs on medium image, so bbox is in medium coords
                     // Face crop has dimensions bbox_width x bbox_height (medium pixels)
                     // Scale to match object-cover on the thumbnail
-                    const faceScale = Math.max(
-                      thumbSize / face.face_bbox_width!,
-                      thumbSize / face.face_bbox_height!,
-                    );
+                    const faceScale = Math.max(thumbSize / face.face_bbox_width!, thumbSize / face.face_bbox_height!);
 
                     // Scaled face dimensions (matches thumbnail's object-cover)
                     const scaledFaceW = face.face_bbox_width! * faceScale;

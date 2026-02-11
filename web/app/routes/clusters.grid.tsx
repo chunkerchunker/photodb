@@ -1,11 +1,11 @@
-import { AlertTriangle, EyeOff, Grid, Link2, Loader2, Pencil, Search, User, Users } from "lucide-react";
+import { AlertTriangle, EyeOff, Link2, Loader2, Pencil, Search, User, Users } from "lucide-react";
 import { useCallback, useEffect, useState } from "react";
 import { Link, useFetcher, useRevalidator } from "react-router";
 import { ClusterLinkDialog } from "~/components/cluster-merge-dialog";
-import { CoverflowIcon } from "~/components/coverflow-icon";
 import { Layout } from "~/components/layout";
 import { RenamePersonDialog } from "~/components/rename-person-dialog";
 import { SearchBox } from "~/components/search-box";
+import { ControlsCount, SecondaryControls } from "~/components/secondary-controls";
 import { Button } from "~/components/ui/button";
 import { Card, CardContent } from "~/components/ui/card";
 import {
@@ -23,7 +23,6 @@ import {
   DialogHeader,
   DialogTitle,
 } from "~/components/ui/dialog";
-import { ViewSwitcher } from "~/components/view-switcher";
 import { useInfiniteScroll } from "~/hooks/use-infinite-scroll";
 import { requireCollectionId } from "~/lib/auth.server";
 import { dataWithViewMode } from "~/lib/cookies.server";
@@ -356,20 +355,7 @@ export default function ClustersView({ loaderData }: Route.ComponentProps) {
             <Users className="h-8 w-8 text-gray-700" />
             <h1 className="text-3xl font-bold text-gray-900">Face Clusters</h1>
           </div>
-          <div className="flex items-center space-x-4">
-            <ViewSwitcher
-              variant="light"
-              modes={[
-                { key: "grid", label: "Grid View", icon: <Grid className="h-4 w-4" />, isActive: true },
-                {
-                  key: "wall",
-                  label: "3D Wall",
-                  icon: <CoverflowIcon className="size-4" />,
-                  to: "/clusters/wall",
-                  isActive: false,
-                },
-              ]}
-            />
+          <SecondaryControls variant="grid">
             {hiddenCount > 0 && (
               <Link to="/clusters/hidden">
                 <Button variant="outline" size="sm">
@@ -378,10 +364,8 @@ export default function ClustersView({ loaderData }: Route.ComponentProps) {
                 </Button>
               </Link>
             )}
-            <span className="text-gray-600">
-              {totalItems} item{totalItems !== 1 ? "s" : ""}
-            </span>
-          </div>
+            <ControlsCount count={totalItems} singular="item" plural="items" variant="grid" />
+          </SecondaryControls>
         </div>
 
         <SearchBox

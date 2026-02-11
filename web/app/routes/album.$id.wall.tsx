@@ -1,10 +1,9 @@
-import { Grid, Images } from "lucide-react";
+import { Images } from "lucide-react";
 import { useMemo } from "react";
 import { useLocation } from "react-router";
-import { CoverflowIcon } from "~/components/coverflow-icon";
 import { Header } from "~/components/header";
 import { PhotoWall, type WallTile } from "~/components/photo-wall";
-import { ViewSwitcher } from "~/components/view-switcher";
+import { WallViewSwitcher } from "~/components/wall-view-switcher";
 import { useRootData } from "~/hooks/use-root-data";
 import { requireCollectionId } from "~/lib/auth.server";
 import { dataWithViewMode } from "~/lib/cookies.server";
@@ -75,25 +74,7 @@ export default function AlbumWallView({ loaderData }: Route.ComponentProps) {
       user={rootData?.userAvatar}
       isAdmin={rootData?.user?.isAdmin}
       isImpersonating={rootData?.impersonation?.isImpersonating}
-      viewAction={
-        <ViewSwitcher
-          modes={[
-            {
-              key: "grid",
-              label: "Grid View",
-              icon: <Grid className="h-4 w-4" />,
-              to: `/album/${album.id}/grid`,
-              isActive: false,
-            },
-            {
-              key: "wall",
-              label: "Wall",
-              icon: <CoverflowIcon className="size-4" />,
-              isActive: true,
-            },
-          ]}
-        />
-      }
+      viewAction={<WallViewSwitcher />}
     />
   );
 

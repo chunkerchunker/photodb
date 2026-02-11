@@ -1,14 +1,14 @@
-import { Grid, User } from "lucide-react";
+import { EyeOff, User } from "lucide-react";
 import { useMemo } from "react";
-import { useLocation } from "react-router";
-import { CoverflowIcon } from "~/components/coverflow-icon";
+import { Link, useLocation, useNavigate } from "react-router";
 import { Header } from "~/components/header";
 import { PhotoWall, type WallTile } from "~/components/photo-wall";
-import { ViewSwitcher } from "~/components/view-switcher";
+import { ControlsCount, ControlsDivider, SecondaryControls, SortToggle } from "~/components/secondary-controls";
+import { WallViewSwitcher } from "~/components/wall-view-switcher";
 import { useRootData } from "~/hooks/use-root-data";
 import { requireCollectionId } from "~/lib/auth.server";
 import { dataWithViewMode } from "~/lib/cookies.server";
-import { getPeople, getPeopleCount } from "~/lib/db.server";
+import { getHiddenPeopleCount, getPeople, getPeopleCount } from "~/lib/db.server";
 import type { Route } from "./+types/people.wall";
 
 export function meta() {
@@ -28,17 +28,19 @@ export async function loader({ request }: Route.LoaderArgs) {
     // Load all people for wall view (no pagination)
     const people = await getPeople(collectionId, 500, 0, sort);
     const totalPeople = await getPeopleCount(collectionId);
-    return dataWithViewMode({ people, totalPeople, sort }, "wall");
+    const hiddenCount = await getHiddenPeopleCount(collectionId);
+    return dataWithViewMode({ people, totalPeople, hiddenCount, sort }, "wall");
   } catch (error) {
     console.error("Failed to load people:", error);
-    return dataWithViewMode({ people: [], totalPeople: 0, sort }, "wall");
+    return dataWithViewMode({ people: [], totalPeople: 0, hiddenCount: 0, sort }, "wall");
   }
 }
 
 export default function PeopleWallView({ loaderData }: Route.ComponentProps) {
   const rootData = useRootData();
-  const { people, totalPeople, sort } = loaderData;
+  const { people, totalPeople, hiddenCount, sort } = loaderData;
   const location = useLocation();
+  const navigate = useNavigate();
 
   // Convert people to wall tiles
   const tiles: WallTile[] = useMemo(
@@ -80,27 +82,27 @@ export default function PeopleWallView({ loaderData }: Route.ComponentProps) {
       user={rootData?.userAvatar}
       isAdmin={rootData?.user?.isAdmin}
       isImpersonating={rootData?.impersonation?.isImpersonating}
-      viewAction={
-        <ViewSwitcher
-          modes={[
-            {
-              key: "grid",
-              label: "Grid View",
-              icon: <Grid className="h-4 w-4" />,
-              to: `/people/grid${sort !== "name" ? `?sort=${sort}` : ""}`,
-              isActive: false,
-            },
-            {
-              key: "wall",
-              label: "3D Wall",
-              icon: <CoverflowIcon className="size-4" />,
-              isActive: true,
-            },
-          ]}
-        />
-      }
+      viewAction={<WallViewSwitcher />}
     />
   );
 
-  return <PhotoWall key={location.key} tiles={tiles} sessionKey="people-wall" headerContent={headerContent} />;
+  return (
+    <>
+      <PhotoWall key={location.key} tiles={tiles} sessionKey="people-wall" headerContent={headerContent} />
+      <SecondaryControls variant="wall">
+        <SortToggle sort={sort} onSortChange={(newSort) => navigate(`/people/wall?sort=${newSort}`)} variant="wall" />
+        <ControlsDivider variant="wall" />
+        {hiddenCount > 0 && (
+          <>
+            <Link to="/people/hidden" className="flex items-center gap-1.5 hover:text-white transition-colors">
+              <EyeOff className="h-4 w-4" />
+              <span>Hidden ({hiddenCount})</span>
+            </Link>
+            <ControlsDivider variant="wall" />
+          </>
+        )}
+        <ControlsCount count={totalPeople} singular="person" plural="people" variant="wall" />
+      </SecondaryControls>
+    </>
+  );
 }

@@ -1,15 +1,14 @@
-import { EyeOff, Grid, Pencil, Star, Unlink, User, Users } from "lucide-react";
+import { EyeOff, Pencil, Star, Unlink, User, Users } from "lucide-react";
 import { useEffect, useState } from "react";
 import { Link, useFetcher, useRevalidator } from "react-router";
 import { Breadcrumb } from "~/components/breadcrumb";
-import { CoverflowIcon } from "~/components/coverflow-icon";
 import { Layout } from "~/components/layout";
 import { RenamePersonDialog } from "~/components/rename-person-dialog";
+import { SecondaryControls } from "~/components/secondary-controls";
 import { Badge } from "~/components/ui/badge";
 import { Button } from "~/components/ui/button";
 import { Card, CardContent } from "~/components/ui/card";
 import { ContextMenu, ContextMenuContent, ContextMenuItem, ContextMenuTrigger } from "~/components/ui/context-menu";
-import { ViewSwitcher } from "~/components/view-switcher";
 import { requireCollectionId } from "~/lib/auth.server";
 import { dataWithViewMode } from "~/lib/cookies.server";
 import { getClustersByPerson, getPersonById, unlinkClusterFromPerson } from "~/lib/db.server";
@@ -152,7 +151,16 @@ export default function PersonDetailView({ loaderData }: Route.ComponentProps) {
               </div>
             )}
             <div>
-              <h1 className="text-3xl font-bold text-gray-900">{person.person_name || `Person ${person.id}`}</h1>
+              <div className="flex items-center gap-3">
+                <h1 className="text-3xl font-bold text-gray-900">{person.person_name || `Person ${person.id}`}</h1>
+                <button
+                  onClick={() => setRenameDialogOpen(true)}
+                  disabled={isSubmitting}
+                  className="text-gray-400 hover:text-gray-600 disabled:opacity-50"
+                >
+                  <Pencil className="h-4 w-4" />
+                </button>
+              </div>
               <div className="text-gray-600 mt-1">
                 {totalFaces} photo{totalFaces !== 1 ? "s" : ""} across {clusters.length} cluster
                 {clusters.length !== 1 ? "s" : ""}
@@ -160,24 +168,7 @@ export default function PersonDetailView({ loaderData }: Route.ComponentProps) {
             </div>
           </div>
 
-          <div className="flex items-center space-x-2">
-            <ViewSwitcher
-              variant="light"
-              modes={[
-                { key: "grid", label: "Grid View", icon: <Grid className="h-4 w-4" />, isActive: true },
-                {
-                  key: "wall",
-                  label: "3D Wall",
-                  icon: <CoverflowIcon className="size-4" />,
-                  to: `/person/${person.id}/wall`,
-                  isActive: false,
-                },
-              ]}
-            />
-            <Button variant="outline" size="sm" onClick={() => setRenameDialogOpen(true)} disabled={isSubmitting}>
-              <Pencil className="h-4 w-4 mr-1" />
-              Rename
-            </Button>
+          <SecondaryControls variant="grid">
             {visibleClusters.length > 0 && (
               <Button variant="outline" size="sm" onClick={handleHideAll} disabled={isSubmitting}>
                 <EyeOff className="h-4 w-4 mr-1" />
@@ -189,7 +180,7 @@ export default function PersonDetailView({ loaderData }: Route.ComponentProps) {
                 Unhide All ({hiddenClusters.length})
               </Button>
             )}
-          </div>
+          </SecondaryControls>
         </div>
 
         {/* Clusters Grid */}

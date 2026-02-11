@@ -16,7 +16,7 @@ export interface UserAvatarInfo {
 
 interface HeaderProps {
   viewAction?: React.ReactNode;
-  breadcrumbs?: { label: string; to?: string }[];
+  breadcrumbs?: { label: React.ReactNode; to?: string }[];
   homeTo?: string;
   user?: UserAvatarInfo;
   isAdmin?: boolean;

@@ -39,7 +39,9 @@ export default [
   route("cluster/:id/wall", "routes/cluster.$id.wall.tsx"),
 
   // Clusters - Hidden
-  route("clusters/hidden", "routes/clusters.hidden.tsx"),
+  route("clusters/hidden", "routes/clusters.hidden.redirect.tsx"),
+  route("clusters/hidden/grid", "routes/clusters.hidden.grid.tsx"),
+  route("clusters/hidden/wall", "routes/clusters.hidden.wall.tsx"),
 
   // People - Redirectors
   route("people", "routes/people.redirect.tsx"),
@@ -52,6 +54,9 @@ export default [
   // People - Wall Views
   route("people/wall", "routes/people.wall.tsx"),
   route("person/:id/wall", "routes/person.$id.wall.tsx"),
+
+  // People - Hidden
+  route("people/hidden", "routes/people.hidden.tsx"),
 
   // Albums - Redirectors
   route("albums", "routes/albums.redirect.tsx"),

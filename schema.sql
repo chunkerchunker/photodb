@@ -234,6 +234,8 @@ CREATE TABLE IF NOT EXISTS person(
     gender_confidence real,
     age_gender_sample_count integer DEFAULT 0,
     age_gender_updated_at timestamptz,
+    -- Hidden flag (for ignored people)
+    hidden boolean DEFAULT false,
     created_at timestamp with time zone DEFAULT NOW(),
     updated_at timestamp with time zone DEFAULT NOW(),
     FOREIGN KEY (collection_id) REFERENCES collection(id) ON DELETE CASCADE

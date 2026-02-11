@@ -1,13 +1,17 @@
-import { Eye, Loader2, Users } from "lucide-react";
+import { Eye, Grid, Loader2, Users } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Link, useFetcher } from "react-router";
 import { Breadcrumb } from "~/components/breadcrumb";
+import { CoverflowIcon } from "~/components/coverflow-icon";
 import { Layout } from "~/components/layout";
+import { ControlsCount, SecondaryControls } from "~/components/secondary-controls";
 import { Button } from "~/components/ui/button";
 import { Card, CardContent } from "~/components/ui/card";
+import { ViewSwitcher } from "~/components/view-switcher";
 import { requireCollectionId } from "~/lib/auth.server";
+import { dataWithViewMode } from "~/lib/cookies.server";
 import { getHiddenClusters, getHiddenClustersCount, setClusterHidden } from "~/lib/db.server";
-import type { Route } from "./+types/clusters.hidden";
+import type { Route } from "./+types/clusters.hidden.grid";
 
 export function meta() {
   return [
@@ -49,20 +53,26 @@ export async function loader({ request }: Route.LoaderArgs) {
     const totalClusters = await getHiddenClustersCount(collectionId);
     const hasMore = offset + clusters.length < totalClusters;
 
-    return {
-      clusters,
-      totalClusters,
-      hasMore,
-      page,
-    };
+    return dataWithViewMode(
+      {
+        clusters,
+        totalClusters,
+        hasMore,
+        page,
+      },
+      "grid",
+    );
   } catch (error) {
     console.error("Failed to load hidden clusters:", error);
-    return {
-      clusters: [],
-      totalClusters: 0,
-      hasMore: false,
-      page,
-    };
+    return dataWithViewMode(
+      {
+        clusters: [],
+        totalClusters: 0,
+        hasMore: false,
+        page,
+      },
+      "grid",
+    );
   }
 }
 
@@ -101,7 +111,7 @@ export default function HiddenClustersView({ loaderData }: Route.ComponentProps)
 
   const loadMore = useCallback(() => {
     if (scrollFetcher.state === "idle" && hasMore) {
-      scrollFetcher.load(`/clusters/hidden?page=${page + 1}`);
+      scrollFetcher.load(`/clusters/hidden/grid?page=${page + 1}`);
     }
   }, [scrollFetcher, hasMore, page]);
 
@@ -146,9 +156,22 @@ export default function HiddenClustersView({ loaderData }: Route.ComponentProps)
             <Users className="h-8 w-8 text-gray-700" />
             <h1 className="text-3xl font-bold text-gray-900">Hidden Clusters</h1>
           </div>
-          <span className="text-gray-600">
-            {totalClusters} hidden cluster{totalClusters !== 1 ? "s" : ""}
-          </span>
+          <SecondaryControls variant="grid">
+            <ViewSwitcher
+              variant="light"
+              modes={[
+                { key: "grid", label: "Grid View", icon: <Grid className="h-4 w-4" />, isActive: true },
+                {
+                  key: "wall",
+                  label: "3D Wall",
+                  icon: <CoverflowIcon className="size-4" />,
+                  to: "/clusters/hidden/wall",
+                  isActive: false,
+                },
+              ]}
+            />
+            <ControlsCount count={totalClusters} singular="hidden cluster" plural="hidden clusters" variant="grid" />
+          </SecondaryControls>
         </div>
 
         {clusters.length > 0 ? (

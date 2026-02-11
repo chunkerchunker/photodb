@@ -1,5 +1,6 @@
 import { Grid } from "lucide-react";
 import { useRootData } from "~/hooks/use-root-data";
+import { useViewToggle } from "~/hooks/use-view-toggle";
 import { CoverflowIcon } from "./coverflow-icon";
 import { Header } from "./header";
 import { ViewSwitcher } from "./view-switcher";
@@ -10,6 +11,7 @@ interface LayoutProps {
 
 export function Layout({ children }: LayoutProps) {
   const rootData = useRootData();
+  const { wallPath } = useViewToggle();
 
   return (
     <div className="min-h-screen bg-gray-50">
@@ -19,6 +21,7 @@ export function Layout({ children }: LayoutProps) {
         isImpersonating={rootData?.impersonation?.isImpersonating}
         viewAction={
           <ViewSwitcher
+            variant="light"
             modes={[
               {
                 key: "grid",
@@ -30,7 +33,7 @@ export function Layout({ children }: LayoutProps) {
                 key: "wall",
                 label: "Photo Wall",
                 icon: <CoverflowIcon className="h-4 w-4" />,
-                to: "/wall",
+                to: wallPath,
                 isActive: false,
               },
             ]}

@@ -1,17 +1,17 @@
-import { ArrowDownAZ, EyeOff, Grid, Loader2, Pencil, Search, User, Users } from "lucide-react";
+import { EyeOff, Loader2, Pencil, Search, User } from "lucide-react";
 import { useCallback, useEffect, useState } from "react";
 import { Link, useFetcher, useNavigate, useRevalidator } from "react-router";
-import { CoverflowIcon } from "~/components/coverflow-icon";
 import { Layout } from "~/components/layout";
 import { RenamePersonDialog } from "~/components/rename-person-dialog";
 import { SearchBox } from "~/components/search-box";
+import { ControlsCount, SecondaryControls, SortToggle } from "~/components/secondary-controls";
+import { Button } from "~/components/ui/button";
 import { Card, CardContent } from "~/components/ui/card";
 import { ContextMenu, ContextMenuContent, ContextMenuItem, ContextMenuTrigger } from "~/components/ui/context-menu";
-import { ViewSwitcher } from "~/components/view-switcher";
 import { useInfiniteScroll } from "~/hooks/use-infinite-scroll";
 import { requireCollectionId } from "~/lib/auth.server";
 import { dataWithViewMode } from "~/lib/cookies.server";
-import { getPeople, getPeopleCount } from "~/lib/db.server";
+import { getHiddenPeopleCount, getPeople, getPeopleCount } from "~/lib/db.server";
 import type { Route } from "./+types/people.grid";
 
 export function meta() {
@@ -37,12 +37,14 @@ export async function loader({ request }: Route.LoaderArgs) {
   try {
     const people = await getPeople(collectionId, LIMIT, offset, sort);
     const totalPeople = await getPeopleCount(collectionId);
+    const hiddenCount = await getHiddenPeopleCount(collectionId);
     const hasMore = offset + people.length < totalPeople;
 
     return dataWithViewMode(
       {
         people,
         totalPeople,
+        hiddenCount,
         hasMore,
         page,
         sort,
@@ -55,6 +57,7 @@ export async function loader({ request }: Route.LoaderArgs) {
       {
         people: [],
         totalPeople: 0,
+        hiddenCount: 0,
         hasMore: false,
         page,
         sort,
@@ -70,6 +73,7 @@ export default function PeopleView({ loaderData }: Route.ComponentProps) {
   const {
     people: initialPeople,
     totalPeople,
+    hiddenCount,
     hasMore: initialHasMore,
     page: initialPage,
     sort: initialSort,
@@ -88,6 +92,7 @@ export default function PeopleView({ loaderData }: Route.ComponentProps) {
   // Context menu state
   const [contextPerson, setContextPerson] = useState<Person | null>(null);
   const [renameDialogOpen, setRenameDialogOpen] = useState(false);
+  const [pendingHidePersonId, setPendingHidePersonId] = useState<number | null>(null);
   const hideFetcher = useFetcher();
   const revalidator = useRevalidator();
 
@@ -136,15 +141,22 @@ export default function PeopleView({ loaderData }: Route.ComponentProps) {
   };
 
   const handleHide = (person: Person) => {
+    setPendingHidePersonId(person.id);
     hideFetcher.submit({ hidden: "true" }, { method: "post", action: `/api/person/${person.id}/hide` });
   };
 
-  // Revalidate after hide completes
+  // Revalidate after hide completes and remove from local state
   useEffect(() => {
-    if (hideFetcher.data?.success) {
+    if (hideFetcher.data?.success && pendingHidePersonId !== null) {
+      // Remove the hidden person from local state immediately
+      setPeople((prev) => prev.filter((p) => p.id !== pendingHidePersonId));
+      setPendingHidePersonId(null);
+      // Reset pagination state since total count changed
+      setPage(1);
+      setHasMore(true);
       revalidator.revalidate();
     }
-  }, [hideFetcher.data, revalidator]);
+  }, [hideFetcher.data, pendingHidePersonId, revalidator]);
 
   const handleRenameSuccess = (newFirstName: string, newLastName: string) => {
     if (contextPerson) {
@@ -172,46 +184,22 @@ export default function PeopleView({ loaderData }: Route.ComponentProps) {
             <User className="h-8 w-8 text-gray-700" />
             <h1 className="text-3xl font-bold text-gray-900">People</h1>
           </div>
-          <div className="flex items-center space-x-4">
-            <ViewSwitcher
-              variant="light"
-              modes={[
-                { key: "grid", label: "Grid View", icon: <Grid className="h-4 w-4" />, isActive: true },
-                {
-                  key: "wall",
-                  label: "3D Wall",
-                  icon: <CoverflowIcon className="size-4" />,
-                  to: `/people/wall${sort !== "name" ? `?sort=${sort}` : ""}`,
-                  isActive: false,
-                },
-              ]}
+          <SecondaryControls variant="grid">
+            {hiddenCount > 0 && (
+              <Link to="/people/hidden">
+                <Button variant="outline" size="sm">
+                  <EyeOff className="h-4 w-4 mr-1" />
+                  Hidden ({hiddenCount})
+                </Button>
+              </Link>
+            )}
+            <ControlsCount count={totalPeople} singular="person" plural="people" variant="grid" />
+            <SortToggle
+              sort={sort}
+              onSortChange={(newSort) => navigate(`/people/grid?sort=${newSort}`)}
+              variant="grid"
             />
-            <span className="text-gray-600">
-              {totalPeople} {totalPeople === 1 ? "person" : "people"}
-            </span>
-            <div className="flex items-center rounded-lg border bg-gray-50 p-1" title="Sort order">
-              <button
-                type="button"
-                onClick={() => navigate("/people/grid?sort=photos")}
-                className={`flex items-center gap-1.5 px-3 py-1.5 rounded-md text-sm font-medium transition-colors ${
-                  sort === "photos" ? "bg-white text-gray-900 shadow-sm" : "text-gray-500 hover:text-gray-700"
-                }`}
-                title="Sort by most photos"
-              >
-                <Users className="h-4 w-4" />
-              </button>
-              <button
-                type="button"
-                onClick={() => navigate("/people/grid?sort=name")}
-                className={`flex items-center gap-1.5 px-3 py-1.5 rounded-md text-sm font-medium transition-colors ${
-                  sort === "name" ? "bg-white text-gray-900 shadow-sm" : "text-gray-500 hover:text-gray-700"
-                }`}
-                title="Sort alphabetically"
-              >
-                <ArrowDownAZ className="h-4 w-4" />
-              </button>
-            </div>
-          </div>
+          </SecondaryControls>
         </div>
 
         <SearchBox

@@ -1,10 +1,11 @@
-import { Grid, User, Users } from "lucide-react";
-import { useMemo } from "react";
-import { useLocation } from "react-router";
-import { CoverflowIcon } from "~/components/coverflow-icon";
+import { EyeOff, Pencil, Users } from "lucide-react";
+import { useMemo, useState } from "react";
+import { useFetcher, useLocation } from "react-router";
 import { Header } from "~/components/header";
 import { PhotoWall, type WallTile } from "~/components/photo-wall";
-import { ViewSwitcher } from "~/components/view-switcher";
+import { RenamePersonDialog } from "~/components/rename-person-dialog";
+import { ControlsDivider, SecondaryControls } from "~/components/secondary-controls";
+import { WallViewSwitcher } from "~/components/wall-view-switcher";
 import { useRootData } from "~/hooks/use-root-data";
 import { requireCollectionId } from "~/lib/auth.server";
 import { dataWithViewMode } from "~/lib/cookies.server";
@@ -40,6 +41,20 @@ export default function PersonWallView({ loaderData }: Route.ComponentProps) {
   const rootData = useRootData();
   const { person, clusters } = loaderData;
   const location = useLocation();
+  const [renameDialogOpen, setRenameDialogOpen] = useState(false);
+  const hideFetcher = useFetcher();
+
+  const visibleClusters = clusters.filter((c) => !c.hidden);
+  const hiddenClusters = clusters.filter((c) => c.hidden);
+  const isSubmitting = hideFetcher.state !== "idle";
+
+  const handleHideAll = () => {
+    hideFetcher.submit({ hidden: "true" }, { method: "post", action: `/api/person/${person.id}/hide` });
+  };
+
+  const handleUnhideAll = () => {
+    hideFetcher.submit({ hidden: "false" }, { method: "post", action: `/api/person/${person.id}/hide` });
+  };
 
   // Convert clusters to wall tiles
   const tiles: WallTile[] = useMemo(
@@ -80,33 +95,76 @@ export default function PersonWallView({ loaderData }: Route.ComponentProps) {
   const headerContent = (
     <Header
       homeTo="/wall"
-      breadcrumbs={[{ label: "People", to: "/people" }, { label: displayName }]}
+      breadcrumbs={[
+        { label: "People", to: "/people" },
+        {
+          label: (
+            <span className="inline-flex items-center gap-2.5">
+              {displayName}
+              <button
+                onClick={(e) => {
+                  e.preventDefault();
+                  setRenameDialogOpen(true);
+                }}
+                className="text-gray-400 hover:text-white"
+              >
+                <Pencil className="h-3.5 w-3.5" />
+              </button>
+            </span>
+          ),
+        },
+      ]}
       user={rootData?.userAvatar}
       isAdmin={rootData?.user?.isAdmin}
       isImpersonating={rootData?.impersonation?.isImpersonating}
-      viewAction={
-        <ViewSwitcher
-          modes={[
-            {
-              key: "grid",
-              label: "Grid View",
-              icon: <Grid className="h-4 w-4" />,
-              to: `/person/${person.id}/grid`,
-              isActive: false,
-            },
-            {
-              key: "wall",
-              label: "3D Wall",
-              icon: <CoverflowIcon className="size-4" />,
-              isActive: true,
-            },
-          ]}
-        />
-      }
+      viewAction={<WallViewSwitcher />}
     />
   );
 
   return (
-    <PhotoWall key={location.key} tiles={tiles} sessionKey={`person-${person.id}-wall`} headerContent={headerContent} />
+    <>
+      <PhotoWall
+        key={location.key}
+        tiles={tiles}
+        sessionKey={`person-${person.id}-wall`}
+        headerContent={headerContent}
+      />
+      <SecondaryControls variant="wall">
+        {visibleClusters.length > 0 && (
+          <button
+            type="button"
+            onClick={handleHideAll}
+            disabled={isSubmitting}
+            className="flex items-center gap-1.5 hover:text-white transition-colors disabled:opacity-50"
+          >
+            <EyeOff className="h-4 w-4" />
+            <span>Hide All</span>
+          </button>
+        )}
+        {hiddenClusters.length > 0 && (
+          <>
+            {visibleClusters.length > 0 && <ControlsDivider variant="wall" />}
+            <button
+              type="button"
+              onClick={handleUnhideAll}
+              disabled={isSubmitting}
+              className="hover:text-white transition-colors disabled:opacity-50"
+            >
+              Unhide All ({hiddenClusters.length})
+            </button>
+          </>
+        )}
+      </SecondaryControls>
+      <RenamePersonDialog
+        open={renameDialogOpen}
+        onOpenChange={setRenameDialogOpen}
+        personId={person.id.toString()}
+        currentFirstName={person.first_name || ""}
+        currentLastName={person.last_name || ""}
+        onSuccess={() => {
+          window.location.reload();
+        }}
+      />
+    </>
   );
 }

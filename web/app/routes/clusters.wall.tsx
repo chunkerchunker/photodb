@@ -1,14 +1,14 @@
-import { Grid, Users } from "lucide-react";
+import { EyeOff, Users } from "lucide-react";
 import { useMemo } from "react";
-import { useLocation } from "react-router";
-import { CoverflowIcon } from "~/components/coverflow-icon";
+import { Link, useLocation } from "react-router";
 import { Header } from "~/components/header";
 import { PhotoWall, type WallTile } from "~/components/photo-wall";
-import { ViewSwitcher } from "~/components/view-switcher";
+import { ControlsCount, ControlsDivider, SecondaryControls } from "~/components/secondary-controls";
+import { WallViewSwitcher } from "~/components/wall-view-switcher";
 import { useRootData } from "~/hooks/use-root-data";
 import { requireCollectionId } from "~/lib/auth.server";
 import { dataWithViewMode } from "~/lib/cookies.server";
-import { getClustersGroupedByPerson, getClustersGroupedCount } from "~/lib/db.server";
+import { getClustersGroupedByPerson, getClustersGroupedCount, getHiddenClustersCount } from "~/lib/db.server";
 import type { Route } from "./+types/clusters.wall";
 
 export function meta() {
@@ -24,16 +24,17 @@ export async function loader({ request }: Route.LoaderArgs) {
     // Load all items for wall view (no pagination)
     const items = await getClustersGroupedByPerson(collectionId, 500, 0);
     const totalItems = await getClustersGroupedCount(collectionId);
-    return dataWithViewMode({ items, totalItems }, "wall");
+    const hiddenCount = await getHiddenClustersCount(collectionId);
+    return dataWithViewMode({ items, totalItems, hiddenCount }, "wall");
   } catch (error) {
     console.error("Failed to load clusters:", error);
-    return dataWithViewMode({ items: [], totalItems: 0 }, "wall");
+    return dataWithViewMode({ items: [], totalItems: 0, hiddenCount: 0 }, "wall");
   }
 }
 
 export default function ClustersWallView({ loaderData }: Route.ComponentProps) {
   const rootData = useRootData();
-  const { items, totalItems } = loaderData;
+  const { items, totalItems, hiddenCount } = loaderData;
   const location = useLocation();
 
   // Convert items to wall tiles
@@ -78,27 +79,25 @@ export default function ClustersWallView({ loaderData }: Route.ComponentProps) {
       user={rootData?.userAvatar}
       isAdmin={rootData?.user?.isAdmin}
       isImpersonating={rootData?.impersonation?.isImpersonating}
-      viewAction={
-        <ViewSwitcher
-          modes={[
-            {
-              key: "grid",
-              label: "Grid View",
-              icon: <Grid className="h-4 w-4" />,
-              to: "/clusters/grid",
-              isActive: false,
-            },
-            {
-              key: "wall",
-              label: "3D Wall",
-              icon: <CoverflowIcon className="size-4" />,
-              isActive: true,
-            },
-          ]}
-        />
-      }
+      viewAction={<WallViewSwitcher />}
     />
   );
 
-  return <PhotoWall key={location.key} tiles={tiles} sessionKey="clusters-wall" headerContent={headerContent} />;
+  return (
+    <>
+      <PhotoWall key={location.key} tiles={tiles} sessionKey="clusters-wall" headerContent={headerContent} />
+      <SecondaryControls variant="wall">
+        {hiddenCount > 0 && (
+          <>
+            <Link to="/clusters/hidden" className="flex items-center gap-1.5 hover:text-white transition-colors">
+              <EyeOff className="h-4 w-4" />
+              <span>Hidden ({hiddenCount})</span>
+            </Link>
+            <ControlsDivider variant="wall" />
+          </>
+        )}
+        <ControlsCount count={totalItems} singular="item" plural="items" variant="wall" />
+      </SecondaryControls>
+    </>
+  );
 }

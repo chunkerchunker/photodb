@@ -671,6 +671,7 @@ export async function getPeople(collectionId: number, limit = 50, offset = 0, so
     INNER JOIN person_stats ps ON per.id = ps.person_id
     LEFT JOIN person_detection pd ON COALESCE(per.representative_detection_id, ps.fallback_representative_detection_id) = pd.id
     WHERE per.collection_id = $1
+      AND (per.hidden = false OR per.hidden IS NULL)
     ORDER BY ${orderBy}
     LIMIT $2 OFFSET $3
   `;
@@ -686,14 +687,86 @@ export async function getPeopleCount(collectionId: number) {
   const query = `
     SELECT COUNT(DISTINCT c.person_id) as count
     FROM cluster c
+    INNER JOIN person per ON c.person_id = per.id
     WHERE c.face_count > 0
       AND (c.hidden = false OR c.hidden IS NULL)
       AND c.collection_id = $1
       AND c.person_id IS NOT NULL
+      AND (per.hidden = false OR per.hidden IS NULL)
   `;
 
   const result = await pool.query(query, [collectionId]);
   return parseInt(result.rows[0].count, 10);
+}
+
+/**
+ * Get count of hidden people.
+ */
+export async function getHiddenPeopleCount(collectionId: number) {
+  const query = `
+    SELECT COUNT(*) as count
+    FROM person per
+    WHERE per.collection_id = $1
+      AND per.hidden = true
+      AND EXISTS (
+        SELECT 1 FROM cluster c
+        WHERE c.person_id = per.id
+          AND c.face_count > 0
+      )
+  `;
+
+  const result = await pool.query(query, [collectionId]);
+  return parseInt(result.rows[0].count, 10);
+}
+
+/**
+ * Get hidden people with aggregated cluster data.
+ */
+export async function getHiddenPeople(collectionId: number, limit = 50, offset = 0, sort: "photos" | "name" = "name") {
+  const orderBy =
+    sort === "photos"
+      ? "total_face_count DESC, per.first_name, per.last_name, per.id"
+      : "per.first_name, per.last_name, per.id";
+
+  const query = `
+    WITH person_stats AS (
+      SELECT
+        c.person_id,
+        SUM(c.face_count)::integer as total_face_count,
+        COUNT(c.id)::integer as cluster_count,
+        -- Fallback: get the representative from the largest cluster
+        (SELECT c2.representative_detection_id
+         FROM cluster c2
+         WHERE c2.person_id = c.person_id
+           AND c2.representative_detection_id IS NOT NULL
+         ORDER BY c2.face_count DESC
+         LIMIT 1) as fallback_representative_detection_id
+      FROM cluster c
+      WHERE c.face_count > 0
+        AND c.collection_id = $1
+        AND c.person_id IS NOT NULL
+      GROUP BY c.person_id
+    )
+    SELECT
+      per.id,
+      TRIM(CONCAT(per.first_name, ' ', COALESCE(per.last_name, ''))) as person_name,
+      ps.total_face_count,
+      ps.cluster_count,
+      -- Use person's representative if set, otherwise use fallback from largest cluster
+      COALESCE(per.representative_detection_id, ps.fallback_representative_detection_id) as representative_detection_id,
+      pd.face_path,
+      pd.id as detection_id
+    FROM person per
+    INNER JOIN person_stats ps ON per.id = ps.person_id
+    LEFT JOIN person_detection pd ON COALESCE(per.representative_detection_id, ps.fallback_representative_detection_id) = pd.id
+    WHERE per.collection_id = $1
+      AND per.hidden = true
+    ORDER BY ${orderBy}
+    LIMIT $2 OFFSET $3
+  `;
+
+  const result = await pool.query(query, [collectionId, limit, offset]);
+  return result.rows;
 }
 
 /**
@@ -778,21 +851,31 @@ export async function setPersonName(collectionId: number, personId: string, firs
 }
 
 /**
- * Hide or unhide all clusters belonging to a person.
+ * Hide or unhide a person and all their clusters.
  */
 export async function setPersonHidden(collectionId: number, personId: string, hidden: boolean) {
-  const query = `
+  // Update the person's hidden flag
+  const personQuery = `
+    UPDATE person
+    SET hidden = $1, updated_at = NOW()
+    WHERE id = $2 AND collection_id = $3
+    RETURNING id
+  `;
+  await pool.query(personQuery, [hidden, personId, collectionId]);
+
+  // Also update all clusters belonging to this person
+  const clusterQuery = `
     UPDATE cluster
     SET hidden = $1, updated_at = NOW()
     WHERE person_id = $2 AND collection_id = $3
     RETURNING id
   `;
 
-  const result = await pool.query(query, [hidden, personId, collectionId]);
+  const result = await pool.query(clusterQuery, [hidden, personId, collectionId]);
   const count = result.rowCount || 0;
   return {
-    success: count > 0,
-    message: hidden ? `Hidden ${count} cluster(s)` : `Unhidden ${count} cluster(s)`,
+    success: true,
+    message: hidden ? `Hidden person and ${count} cluster(s)` : `Unhidden person and ${count} cluster(s)`,
     count,
   };
 }

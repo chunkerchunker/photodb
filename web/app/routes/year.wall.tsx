@@ -1,10 +1,9 @@
-import { ArrowLeft, Camera, Grid, User, Users } from "lucide-react";
+import { ArrowLeft } from "lucide-react";
 import { useMemo } from "react";
-import { data, Link, useLocation } from "react-router";
-import { CoverflowIcon } from "~/components/coverflow-icon";
+import { Link, useLocation } from "react-router";
 import { Header } from "~/components/header";
 import { PhotoWall, type WallTile } from "~/components/photo-wall";
-import { ViewSwitcher } from "~/components/view-switcher";
+import { WallViewSwitcher } from "~/components/wall-view-switcher";
 import { useRootData } from "~/hooks/use-root-data";
 import { requireCollectionId } from "~/lib/auth.server";
 import { getMonthsInYear } from "~/lib/db.server";
@@ -71,25 +70,7 @@ export default function YearWallView({ loaderData }: Route.ComponentProps) {
       isImpersonating={rootData?.impersonation?.isImpersonating}
       homeTo="/wall"
       breadcrumbs={[{ label: year.toString() }]}
-      viewAction={
-        <ViewSwitcher
-          modes={[
-            {
-              key: "grid",
-              label: "Grid View",
-              icon: <Grid className="h-4 w-4" />,
-              to: `/year/${year}/grid`,
-              isActive: false,
-            },
-            {
-              key: "wall",
-              label: "Photo Wall",
-              icon: <CoverflowIcon className="h-4 w-4" />,
-              isActive: true,
-            },
-          ]}
-        />
-      }
+      viewAction={<WallViewSwitcher />}
     />
   );
 

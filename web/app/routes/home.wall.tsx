@@ -1,10 +1,8 @@
-import { Camera, Grid, User, Users } from "lucide-react";
 import { useMemo } from "react";
-import { data, Link, useLocation } from "react-router";
-import { CoverflowIcon } from "~/components/coverflow-icon";
+import { useLocation } from "react-router";
 import { Header } from "~/components/header";
 import { PhotoWall, type WallTile } from "~/components/photo-wall";
-import { ViewSwitcher } from "~/components/view-switcher";
+import { WallViewSwitcher } from "~/components/wall-view-switcher";
 import { useRootData } from "~/hooks/use-root-data";
 import { requireCollectionId } from "~/lib/auth.server";
 import { getYearsWithPhotos } from "~/lib/db.server";
@@ -65,25 +63,7 @@ export default function HomeWallView({ loaderData }: Route.ComponentProps) {
       isAdmin={rootData?.user?.isAdmin}
       isImpersonating={rootData?.impersonation?.isImpersonating}
       homeTo="/wall"
-      viewAction={
-        <ViewSwitcher
-          modes={[
-            {
-              key: "grid",
-              label: "Grid View",
-              icon: <Grid className="h-4 w-4" />,
-              to: "/grid",
-              isActive: false,
-            },
-            {
-              key: "wall",
-              label: "Photo Wall",
-              icon: <CoverflowIcon className="size-4" />,
-              isActive: true,
-            },
-          ]}
-        />
-      }
+      viewAction={<WallViewSwitcher />}
     />
   );
 

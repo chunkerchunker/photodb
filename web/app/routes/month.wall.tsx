@@ -1,10 +1,9 @@
-import { ArrowLeft, Camera, Grid, Loader2, User, Users } from "lucide-react";
+import { ArrowLeft, Loader2 } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
-import { data, Link, useLocation, useNavigate } from "react-router";
+import { Link, useLocation, useNavigate } from "react-router";
 import * as THREE from "three";
-import { CoverflowIcon } from "~/components/coverflow-icon";
 import { Header } from "~/components/header";
-import { ViewSwitcher } from "~/components/view-switcher";
+import { WallViewSwitcher } from "~/components/wall-view-switcher";
 import { useRootData } from "~/hooks/use-root-data";
 import { requireCollectionId } from "~/lib/auth.server";
 import { getPhotoCountByMonth, getPhotosByMonth } from "~/lib/db.server";
@@ -103,8 +102,8 @@ const ROWS = 4;
 const TILE_WIDTH = 2.0;
 const TILE_HEIGHT = 1.5;
 const TILE_GAP = 0.15;
-const CURVE_FACTOR = 0.04;
-const Z_OFFSET_FACTOR = 0.15;
+const _CURVE_FACTOR = 0.04;
+const _Z_OFFSET_FACTOR = 0.15;
 
 // Camera constants
 const CAMERA_Z_DEFAULT = 8;
@@ -581,7 +580,7 @@ function ThreeWall({ photos, year, month, totalPhotos, monthName, rootData }: Th
     rendererRef.current.render(sceneRef.current, cameraRef.current);
 
     animationIdRef.current = requestAnimationFrame(animate);
-  }, [updateTileCurve, loadVisibleTextures]);
+  }, [updateTileCurve, loadVisibleTextures, month, navigate, year]);
 
   const handleMouseDown = useCallback((e: MouseEvent) => {
     isDraggingRef.current = true;
@@ -657,63 +656,60 @@ function ThreeWall({ photos, year, month, totalPhotos, monthName, rootData }: Th
     }
   }, []);
 
-  const handleClick = useCallback(
-    (e: MouseEvent) => {
-      if (!containerRef.current || !sceneRef.current || !cameraRef.current) return;
+  const handleClick = useCallback((e: MouseEvent) => {
+    if (!containerRef.current || !sceneRef.current || !cameraRef.current) return;
 
-      // Don't handle clicks during transition
-      if (zoomTransitionRef.current.active) return;
+    // Don't handle clicks during transition
+    if (zoomTransitionRef.current.active) return;
 
-      // Only navigate if this wasn't a drag (drag distance was minimal)
-      if (wasDraggingRef.current) {
-        return;
+    // Only navigate if this wasn't a drag (drag distance was minimal)
+    if (wasDraggingRef.current) {
+      return;
+    }
+
+    const raycaster = new THREE.Raycaster();
+    const mouse = new THREE.Vector2(
+      (e.clientX / containerRef.current.clientWidth) * 2 - 1,
+      -(e.clientY / containerRef.current.clientHeight) * 2 + 1,
+    );
+
+    raycaster.setFromCamera(mouse, cameraRef.current);
+    const intersects = raycaster.intersectObjects(wallContainerRef.current?.children || [], false);
+
+    const hit = intersects.find((i) => i.object.userData.photo && !i.object.userData.isReflection);
+    if (hit) {
+      const photo = hit.object.userData.photo as Photo;
+      const tile = tilesRef.current.find((t) => t.photo.id === photo.id);
+
+      if (tile) {
+        // Start zoom transition
+        const transition = zoomTransitionRef.current;
+        transition.active = true;
+        transition.direction = "in";
+        transition.targetPhoto = photo;
+        transition.progress = 0;
+
+        // Store starting positions
+        transition.startX = cameraRef.current.position.x;
+        transition.startY = cameraRef.current.position.y;
+        transition.startZ = cameraRef.current.position.z;
+        transition.startWallX = wallPositionRef.current.x;
+
+        // Calculate target position (fly into the tile)
+        // Target X: center on the tile
+        transition.targetX = 0;
+        // Target Y: tile's Y position
+        transition.targetY = tile.baseY;
+        // Target Z: very close to the tile
+        transition.targetZ = 0.5;
+        // Target wall X: center the tile
+        transition.targetWallX = -tile.baseX;
+
+        // Stop any ongoing momentum
+        wallPositionRef.current.velocityX = 0;
       }
-
-      const raycaster = new THREE.Raycaster();
-      const mouse = new THREE.Vector2(
-        (e.clientX / containerRef.current.clientWidth) * 2 - 1,
-        -(e.clientY / containerRef.current.clientHeight) * 2 + 1,
-      );
-
-      raycaster.setFromCamera(mouse, cameraRef.current);
-      const intersects = raycaster.intersectObjects(wallContainerRef.current?.children || [], false);
-
-      const hit = intersects.find((i) => i.object.userData.photo && !i.object.userData.isReflection);
-      if (hit) {
-        const photo = hit.object.userData.photo as Photo;
-        const tile = tilesRef.current.find((t) => t.photo.id === photo.id);
-
-        if (tile) {
-          // Start zoom transition
-          const transition = zoomTransitionRef.current;
-          transition.active = true;
-          transition.direction = "in";
-          transition.targetPhoto = photo;
-          transition.progress = 0;
-
-          // Store starting positions
-          transition.startX = cameraRef.current.position.x;
-          transition.startY = cameraRef.current.position.y;
-          transition.startZ = cameraRef.current.position.z;
-          transition.startWallX = wallPositionRef.current.x;
-
-          // Calculate target position (fly into the tile)
-          // Target X: center on the tile
-          transition.targetX = 0;
-          // Target Y: tile's Y position
-          transition.targetY = tile.baseY;
-          // Target Z: very close to the tile
-          transition.targetZ = 0.5;
-          // Target wall X: center the tile
-          transition.targetWallX = -tile.baseX;
-
-          // Stop any ongoing momentum
-          wallPositionRef.current.velocityX = 0;
-        }
-      }
-    },
-    [navigate],
-  );
+    }
+  }, []);
 
   const handleWheel = useCallback((e: WheelEvent) => {
     e.preventDefault();
@@ -919,7 +915,7 @@ function ThreeWall({ photos, year, month, totalPhotos, monthName, rootData }: Th
           // Start with white overlay
           setTransitionOpacity(1);
           didSetupPhotoReturn = true;
-        } else if (typeof wallX === "number" && !isNaN(wallX)) {
+        } else if (typeof wallX === "number" && !Number.isNaN(wallX)) {
           // Tile not found, just restore position without animation
           wallPositionRef.current.x = wallX;
           wallContainer.position.x = wallX;
@@ -935,7 +931,7 @@ function ThreeWall({ photos, year, month, totalPhotos, monthName, rootData }: Th
       if (savedPosition) {
         // Returning to wall (not from photo) - restore last position
         const wallX = parseFloat(savedPosition);
-        if (!isNaN(wallX)) {
+        if (!Number.isNaN(wallX)) {
           wallPositionRef.current.x = wallX;
           wallContainer.position.x = wallX;
         } else {
@@ -999,7 +995,7 @@ function ThreeWall({ photos, year, month, totalPhotos, monthName, rootData }: Th
       textureLoaderRef.current = null;
       tilesRef.current = [];
     };
-  }, [photos, wallWidth]);
+  }, [photos, wallWidth, month, year]);
 
   // Start animation loop
   useEffect(() => {
@@ -1167,25 +1163,7 @@ function ThreeWall({ photos, year, month, totalPhotos, monthName, rootData }: Th
         user={rootData?.userAvatar}
         isAdmin={rootData?.user?.isAdmin}
         isImpersonating={rootData?.impersonation?.isImpersonating}
-        viewAction={
-          <ViewSwitcher
-            modes={[
-              {
-                key: "grid",
-                label: "Grid View",
-                icon: <Grid className="h-4 w-4" />,
-                to: `/year/${year}/month/${month}/grid`,
-                isActive: false,
-              },
-              {
-                key: "wall",
-                label: "Photo Wall",
-                icon: <CoverflowIcon className="h-4 w-4" />,
-                isActive: true,
-              },
-            ]}
-          />
-        }
+        viewAction={<WallViewSwitcher />}
       />
 
       {/* Photo info overlay */}

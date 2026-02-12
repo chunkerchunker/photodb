@@ -10,7 +10,12 @@ const pool = new Pool({
   connectionString: process.env.DATABASE_URL || "postgresql://localhost/photodb",
   max: 20,
   idleTimeoutMillis: 30000,
-  connectionTimeoutMillis: 2000,
+  connectionTimeoutMillis: 10000, // 10s timeout for acquiring connection from pool
+});
+
+// Log unexpected connection errors (e.g., server restarts, network issues)
+pool.on("error", (err) => {
+  console.error("Unexpected pool error:", err);
 });
 
 /**

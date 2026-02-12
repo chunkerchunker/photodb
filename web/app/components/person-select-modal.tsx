@@ -40,7 +40,7 @@ export function PersonSelectModal({
   const [warningPersonName, setWarningPersonName] = useState("");
   const [warningLinkedUser, setWarningLinkedUser] = useState("");
   const fetcher = useFetcher();
-  const hasHandledSuccess = useRef(false);
+  const prevFetcherState = useRef(fetcher.state);
 
   const isSubmitting = fetcher.state !== "idle";
 
@@ -57,18 +57,20 @@ export function PersonSelectModal({
       setSearch("");
       setSelectedId(currentPersonId);
       setShowWarning(false);
-      hasHandledSuccess.current = false;
     }
   }, [open, currentPersonId]);
 
-  // Handle successful submission
+  // Handle successful submission - only when fetcher transitions from loading to idle
   useEffect(() => {
-    if (fetcher.data?.success && !hasHandledSuccess.current) {
-      hasHandledSuccess.current = true;
+    const wasLoading = prevFetcherState.current !== "idle";
+    const isNowIdle = fetcher.state === "idle";
+    prevFetcherState.current = fetcher.state;
+
+    if (wasLoading && isNowIdle && fetcher.data?.success) {
       onSuccess?.();
       onOpenChange(false);
     }
-  }, [fetcher.data, onSuccess, onOpenChange]);
+  }, [fetcher.state, fetcher.data, onSuccess, onOpenChange]);
 
   const handleSelect = (personId: number) => {
     setSelectedId(personId === selectedId ? null : personId);

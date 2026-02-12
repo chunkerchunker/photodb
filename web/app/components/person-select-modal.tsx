@@ -1,5 +1,5 @@
 import { Link2, Loader2, Search, User } from "lucide-react";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useFetcher } from "react-router";
 import { Button } from "~/components/ui/button";
 import {
@@ -40,6 +40,7 @@ export function PersonSelectModal({
   const [warningPersonName, setWarningPersonName] = useState("");
   const [warningLinkedUser, setWarningLinkedUser] = useState("");
   const fetcher = useFetcher();
+  const hasHandledSuccess = useRef(false);
 
   const isSubmitting = fetcher.state !== "idle";
 
@@ -56,12 +57,14 @@ export function PersonSelectModal({
       setSearch("");
       setSelectedId(currentPersonId);
       setShowWarning(false);
+      hasHandledSuccess.current = false;
     }
   }, [open, currentPersonId]);
 
   // Handle successful submission
   useEffect(() => {
-    if (fetcher.data?.success) {
+    if (fetcher.data?.success && !hasHandledSuccess.current) {
+      hasHandledSuccess.current = true;
       onSuccess?.();
       onOpenChange(false);
     }

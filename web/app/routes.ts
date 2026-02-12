@@ -3,8 +3,12 @@ import { index, type RouteConfig, route } from "@react-router/dev/routes";
 export default [
   route("login", "routes/login.tsx"),
   route("logout", "routes/logout.tsx"),
+  route("profile", "routes/profile.tsx"),
   route("collections", "routes/collections.tsx"),
   route("api/collections/switch", "routes/api.collections.switch.tsx"),
+  route("api/user/update-profile", "routes/api.user.update-profile.tsx"),
+  route("api/user/set-default-collection", "routes/api.user.set-default-collection.tsx"),
+  route("api/collection/:id/set-member-person", "routes/api.collection.$id.set-member-person.tsx"),
 
   // Admin routes
   route("admin/users", "routes/admin.users.tsx"),

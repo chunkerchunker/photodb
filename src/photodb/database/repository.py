@@ -1,5 +1,5 @@
 from typing import Optional, List, Dict, Any
-from datetime import datetime
+from datetime import date, datetime
 import json
 import logging
 import os
@@ -12,16 +12,22 @@ from .models import (
     Cluster,
     DetectionTag,
     Face,
+    FamilyMember,
     LLMAnalysis,
     Metadata,
     Person,
+    PersonBirthOrder,
     PersonDetection,
+    PersonNotRelated,
+    PersonParent,
+    PersonPartnership,
     Photo,
     PhotoTag,
     ProcessingStatus,
     PromptCategory,
     PromptEmbedding,
     SceneAnalysis,
+    Sibling,
 )
 
 logger = logging.getLogger(__name__)
@@ -2449,4 +2455,753 @@ class PhotoRepository:
                     """UPDATE cluster SET epsilon = %s, updated_at = NOW()
                        WHERE id = %s""",
                     (epsilon, cluster_id),
+                )
+
+    # ============================================
+    # GENEALOGICAL RELATIONSHIP METHODS
+    # ============================================
+
+    def add_person_parent(
+        self,
+        person_id: int,
+        parent_id: int,
+        parent_role: Optional[str] = "parent",
+        is_biological: bool = True,
+        source: Optional[str] = "user",
+    ) -> PersonParent:
+        """Add a parent-child relationship.
+
+        Args:
+            person_id: ID of the child person
+            parent_id: ID of the parent person
+            parent_role: Role of the parent ('mother', 'father', 'parent')
+            is_biological: Whether the relationship is biological
+            source: Source of the relationship ('user', 'inferred', 'imported')
+
+        Returns:
+            The created PersonParent record
+
+        Raises:
+            ValueError: If person_id == parent_id (self-reference)
+        """
+        if person_id == parent_id:
+            raise ValueError("A person cannot be their own parent")
+
+        with self.pool.transaction() as conn:
+            with conn.cursor() as cursor:
+                cursor.execute(
+                    """INSERT INTO person_parent
+                       (person_id, parent_id, parent_role, is_biological, source, created_at)
+                       VALUES (%s, %s, %s, %s, %s, NOW())
+                       ON CONFLICT (person_id, parent_id) DO UPDATE SET
+                           parent_role = EXCLUDED.parent_role,
+                           is_biological = EXCLUDED.is_biological,
+                           source = EXCLUDED.source""",
+                    (person_id, parent_id, parent_role, is_biological, source),
+                )
+
+        return PersonParent.create(
+            person_id=person_id,
+            parent_id=parent_id,
+            parent_role=parent_role,
+            is_biological=is_biological,
+            source=source,
+        )
+
+    def remove_person_parent(self, person_id: int, parent_id: int) -> bool:
+        """Remove a parent-child relationship.
+
+        Args:
+            person_id: ID of the child person
+            parent_id: ID of the parent person
+
+        Returns:
+            True if a relationship was removed, False if not found
+        """
+        with self.pool.transaction() as conn:
+            with conn.cursor() as cursor:
+                cursor.execute(
+                    "DELETE FROM person_parent WHERE person_id = %s AND parent_id = %s",
+                    (person_id, parent_id),
+                )
+                return cursor.rowcount > 0
+
+    def get_person_parents(self, person_id: int) -> List[Person]:
+        """Get all parents of a person.
+
+        Args:
+            person_id: ID of the person
+
+        Returns:
+            List of parent Person records
+        """
+        with self.pool.get_connection() as conn:
+            with conn.cursor(row_factory=dict_row) as cursor:
+                cursor.execute(
+                    """SELECT p.*
+                       FROM person p
+                       JOIN person_parent pp ON p.id = pp.parent_id
+                       WHERE pp.person_id = %s
+                       ORDER BY pp.parent_role, p.id""",
+                    (person_id,),
+                )
+                rows = cursor.fetchall()
+                return [Person(**dict(row)) for row in rows]  # type: ignore[arg-type]
+
+    def get_person_children(self, person_id: int) -> List[Person]:
+        """Get all children of a person.
+
+        Args:
+            person_id: ID of the person
+
+        Returns:
+            List of child Person records
+        """
+        with self.pool.get_connection() as conn:
+            with conn.cursor(row_factory=dict_row) as cursor:
+                cursor.execute(
+                    """SELECT p.*
+                       FROM person p
+                       JOIN person_parent pp ON p.id = pp.person_id
+                       WHERE pp.parent_id = %s
+                       ORDER BY p.id""",
+                    (person_id,),
+                )
+                rows = cursor.fetchall()
+                return [Person(**dict(row)) for row in rows]  # type: ignore[arg-type]
+
+    def add_person_partnership(
+        self,
+        person1_id: int,
+        person2_id: int,
+        partnership_type: Optional[str] = "partner",
+        start_year: Optional[int] = None,
+        end_year: Optional[int] = None,
+        is_current: bool = True,
+    ) -> PersonPartnership:
+        """Add a partnership between two persons.
+
+        Args:
+            person1_id: ID of the first person
+            person2_id: ID of the second person
+            partnership_type: Type of partnership ('married', 'partner', 'divorced', 'separated')
+            start_year: Year the partnership started
+            end_year: Year the partnership ended
+            is_current: Whether the partnership is current
+
+        Returns:
+            The created PersonPartnership record
+
+        Raises:
+            ValueError: If person1_id == person2_id
+        """
+        if person1_id == person2_id:
+            raise ValueError("A person cannot have a partnership with themselves")
+
+        # Ensure canonical ordering
+        if person1_id > person2_id:
+            person1_id, person2_id = person2_id, person1_id
+
+        with self.pool.transaction() as conn:
+            with conn.cursor() as cursor:
+                cursor.execute(
+                    """INSERT INTO person_partnership
+                       (person1_id, person2_id, partnership_type, start_year, end_year, is_current, created_at)
+                       VALUES (%s, %s, %s, %s, %s, %s, NOW())
+                       ON CONFLICT (person1_id, person2_id, COALESCE(start_year, 0)) DO UPDATE SET
+                           partnership_type = EXCLUDED.partnership_type,
+                           end_year = EXCLUDED.end_year,
+                           is_current = EXCLUDED.is_current
+                       RETURNING id""",
+                    (person1_id, person2_id, partnership_type, start_year, end_year, is_current),
+                )
+                result = cursor.fetchone()
+                partnership_id = result[0] if result else None
+
+        partnership = PersonPartnership.create(
+            person1_id=person1_id,
+            person2_id=person2_id,
+            partnership_type=partnership_type,
+            start_year=start_year,
+            end_year=end_year,
+            is_current=is_current,
+        )
+        partnership.id = partnership_id
+        return partnership
+
+    def get_person_partnerships(self, person_id: int) -> List[PersonPartnership]:
+        """Get all partnerships for a person.
+
+        Args:
+            person_id: ID of the person
+
+        Returns:
+            List of PersonPartnership records
+        """
+        with self.pool.get_connection() as conn:
+            with conn.cursor(row_factory=dict_row) as cursor:
+                cursor.execute(
+                    """SELECT *
+                       FROM person_partnership
+                       WHERE person1_id = %s OR person2_id = %s
+                       ORDER BY COALESCE(start_year, 0) DESC, id""",
+                    (person_id, person_id),
+                )
+                rows = cursor.fetchall()
+                return [
+                    PersonPartnership(
+                        id=row["id"],
+                        person1_id=row["person1_id"],
+                        person2_id=row["person2_id"],
+                        partnership_type=row["partnership_type"],
+                        start_year=row["start_year"],
+                        end_year=row["end_year"],
+                        is_current=row["is_current"],
+                        created_at=row["created_at"],
+                    )
+                    for row in rows
+                ]
+
+    def add_birth_order(
+        self,
+        older_person_id: int,
+        younger_person_id: int,
+        source: Optional[str] = "user",
+    ) -> PersonBirthOrder:
+        """Add a birth order relationship (older_person was born before younger_person).
+
+        Args:
+            older_person_id: ID of the older person
+            younger_person_id: ID of the younger person
+            source: Source ('exact_dates', 'user', 'inferred', 'photo_evidence')
+
+        Returns:
+            The created PersonBirthOrder record
+
+        Raises:
+            ValueError: If older_person_id == younger_person_id
+        """
+        if older_person_id == younger_person_id:
+            raise ValueError("A person cannot be older than themselves")
+
+        with self.pool.transaction() as conn:
+            with conn.cursor() as cursor:
+                cursor.execute(
+                    """INSERT INTO person_birth_order
+                       (older_person_id, younger_person_id, source, created_at)
+                       VALUES (%s, %s, %s, NOW())
+                       ON CONFLICT (older_person_id, younger_person_id) DO UPDATE SET
+                           source = EXCLUDED.source""",
+                    (older_person_id, younger_person_id, source),
+                )
+
+        return PersonBirthOrder.create(
+            older_person_id=older_person_id,
+            younger_person_id=younger_person_id,
+            source=source,
+        )
+
+    def create_placeholder_parent(
+        self,
+        child_id: int,
+        role: str = "parent",
+    ) -> int:
+        """Create a placeholder parent for a person by calling the DB function.
+
+        Args:
+            child_id: ID of the child person
+            role: Role of the parent ('mother', 'father', 'parent')
+
+        Returns:
+            The ID of the newly created placeholder parent
+        """
+        with self.pool.transaction() as conn:
+            with conn.cursor() as cursor:
+                cursor.execute(
+                    "SELECT create_placeholder_parent(%s, %s)",
+                    (child_id, role),
+                )
+                result = cursor.fetchone()
+                return result[0]
+
+    def link_siblings(
+        self,
+        person1_id: int,
+        person2_id: int,
+        sibling_type: str = "full",
+    ) -> int:
+        """Link two people as siblings by calling the DB function.
+
+        If they already share a parent, returns that parent's ID.
+        Otherwise, creates placeholder parent(s) and links both children.
+        For full siblings, creates two placeholder parents.
+
+        Args:
+            person1_id: ID of the first person
+            person2_id: ID of the second person
+            sibling_type: 'full' or 'half' (default: 'full')
+
+        Returns:
+            The ID of the shared parent (existing or newly created)
+
+        Raises:
+            ValueError: If person1_id == person2_id
+        """
+        if person1_id == person2_id:
+            raise ValueError("Cannot link a person as their own sibling")
+
+        with self.pool.transaction() as conn:
+            with conn.cursor() as cursor:
+                cursor.execute(
+                    "SELECT link_siblings(%s, %s, %s)",
+                    (person1_id, person2_id, sibling_type),
+                )
+                result = cursor.fetchone()
+                return result[0]
+
+    def refresh_genealogy_closures(self) -> None:
+        """Refresh all genealogy closure tables by calling the DB function.
+
+        This refreshes both person_ancestor_closure and person_birth_order_closure.
+        Should be called after adding/removing parent-child or birth order relationships.
+        """
+        with self.pool.transaction() as conn:
+            with conn.cursor() as cursor:
+                cursor.execute("SELECT refresh_genealogy_closures()")
+
+    def get_family_tree(
+        self,
+        center_id: int,
+        max_generations: int = 3,
+        include_placeholders: bool = True,
+    ) -> List[FamilyMember]:
+        """Get the family tree centered on a person by calling the DB function.
+
+        Args:
+            center_id: ID of the center person
+            max_generations: Maximum generations to traverse (default: 3)
+            include_placeholders: Whether to include placeholder persons (default: True)
+
+        Returns:
+            List of FamilyMember records representing the family tree
+        """
+        with self.pool.get_connection() as conn:
+            with conn.cursor(row_factory=dict_row) as cursor:
+                cursor.execute(
+                    "SELECT * FROM get_family_tree(%s, %s, %s)",
+                    (center_id, max_generations, include_placeholders),
+                )
+                rows = cursor.fetchall()
+                return [
+                    FamilyMember(
+                        person_id=row["person_id"],
+                        display_name=row["display_name"],
+                        relation=row["relation"],
+                        generation_offset=row["generation_offset"],
+                        is_placeholder=row["is_placeholder"],
+                    )
+                    for row in rows
+                ]
+
+    def propagate_birth_year_constraints(
+        self,
+        min_parent_gap: int = 15,
+        max_parent_gap: int = 60,
+    ) -> int:
+        """Propagate birth year constraints through genealogical relationships.
+
+        Uses parent-child relationships to infer birth year min/max constraints.
+        Runs iteratively until no more updates are made.
+
+        Args:
+            min_parent_gap: Minimum age difference between parent and child (default: 15)
+            max_parent_gap: Maximum age difference between parent and child (default: 60)
+
+        Returns:
+            Total number of person records updated
+        """
+        with self.pool.transaction() as conn:
+            with conn.cursor() as cursor:
+                cursor.execute(
+                    "SELECT propagate_birth_year_constraints(%s, %s)",
+                    (min_parent_gap, max_parent_gap),
+                )
+                result = cursor.fetchone()
+                return result[0] if result else 0
+
+    def get_persons_older_than(self, person_id: int) -> List[Person]:
+        """Get all persons who are older than the given person (from birth order closure).
+
+        Args:
+            person_id: ID of the person
+
+        Returns:
+            List of Person records who are known to be older
+        """
+        with self.pool.get_connection() as conn:
+            with conn.cursor(row_factory=dict_row) as cursor:
+                cursor.execute(
+                    """SELECT p.*, pboc.min_confidence, pboc.inference_type
+                       FROM person_birth_order_closure pboc
+                       JOIN person p ON p.id = pboc.older_person_id
+                       WHERE pboc.younger_person_id = %s
+                       ORDER BY pboc.min_confidence DESC NULLS LAST, p.id""",
+                    (person_id,),
+                )
+                rows = cursor.fetchall()
+                return [
+                    Person(
+                        **{
+                            k: v
+                            for k, v in dict(row).items()
+                            if k not in ("min_confidence", "inference_type")
+                        }
+                    )
+                    for row in rows
+                ]  # type: ignore[arg-type]
+
+    def get_person_siblings(self, person_id: int) -> List[Sibling]:
+        """Get all siblings of a person from the person_siblings view.
+
+        Args:
+            person_id: ID of the person
+
+        Returns:
+            List of Sibling records
+        """
+        with self.pool.get_connection() as conn:
+            with conn.cursor(row_factory=dict_row) as cursor:
+                cursor.execute(
+                    """SELECT *
+                       FROM person_siblings
+                       WHERE person_id = %s
+                       ORDER BY sibling_type DESC, sibling_id""",
+                    (person_id,),
+                )
+                rows = cursor.fetchall()
+                return [
+                    Sibling(
+                        person_id=row["person_id"],
+                        sibling_id=row["sibling_id"],
+                        sibling_type=row["sibling_type"],
+                        shared_parent_ids=row["shared_parent_ids"] or [],
+                    )
+                    for row in rows
+                ]
+
+    def create_placeholder_person(
+        self,
+        collection_id: Optional[int] = None,
+        placeholder_description: Optional[str] = None,
+    ) -> Person:
+        """Create a placeholder person record.
+
+        Args:
+            collection_id: Collection ID (uses default if not provided)
+            placeholder_description: Description for the placeholder
+
+        Returns:
+            The created Person record with is_placeholder=True
+        """
+        resolved_collection_id = self._resolve_collection_id(collection_id)
+
+        person = Person.create(
+            collection_id=resolved_collection_id,
+            is_placeholder=True,
+            placeholder_description=placeholder_description,
+        )
+
+        with self.pool.transaction() as conn:
+            with conn.cursor() as cursor:
+                cursor.execute(
+                    """INSERT INTO person
+                       (collection_id, first_name, last_name, is_placeholder,
+                        placeholder_description, created_at, updated_at)
+                       VALUES (%s, %s, %s, %s, %s, %s, %s)
+                       RETURNING id""",
+                    (
+                        person.collection_id,
+                        person.first_name,
+                        person.last_name,
+                        person.is_placeholder,
+                        person.placeholder_description,
+                        person.created_at,
+                        person.updated_at,
+                    ),
+                )
+                person.id = cursor.fetchone()[0]
+
+        return person
+
+    def get_person_parent_relationships(self, person_id: int) -> List[PersonParent]:
+        """Get all parent relationships for a person (with relationship details).
+
+        Unlike get_person_parents which returns Person records, this returns
+        the relationship records with parent_role, is_biological, etc.
+
+        Args:
+            person_id: ID of the person (child)
+
+        Returns:
+            List of PersonParent records
+        """
+        with self.pool.get_connection() as conn:
+            with conn.cursor(row_factory=dict_row) as cursor:
+                cursor.execute(
+                    """SELECT *
+                       FROM person_parent
+                       WHERE person_id = %s
+                       ORDER BY parent_role, parent_id""",
+                    (person_id,),
+                )
+                rows = cursor.fetchall()
+                return [
+                    PersonParent(
+                        person_id=row["person_id"],
+                        parent_id=row["parent_id"],
+                        parent_role=row["parent_role"],
+                        is_biological=row["is_biological"],
+                        source=row["source"],
+                        created_at=row["created_at"],
+                    )
+                    for row in rows
+                ]
+
+    def get_ancestors(
+        self,
+        person_id: int,
+        max_distance: Optional[int] = None,
+    ) -> List[Dict[str, Any]]:
+        """Get all ancestors of a person from the closure table.
+
+        Args:
+            person_id: ID of the person
+            max_distance: Maximum generation distance (None for unlimited)
+
+        Returns:
+            List of dicts with ancestor_id, distance
+        """
+        with self.pool.get_connection() as conn:
+            with conn.cursor(row_factory=dict_row) as cursor:
+                if max_distance is not None:
+                    cursor.execute(
+                        """SELECT ancestor_id, distance
+                           FROM person_ancestor_closure
+                           WHERE descendant_id = %s AND distance <= %s
+                           ORDER BY distance, ancestor_id""",
+                        (person_id, max_distance),
+                    )
+                else:
+                    cursor.execute(
+                        """SELECT ancestor_id, distance
+                           FROM person_ancestor_closure
+                           WHERE descendant_id = %s
+                           ORDER BY distance, ancestor_id""",
+                        (person_id,),
+                    )
+                return [dict(row) for row in cursor.fetchall()]
+
+    def get_descendants(
+        self,
+        person_id: int,
+        max_distance: Optional[int] = None,
+    ) -> List[Dict[str, Any]]:
+        """Get all descendants of a person from the closure table.
+
+        Args:
+            person_id: ID of the person
+            max_distance: Maximum generation distance (None for unlimited)
+
+        Returns:
+            List of dicts with descendant_id, distance
+        """
+        with self.pool.get_connection() as conn:
+            with conn.cursor(row_factory=dict_row) as cursor:
+                if max_distance is not None:
+                    cursor.execute(
+                        """SELECT descendant_id, distance
+                           FROM person_ancestor_closure
+                           WHERE ancestor_id = %s AND distance <= %s
+                           ORDER BY distance, descendant_id""",
+                        (person_id, max_distance),
+                    )
+                else:
+                    cursor.execute(
+                        """SELECT descendant_id, distance
+                           FROM person_ancestor_closure
+                           WHERE ancestor_id = %s
+                           ORDER BY distance, descendant_id""",
+                        (person_id,),
+                    )
+                return [dict(row) for row in cursor.fetchall()]
+
+    # ============================================
+    # NON-RELATIONSHIP TRACKING METHODS
+    # ============================================
+
+    def add_person_not_related(
+        self,
+        person1_id: int,
+        person2_id: int,
+        source: Optional[str] = None,
+        notes: Optional[str] = None,
+    ) -> PersonNotRelated:
+        """Add an explicit non-relationship between two persons.
+
+        Args:
+            person1_id: ID of the first person
+            person2_id: ID of the second person
+            source: Source of the determination ('user', 'inferred')
+            notes: Optional notes about why they are not related
+
+        Returns:
+            The created PersonNotRelated record
+
+        Raises:
+            ValueError: If person1_id == person2_id
+        """
+        if person1_id == person2_id:
+            raise ValueError("A person cannot be marked as not related to themselves")
+
+        # Ensure canonical ordering (person1_id < person2_id)
+        if person1_id > person2_id:
+            person1_id, person2_id = person2_id, person1_id
+
+        with self.pool.transaction() as conn:
+            with conn.cursor() as cursor:
+                cursor.execute(
+                    """INSERT INTO person_not_related
+                       (person1_id, person2_id, source, notes, created_at)
+                       VALUES (%s, %s, %s, %s, NOW())
+                       ON CONFLICT (person1_id, person2_id) DO UPDATE SET
+                           source = EXCLUDED.source,
+                           notes = EXCLUDED.notes""",
+                    (person1_id, person2_id, source, notes),
+                )
+
+        return PersonNotRelated.create(
+            person1_id=person1_id,
+            person2_id=person2_id,
+            source=source,
+            notes=notes,
+        )
+
+    def remove_person_not_related(self, person1_id: int, person2_id: int) -> bool:
+        """Remove a non-relationship record between two persons.
+
+        Args:
+            person1_id: ID of the first person
+            person2_id: ID of the second person
+
+        Returns:
+            True if a record was removed, False if not found
+        """
+        # Ensure canonical ordering (person1_id < person2_id)
+        if person1_id > person2_id:
+            person1_id, person2_id = person2_id, person1_id
+
+        with self.pool.transaction() as conn:
+            with conn.cursor() as cursor:
+                cursor.execute(
+                    "DELETE FROM person_not_related WHERE person1_id = %s AND person2_id = %s",
+                    (person1_id, person2_id),
+                )
+                return cursor.rowcount > 0
+
+    def are_persons_unrelated(self, person1_id: int, person2_id: int) -> bool:
+        """Check if two persons are explicitly marked as not related.
+
+        This calls the database function are_persons_unrelated which handles
+        canonical ordering internally.
+
+        Args:
+            person1_id: ID of the first person
+            person2_id: ID of the second person
+
+        Returns:
+            True if the persons are marked as not related, False otherwise
+        """
+        with self.pool.get_connection() as conn:
+            with conn.cursor() as cursor:
+                cursor.execute(
+                    "SELECT are_persons_unrelated(%s, %s)",
+                    (person1_id, person2_id),
+                )
+                result = cursor.fetchone()
+                return result[0] if result else False
+
+    def get_unrelated_persons(self, person_id: int) -> List[int]:
+        """Get all person IDs that are explicitly marked as not related to a person.
+
+        Args:
+            person_id: ID of the person
+
+        Returns:
+            List of person IDs that are not related to this person
+        """
+        with self.pool.get_connection() as conn:
+            with conn.cursor() as cursor:
+                cursor.execute(
+                    """SELECT CASE
+                           WHEN person1_id = %s THEN person2_id
+                           ELSE person1_id
+                       END as other_person_id
+                       FROM person_not_related
+                       WHERE person1_id = %s OR person2_id = %s
+                       ORDER BY other_person_id""",
+                    (person_id, person_id, person_id),
+                )
+                return [row[0] for row in cursor.fetchall()]
+
+    # ==============================================
+    # PERSON BIRTH DATE METHODS
+    # ==============================================
+
+    def set_person_birth_date(self, person_id: int, birth_date: date) -> None:
+        """Set exact birth date, updating year constraints accordingly."""
+        year = birth_date.year
+        with self.pool.transaction() as conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    """
+                    UPDATE person
+                    SET birth_date = %s,
+                        birth_year_min = %s,
+                        birth_year_max = %s,
+                        birth_year_source = 'exact'
+                    WHERE id = %s
+                    """,
+                    (birth_date, year, year, person_id),
+                )
+
+    def set_person_birth_year(self, person_id: int, year: int) -> None:
+        """Set birth year only (no exact date known)."""
+        with self.pool.transaction() as conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    """
+                    UPDATE person
+                    SET birth_date = NULL,
+                        birth_year_min = %s,
+                        birth_year_max = %s,
+                        birth_year_source = 'year'
+                    WHERE id = %s
+                    """,
+                    (year, year, person_id),
+                )
+
+    def clear_person_birth_info(self, person_id: int) -> None:
+        """Clear all birth date/year information for a person."""
+        with self.pool.transaction() as conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    """
+                    UPDATE person
+                    SET birth_date = NULL,
+                        birth_year_min = NULL,
+                        birth_year_max = NULL,
+                        birth_year_source = NULL
+                    WHERE id = %s
+                    """,
+                    (person_id,),
                 )

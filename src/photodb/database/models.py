@@ -1,5 +1,5 @@
 from dataclasses import dataclass
-from datetime import datetime, timezone
+from datetime import date, datetime, timezone
 from enum import Enum
 from typing import Optional, Dict, Any, List
 import json
@@ -230,7 +230,7 @@ class LLMAnalysis:
 class Person:
     id: Optional[int]
     collection_id: int
-    first_name: str
+    first_name: Optional[str]  # Nullable for placeholder persons
     last_name: Optional[str]
     created_at: datetime
     updated_at: datetime
@@ -241,12 +241,20 @@ class Person:
     gender_confidence: Optional[float] = None
     age_gender_sample_count: int = 0
     age_gender_updated_at: Optional[datetime] = None
+    # Placeholder support
+    is_placeholder: bool = False
+    placeholder_description: Optional[str] = None
+    # Birth year constraints (for genealogical age inference)
+    birth_year_min: Optional[int] = None
+    birth_year_max: Optional[int] = None
+    birth_year_source: Optional[str] = None  # 'exact', 'year', 'estimated', 'inferred'
+    birth_date: Optional[date] = None  # Exact birth date if known
 
     @classmethod
     def create(
         cls,
         collection_id: int,
-        first_name: str,
+        first_name: Optional[str] = None,
         last_name: Optional[str] = None,
         estimated_birth_year: Optional[int] = None,
         birth_year_stddev: Optional[float] = None,
@@ -254,6 +262,12 @@ class Person:
         gender_confidence: Optional[float] = None,
         age_gender_sample_count: int = 0,
         age_gender_updated_at: Optional[datetime] = None,
+        is_placeholder: bool = False,
+        placeholder_description: Optional[str] = None,
+        birth_year_min: Optional[int] = None,
+        birth_year_max: Optional[int] = None,
+        birth_year_source: Optional[str] = None,
+        birth_date: Optional[date] = None,
     ) -> "Person":
         """Create a new person record."""
         now = datetime.now(timezone.utc)
@@ -270,14 +284,28 @@ class Person:
             gender_confidence=gender_confidence,
             age_gender_sample_count=age_gender_sample_count,
             age_gender_updated_at=age_gender_updated_at,
+            is_placeholder=is_placeholder,
+            placeholder_description=placeholder_description,
+            birth_year_min=birth_year_min,
+            birth_year_max=birth_year_max,
+            birth_year_source=birth_year_source,
+            birth_date=birth_date,
         )
 
     @property
     def full_name(self) -> str:
-        """Get the full name (first + last)."""
-        if self.last_name:
-            return f"{self.first_name} {self.last_name}"
-        return self.first_name
+        """Get the full name (first + last), placeholder description, or fallback."""
+        if self.first_name is not None or self.last_name is not None:
+            parts = []
+            if self.first_name:
+                parts.append(self.first_name)
+            if self.last_name:
+                parts.append(self.last_name)
+            return " ".join(parts) if parts else f"Unknown #{self.id}"
+        elif self.placeholder_description:
+            return self.placeholder_description
+        else:
+            return f"Unknown #{self.id}"
 
     def to_dict(self) -> Dict[str, Any]:
         return {
@@ -294,6 +322,12 @@ class Person:
             "gender_confidence": self.gender_confidence,
             "age_gender_sample_count": self.age_gender_sample_count,
             "age_gender_updated_at": self.age_gender_updated_at,
+            "is_placeholder": self.is_placeholder,
+            "placeholder_description": self.placeholder_description,
+            "birth_year_min": self.birth_year_min,
+            "birth_year_max": self.birth_year_max,
+            "birth_year_source": self.birth_year_source,
+            "birth_date": self.birth_date.isoformat() if self.birth_date else None,
         }
 
 
@@ -926,3 +960,211 @@ class SceneAnalysis:
             created_at=now,
             updated_at=now,
         )
+
+
+# ============================================
+# GENEALOGICAL RELATIONSHIP MODELS
+# ============================================
+
+
+@dataclass
+class PersonParent:
+    """Parent-child relationship (the fundamental genealogical unit)."""
+
+    person_id: int
+    parent_id: int
+    parent_role: Optional[str]  # 'mother', 'father', 'parent'
+    is_biological: bool
+    source: Optional[str]  # 'user', 'inferred', 'imported'
+    created_at: datetime
+
+    @classmethod
+    def create(
+        cls,
+        person_id: int,
+        parent_id: int,
+        parent_role: Optional[str] = "parent",
+        is_biological: bool = True,
+        source: Optional[str] = "user",
+    ) -> "PersonParent":
+        """Create a new person-parent relationship."""
+        return cls(
+            person_id=person_id,
+            parent_id=parent_id,
+            parent_role=parent_role,
+            is_biological=is_biological,
+            source=source,
+            created_at=datetime.now(timezone.utc),
+        )
+
+    def to_dict(self) -> Dict[str, Any]:
+        return {
+            "person_id": self.person_id,
+            "parent_id": self.parent_id,
+            "parent_role": self.parent_role,
+            "is_biological": self.is_biological,
+            "source": self.source,
+            "created_at": self.created_at,
+        }
+
+
+@dataclass
+class PersonPartnership:
+    """Partnership (marriage, relationship) between two persons."""
+
+    id: Optional[int]
+    person1_id: int
+    person2_id: int
+    partnership_type: Optional[str]  # 'married', 'partner', 'divorced', 'separated'
+    start_year: Optional[int]
+    end_year: Optional[int]
+    is_current: bool
+    created_at: datetime
+
+    @classmethod
+    def create(
+        cls,
+        person1_id: int,
+        person2_id: int,
+        partnership_type: Optional[str] = "partner",
+        start_year: Optional[int] = None,
+        end_year: Optional[int] = None,
+        is_current: bool = True,
+    ) -> "PersonPartnership":
+        """Create a new partnership record."""
+        # Ensure canonical ordering (person1_id < person2_id)
+        if person1_id > person2_id:
+            person1_id, person2_id = person2_id, person1_id
+        return cls(
+            id=None,
+            person1_id=person1_id,
+            person2_id=person2_id,
+            partnership_type=partnership_type,
+            start_year=start_year,
+            end_year=end_year,
+            is_current=is_current,
+            created_at=datetime.now(timezone.utc),
+        )
+
+    def to_dict(self) -> Dict[str, Any]:
+        return {
+            "id": self.id,
+            "person1_id": self.person1_id,
+            "person2_id": self.person2_id,
+            "partnership_type": self.partnership_type,
+            "start_year": self.start_year,
+            "end_year": self.end_year,
+            "is_current": self.is_current,
+            "created_at": self.created_at,
+        }
+
+
+@dataclass
+class PersonBirthOrder:
+    """Pairwise birth order (partial ordering between persons)."""
+
+    older_person_id: int
+    younger_person_id: int
+    source: Optional[str]  # 'exact_dates', 'user', 'inferred', 'photo_evidence'
+    created_at: datetime
+
+    @classmethod
+    def create(
+        cls,
+        older_person_id: int,
+        younger_person_id: int,
+        source: Optional[str] = "user",
+    ) -> "PersonBirthOrder":
+        """Create a new birth order record."""
+        return cls(
+            older_person_id=older_person_id,
+            younger_person_id=younger_person_id,
+            source=source,
+            created_at=datetime.now(timezone.utc),
+        )
+
+    def to_dict(self) -> Dict[str, Any]:
+        return {
+            "older_person_id": self.older_person_id,
+            "younger_person_id": self.younger_person_id,
+            "source": self.source,
+            "created_at": self.created_at,
+        }
+
+
+@dataclass
+class FamilyMember:
+    """A member of a family tree, returned by get_family_tree."""
+
+    person_id: int
+    display_name: str
+    relation: str  # 'self', 'parent', 'grandparent', 'child', 'full-sibling', 'half-sibling', etc.
+    generation_offset: int  # 0 = same generation, negative = ancestors, positive = descendants
+    is_placeholder: bool
+
+    def to_dict(self) -> Dict[str, Any]:
+        return {
+            "person_id": self.person_id,
+            "display_name": self.display_name,
+            "relation": self.relation,
+            "generation_offset": self.generation_offset,
+            "is_placeholder": self.is_placeholder,
+        }
+
+
+@dataclass
+class Sibling:
+    """A sibling relationship from the person_siblings view."""
+
+    person_id: int
+    sibling_id: int
+    sibling_type: str  # 'full' or 'half'
+    shared_parent_ids: List[int]
+
+    def to_dict(self) -> Dict[str, Any]:
+        return {
+            "person_id": self.person_id,
+            "sibling_id": self.sibling_id,
+            "sibling_type": self.sibling_type,
+            "shared_parent_ids": self.shared_parent_ids,
+        }
+
+
+@dataclass
+class PersonNotRelated:
+    """Explicit non-relationship between two persons (they are confirmed NOT related)."""
+
+    person1_id: int
+    person2_id: int
+    source: Optional[str] = None  # 'user', 'inferred'
+    notes: Optional[str] = None
+    created_at: Optional[datetime] = None
+
+    @classmethod
+    def create(
+        cls,
+        person1_id: int,
+        person2_id: int,
+        source: Optional[str] = None,
+        notes: Optional[str] = None,
+    ) -> "PersonNotRelated":
+        """Create a new non-relationship record with canonical ordering."""
+        # Ensure canonical ordering (person1_id < person2_id)
+        if person1_id > person2_id:
+            person1_id, person2_id = person2_id, person1_id
+        return cls(
+            person1_id=person1_id,
+            person2_id=person2_id,
+            source=source,
+            notes=notes,
+            created_at=datetime.now(timezone.utc),
+        )
+
+    def to_dict(self) -> Dict[str, Any]:
+        return {
+            "person1_id": self.person1_id,
+            "person2_id": self.person2_id,
+            "source": self.source,
+            "notes": self.notes,
+            "created_at": self.created_at,
+        }

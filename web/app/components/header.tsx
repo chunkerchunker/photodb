@@ -105,6 +105,12 @@ export function Header({ viewAction, breadcrumbs = [], homeTo = "/", user, isAdm
                   </>
                 )}
                 <DropdownMenuItem asChild>
+                  <Link to="/profile" className="flex items-center cursor-pointer">
+                    <User className="h-4 w-4 mr-2" />
+                    Profile
+                  </Link>
+                </DropdownMenuItem>
+                <DropdownMenuItem asChild>
                   <Link to="/collections" className="flex items-center cursor-pointer">
                     <FolderOpen className="h-4 w-4 mr-2" />
                     Collections

@@ -21,7 +21,6 @@ export function Layout({ children }: LayoutProps) {
         isImpersonating={rootData?.impersonation?.isImpersonating}
         viewAction={
           <ViewSwitcher
-            variant="light"
             modes={[
               {
                 key: "grid",

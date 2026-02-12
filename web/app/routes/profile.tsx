@@ -83,7 +83,7 @@ export default function ProfilePage({ loaderData }: Route.ComponentProps) {
       setCollectionDropdownOpen(false);
       collectionFetcher.submit(
         { collectionId: collectionId.toString() },
-        { method: "post", action: "/api/user/set-default-collection" }
+        { method: "post", action: "/api/user/set-default-collection" },
       );
     }
   };
@@ -92,7 +92,7 @@ export default function ProfilePage({ loaderData }: Route.ComponentProps) {
   const handleProfileSave = () => {
     profileFetcher.submit(
       { firstName: firstName.trim(), lastName: lastName.trim() },
-      { method: "post", action: "/api/user/update-profile" }
+      { method: "post", action: "/api/user/update-profile" },
     );
   };
 

@@ -389,10 +389,7 @@ export async function updateUserPasswordHash(userId: number, passwordHash: strin
  * Update user's first and last name.
  */
 export async function updateUserProfile(userId: number, firstName: string, lastName: string | null): Promise<void> {
-  await pool.query(
-    "UPDATE app_user SET first_name = $1, last_name = $2 WHERE id = $3",
-    [firstName, lastName, userId]
-  );
+  await pool.query("UPDATE app_user SET first_name = $1, last_name = $2 WHERE id = $3", [firstName, lastName, userId]);
 }
 
 // ============================================================================
@@ -2198,11 +2195,11 @@ export async function updateUserDefaultCollection(userId: number, collectionId: 
 export async function setCollectionMemberPerson(
   userId: number,
   collectionId: number,
-  personId: number | null
+  personId: number | null,
 ): Promise<void> {
   const result = await pool.query(
     "UPDATE collection_member SET person_id = $1 WHERE user_id = $2 AND collection_id = $3 RETURNING user_id",
-    [personId, userId, collectionId]
+    [personId, userId, collectionId],
   );
 
   if (result.rows.length === 0) {

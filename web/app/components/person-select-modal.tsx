@@ -88,7 +88,7 @@ export function PersonSelectModal({
   const submitSelection = () => {
     fetcher.submit(
       { personId: selectedId?.toString() || "" },
-      { method: "post", action: `/api/collection/${collectionId}/set-member-person` }
+      { method: "post", action: `/api/collection/${collectionId}/set-member-person` },
     );
   };
 

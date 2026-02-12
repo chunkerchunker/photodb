@@ -98,18 +98,15 @@ export function Header({ viewAction, breadcrumbs = [], homeTo = "/", user, isAdm
               <DropdownMenuContent align="end" className="w-48">
                 {user && (
                   <>
-                    <div className="px-2 py-1.5 text-sm font-medium text-gray-900">
-                      {user.firstName} {user.lastName || ""}
-                    </div>
+                    <DropdownMenuItem asChild>
+                      <Link to="/profile" className="flex items-center cursor-pointer font-medium">
+                        <User className="h-4 w-4 mr-2" />
+                        {user.firstName} {user.lastName || ""}
+                      </Link>
+                    </DropdownMenuItem>
                     <DropdownMenuSeparator />
                   </>
                 )}
-                <DropdownMenuItem asChild>
-                  <Link to="/profile" className="flex items-center cursor-pointer">
-                    <User className="h-4 w-4 mr-2" />
-                    Profile
-                  </Link>
-                </DropdownMenuItem>
                 <DropdownMenuItem asChild>
                   <Link to="/collections" className="flex items-center cursor-pointer">
                     <FolderOpen className="h-4 w-4 mr-2" />

@@ -1,4 +1,4 @@
-import { Check, ChevronDown, Loader2, User } from "lucide-react";
+import { Check, ChevronDown, ChevronRight, Loader2, User } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { useFetcher, useRevalidator } from "react-router";
 import { Header } from "~/components/header";
@@ -242,6 +242,7 @@ export default function ProfilePage({ loaderData }: Route.ComponentProps) {
                             />
                           </div>
                           <span className="text-sm">{collection.person_name}</span>
+                          <ChevronRight className="h-4 w-4 text-gray-400" />
                         </>
                       ) : (
                         <>
@@ -249,6 +250,7 @@ export default function ProfilePage({ loaderData }: Route.ComponentProps) {
                             <User className="h-4 w-4 text-gray-400" />
                           </div>
                           <span className="text-sm text-gray-500">Select person</span>
+                          <ChevronRight className="h-4 w-4 text-gray-400" />
                         </>
                       )}
                     </button>

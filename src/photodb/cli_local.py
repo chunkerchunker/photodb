@@ -16,7 +16,7 @@ from .utils.logging import setup_logging  # noqa: E402
 
 
 @click.command()
-@click.argument("path", type=click.Path(exists=True))
+@click.argument("path", type=click.Path(exists=False))
 @click.option("--force", is_flag=True, help="Force reprocessing of already processed photos")
 @click.option(
     "--stage",
@@ -123,9 +123,12 @@ def main(
                 connection_pool, collection_id=int(config_data.get("COLLECTION_ID", 1))
             )
 
-            input_path = resolve_path(path, config_data["INGEST_PATH"])
+            input_path = resolve_path(
+                path, config_data["INGEST_PATH"], skip_disk_check=skip_directory_scan
+            )
 
-            if not input_path.exists():
+            # When skip_directory_scan is enabled, don't access disk at all
+            if not skip_directory_scan and not input_path.exists():
                 logger.error(f"Path does not exist: {input_path}")
                 sys.exit(1)
 
@@ -143,7 +146,8 @@ def main(
                 force_directory_scan=force_directory_scan,
                 skip_directory_scan=skip_directory_scan,
             ) as processor:
-                if input_path.is_file():
+                # When skip_directory_scan is enabled, assume directory (no disk access)
+                if not skip_directory_scan and input_path.is_file():
                     logger.info(f"Processing single file: {input_path}")
                     result = processor.process_file(input_path)
                 else:
@@ -186,11 +190,22 @@ def load_configuration(config_path: Optional[str]) -> dict:
     return config
 
 
-def resolve_path(path: str, base_path: str) -> Path:
-    """Resolve path relative to base path if needed."""
+def resolve_path(path: str, base_path: str, skip_disk_check: bool = False) -> Path:
+    """Resolve path relative to base path if needed.
+
+    Args:
+        path: The path to resolve
+        base_path: Base path to resolve relative paths against
+        skip_disk_check: If True, don't access disk to check existence
+    """
     p = Path(path)
     if p.is_absolute():
         return p
+
+    if skip_disk_check:
+        # When skipping disk checks, prefer resolving against base_path
+        base = Path(base_path)
+        return base / p
 
     if p.exists():
         return p.resolve()

@@ -318,7 +318,13 @@ class LocalProcessor(BaseProcessor):
                 )
 
             for file_path in file_iter:
-                if file_path.is_file() and file_path.suffix.lower() in supported_extensions:
+                # When using database (not scanning), trust the database records
+                # and don't access disk. Only check file extension.
+                # When scanning directory, verify it's actually a file.
+                if should_scan:
+                    if not file_path.is_file():
+                        continue
+                if file_path.suffix.lower() in supported_extensions:
                     result.total_files += 1
                     future = executor.submit(process_with_pooled_repo, file_path)
                     futures[future] = file_path

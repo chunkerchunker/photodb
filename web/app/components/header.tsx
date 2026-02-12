@@ -26,14 +26,14 @@ interface HeaderProps {
 function UserAvatar({ user }: { user?: UserAvatarInfo }) {
   if (user?.avatarDetectionId) {
     return (
-      <div className="w-8 h-8 bg-white/20 rounded-full overflow-hidden ring-2 ring-white/30 hover:ring-white/50 transition-all">
+      <div className="w-8 h-8 bg-white/20 rounded-full overflow-hidden ring-1 ring-white/30 hover:ring-white/50 transition-all">
         <img src={`/api/face/${user.avatarDetectionId}`} alt={user.firstName} className="w-full h-full object-cover" />
       </div>
     );
   }
 
   return (
-    <div className="w-8 h-8 bg-white/20 rounded-full flex items-center justify-center ring-2 ring-white/30 hover:ring-white/50 transition-all">
+    <div className="w-8 h-8 bg-white/20 rounded-full flex items-center justify-center ring-1 ring-white/30 hover:ring-white/50 transition-all">
       <User className="h-4 w-4 text-white" />
     </div>
   );

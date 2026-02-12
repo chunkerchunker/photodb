@@ -385,6 +385,16 @@ export async function updateUserPasswordHash(userId: number, passwordHash: strin
   await pool.query("UPDATE app_user SET password_hash = $1 WHERE id = $2", [passwordHash, userId]);
 }
 
+/**
+ * Update user's first and last name.
+ */
+export async function updateUserProfile(userId: number, firstName: string, lastName: string | null): Promise<void> {
+  await pool.query(
+    "UPDATE app_user SET first_name = $1, last_name = $2 WHERE id = $3",
+    [firstName, lastName, userId]
+  );
+}
+
 // ============================================================================
 // Admin Functions
 // ============================================================================
@@ -2179,6 +2189,77 @@ export async function updateUserDefaultCollection(userId: number, collectionId: 
   }
 
   await pool.query("UPDATE app_user SET default_collection_id = $1 WHERE id = $2", [collectionId, userId]);
+}
+
+/**
+ * Set the person linked to a user's collection membership.
+ * Used for avatar display in that collection.
+ */
+export async function setCollectionMemberPerson(
+  userId: number,
+  collectionId: number,
+  personId: number | null
+): Promise<void> {
+  const result = await pool.query(
+    "UPDATE collection_member SET person_id = $1 WHERE user_id = $2 AND collection_id = $3 RETURNING user_id",
+    [personId, userId, collectionId]
+  );
+
+  if (result.rows.length === 0) {
+    throw new Error("User is not a member of this collection");
+  }
+}
+
+export type PersonForSelection = {
+  id: number;
+  first_name: string;
+  last_name: string | null;
+  person_name: string;
+  detection_id: number | null;
+  linked_user_id: number | null;
+  linked_user_name: string | null;
+};
+
+/**
+ * Get all persons in a collection with info about which user they're linked to.
+ * Used for person selection modal.
+ */
+export async function getPersonsForCollection(collectionId: number): Promise<PersonForSelection[]> {
+  const query = `
+    SELECT
+      per.id,
+      per.first_name,
+      per.last_name,
+      TRIM(CONCAT(per.first_name, ' ', COALESCE(per.last_name, ''))) as person_name,
+      COALESCE(
+        per.representative_detection_id,
+        (SELECT c.representative_detection_id
+         FROM cluster c
+         WHERE c.person_id = per.id
+           AND c.representative_detection_id IS NOT NULL
+           AND (c.hidden = false OR c.hidden IS NULL)
+         ORDER BY c.face_count DESC
+         LIMIT 1)
+      ) as detection_id,
+      cm.user_id as linked_user_id,
+      CASE WHEN cm.user_id IS NOT NULL
+        THEN TRIM(CONCAT(u.first_name, ' ', COALESCE(u.last_name, '')))
+        ELSE NULL
+      END as linked_user_name
+    FROM person per
+    LEFT JOIN collection_member cm ON cm.person_id = per.id AND cm.collection_id = per.collection_id
+    LEFT JOIN app_user u ON cm.user_id = u.id
+    WHERE per.collection_id = $1
+      AND (per.hidden = false OR per.hidden IS NULL)
+      AND EXISTS (
+        SELECT 1 FROM cluster c
+        WHERE c.person_id = per.id AND c.face_count > 0
+      )
+    ORDER BY per.first_name, per.last_name, per.id
+  `;
+
+  const result = await pool.query(query, [collectionId]);
+  return result.rows;
 }
 
 /**

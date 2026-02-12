@@ -642,7 +642,7 @@ class PhotoRepository:
         with self.pool.get_connection() as conn:
             with conn.cursor(row_factory=dict_row) as cursor:
                 cursor.execute(
-                    "SELECT * FROM photo WHERE filename LIKE %s AND collection_id = %s",
+                    "SELECT * FROM photo WHERE orig_path LIKE %s AND collection_id = %s",
                     (f"{directory}%", self.collection_id),
                 )
                 rows = cursor.fetchall()

@@ -236,9 +236,12 @@ CREATE TABLE IF NOT EXISTS person(
     age_gender_updated_at timestamptz,
     -- Hidden flag (for ignored people)
     hidden boolean DEFAULT false,
+    -- Representative face for display
+    representative_detection_id bigint,
     created_at timestamp with time zone DEFAULT NOW(),
     updated_at timestamp with time zone DEFAULT NOW(),
-    FOREIGN KEY (collection_id) REFERENCES collection(id) ON DELETE CASCADE
+    FOREIGN KEY (collection_id) REFERENCES collection(id) ON DELETE CASCADE,
+    FOREIGN KEY (representative_detection_id) REFERENCES person_detection(id) ON DELETE SET NULL
 );
 
 -- Person Detection table: Detected faces/bodies in photos with bounding boxes and age/gender
@@ -270,7 +273,8 @@ CREATE TABLE IF NOT EXISTS person_detection(
 
     -- Clustering fields
     person_id bigint,
-    cluster_status text CHECK (cluster_status IN ('auto', 'pending', 'manual', 'unassigned', 'constrained')) DEFAULT NULL,
+    cluster_status text CHECK (cluster_status IN ('auto', 'pending', 'manual', 'unassigned', 'constrained', 'hdbscan', 'hdbscan_core')) DEFAULT NULL,
+    is_core boolean DEFAULT false,  -- True if this detection is a core point from HDBSCAN clustering
     cluster_id bigint,
     cluster_confidence real DEFAULT 0,
 
@@ -313,10 +317,20 @@ CREATE INDEX IF NOT EXISTS idx_person_detection_gender ON person_detection(gende
 
 CREATE INDEX IF NOT EXISTS idx_person_detection_age ON person_detection(age_estimate);
 
+-- HDBSCAN core point indexes
+CREATE INDEX IF NOT EXISTS idx_person_detection_is_core
+ON person_detection(is_core) WHERE is_core = true;
+
+CREATE INDEX IF NOT EXISTS idx_person_detection_cluster_core
+ON person_detection(cluster_id, is_core) WHERE cluster_id IS NOT NULL;
+
 CREATE INDEX IF NOT EXISTS idx_person_first_name ON person(first_name);
 CREATE INDEX IF NOT EXISTS idx_person_last_name ON person(last_name);
 CREATE INDEX IF NOT EXISTS idx_person_collection_first_name ON person(collection_id, first_name);
 CREATE INDEX IF NOT EXISTS idx_person_collection_last_name ON person(collection_id, last_name);
+
+CREATE INDEX IF NOT EXISTS idx_person_representative
+ON person(representative_detection_id) WHERE representative_detection_id IS NOT NULL;
 
 -- Face-level embeddings (for clustering & recognition)
 CREATE TABLE IF NOT EXISTS face_embedding(
@@ -340,6 +354,9 @@ CREATE TABLE IF NOT EXISTS "cluster"(
     verified boolean DEFAULT false,
     verified_at timestamptz DEFAULT NULL,
     verified_by text DEFAULT NULL,
+    -- HDBSCAN clustering fields
+    epsilon real,  -- Per-cluster distance threshold derived from core point distances
+    core_count integer DEFAULT 0,  -- Number of core points in this cluster
     -- Hidden clusters (ignored people)
     hidden boolean DEFAULT false,
     created_at timestamptz DEFAULT now(),

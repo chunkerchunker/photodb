@@ -360,10 +360,11 @@ class PersonDetection:
     # Person association (via clustering or manual assignment)
     person_id: Optional[int] = None
     # Clustering fields
-    cluster_status: Optional[str] = None  # 'auto', 'pending', 'manual', 'unassigned', 'constrained'
+    cluster_status: Optional[str] = None  # 'auto', 'pending', 'manual', 'unassigned', 'constrained', 'hdbscan', 'hdbscan_core'
     cluster_id: Optional[int] = None
     cluster_confidence: Optional[float] = None
     unassigned_since: Optional[datetime] = None  # When added to unassigned pool
+    is_core: bool = False  # True if this is a core point from HDBSCAN clustering
     # Detector metadata
     detector_model: Optional[str] = None
     detector_version: Optional[str] = None

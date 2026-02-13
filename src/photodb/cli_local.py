@@ -131,6 +131,8 @@ def main(
                 if collection_id is not None
                 else int(config_data.get("COLLECTION_ID", 1))
             )
+            # Update config so stages created via constructor get the correct value
+            config_data["COLLECTION_ID"] = effective_collection_id
             repository = PhotoRepository(connection_pool, collection_id=effective_collection_id)
 
             input_path = resolve_path(

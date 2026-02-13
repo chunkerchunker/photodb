@@ -403,7 +403,7 @@ export default function ClusterDetailView({ loaderData }: Route.ComponentProps) 
 
   const loadMore = useCallback(() => {
     if (scrollFetcher.state === "idle" && hasMore && cluster) {
-      scrollFetcher.load(`/cluster/${cluster.id}?page=${page + 1}`);
+      scrollFetcher.load(`/cluster/${cluster.id}/grid?page=${page + 1}`);
     }
   }, [scrollFetcher, hasMore, page, cluster]);
 

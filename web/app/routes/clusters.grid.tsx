@@ -141,7 +141,7 @@ export default function ClustersView({ loaderData }: Route.ComponentProps) {
 
   const loadMore = useCallback(() => {
     if (fetcher.state === "idle" && hasMore) {
-      fetcher.load(`/clusters?page=${page + 1}`);
+      fetcher.load(`/clusters/grid?page=${page + 1}`);
     }
   }, [fetcher, hasMore, page]);
 

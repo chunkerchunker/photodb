@@ -140,7 +140,7 @@ export default function MonthView({ loaderData }: Route.ComponentProps) {
 
   const loadMore = useCallback(() => {
     if (fetcher.state === "idle" && hasMore) {
-      fetcher.load(`/year/${year}/month/${month}?page=${page + 1}`);
+      fetcher.load(`/year/${year}/month/${month}/grid?page=${page + 1}`);
     }
   }, [fetcher, hasMore, page, year, month]);
 

@@ -246,6 +246,12 @@ Constrained incremental clustering for person identity grouping based on face em
 4. Find medoid (detection closest to centroid)
 5. Assign detections with confidence based on distance to centroid
 
+> **Note: "Failed to create cluster" warnings**
+>
+> The log message `Failed to create cluster from detections [ids]` occurs when step 2 filters out too many detections, leaving fewer than 2 within threshold of the centroid. This happens with "chained" similarity: faces A↔B and B↔C are pairwise similar, but A and C are dissimilar. When the centroid is calculated, some faces end up too far from it.
+>
+> This is expected behavior, especially for family photos where relatives may have similar features but shouldn't be clustered together. The filter prevents low-quality clusters from forming.
+
 **Inline Medoid Recomputation**:
 
 When a cluster grows by `MEDOID_RECOMPUTE_THRESHOLD` (default 25%) since last medoid computation, the medoid is recomputed inline during detection assignment. This uses `face_count_at_last_medoid` to track when recomputation is needed.

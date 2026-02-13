@@ -62,6 +62,11 @@ from .utils.logging import setup_logging  # noqa: E402
     is_flag=True,
     help="Force skipping directory scan and using database instead (default for non-normalize stages)",
 )
+@click.option(
+    "--collection-id",
+    type=int,
+    help="Collection ID to use (overrides COLLECTION_ID env var)",
+)
 def main(
     path: str,
     force: bool,
@@ -77,6 +82,7 @@ def main(
     max_photos: Optional[int],
     force_directory_scan: bool,
     skip_directory_scan: bool,
+    collection_id: Optional[int],
 ):
     """
     Process photos locally from PATH (file or directory).
@@ -119,9 +125,13 @@ def main(
             logger.info(
                 f"Created connection pool with max {max_connections} connections for {parallel} workers"
             )
-            repository = PhotoRepository(
-                connection_pool, collection_id=int(config_data.get("COLLECTION_ID", 1))
+            # CLI option overrides config/env
+            effective_collection_id = (
+                collection_id
+                if collection_id is not None
+                else int(config_data.get("COLLECTION_ID", 1))
             )
+            repository = PhotoRepository(connection_pool, collection_id=effective_collection_id)
 
             input_path = resolve_path(
                 path, config_data["INGEST_PATH"], skip_disk_check=skip_directory_scan
@@ -137,6 +147,7 @@ def main(
             with LocalProcessor(
                 repository=repository,
                 config=config_data,
+                collection_id=effective_collection_id,
                 force=force,
                 dry_run=dry_run,
                 parallel=parallel,

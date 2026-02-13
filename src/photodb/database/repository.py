@@ -45,7 +45,13 @@ class PhotoRepository:
     def __init__(self, connection_pool: ConnectionPool, collection_id: Optional[int] = None):
         self.pool = connection_pool
         env_collection_id = os.environ.get("COLLECTION_ID")
-        self.collection_id = collection_id or int(env_collection_id) if env_collection_id else 1
+        self.collection_id = (
+            collection_id
+            if collection_id is not None
+            else int(env_collection_id)
+            if env_collection_id
+            else 1
+        )
 
     def _resolve_collection_id(self, collection_id: Optional[int]) -> int:
         return collection_id if collection_id is not None else self.collection_id

@@ -23,6 +23,7 @@ class LocalProcessor(BaseProcessor):
         self,
         repository,
         config: dict,
+        collection_id: int,
         force: bool = False,
         dry_run: bool = False,
         parallel: int = 1,
@@ -33,6 +34,7 @@ class LocalProcessor(BaseProcessor):
         skip_directory_scan: bool = False,
     ):
         super().__init__(repository, config, force, dry_run, max_photos)
+        self.collection_id = collection_id
         self.parallel = max(1, parallel)
         self.stage = stage
         self.exclude = exclude or []
@@ -164,7 +166,7 @@ class LocalProcessor(BaseProcessor):
                         # Check if the stage actually succeeded by looking at processing status
                         photo = stage_obj.repository.get_photo_by_orig_path(
                             str(file_path),
-                            collection_id=int(self.config.get("COLLECTION_ID", 1)),
+                            collection_id=self.collection_id,
                         )
                         if photo:
                             stage_status = stage_obj.repository.get_processing_status(
@@ -239,7 +241,7 @@ class LocalProcessor(BaseProcessor):
             if self.connection_pool:
                 # Create a temporary repository using the PostgreSQL connection pool
                 pooled_repo = PhotoRepository(
-                    self.connection_pool, collection_id=int(self.config.get("COLLECTION_ID", 1))
+                    self.connection_pool, collection_id=self.collection_id
                 )
 
                 # Create stages with the pooled repository
@@ -311,11 +313,7 @@ class LocalProcessor(BaseProcessor):
                 logger.info(f"Querying database for photos in {directory}...")
                 photos = self.repository.get_photos_by_directory(str(directory))
                 # Create generator that matches the pattern (consistent with glob)
-                file_iter = (
-                    Path(p.orig_path)
-                    for p in photos
-                    if Path(p.orig_path).match(pattern)
-                )
+                file_iter = (Path(p.orig_path) for p in photos if Path(p.orig_path).match(pattern))
 
             for file_path in file_iter:
                 # When using database (not scanning), trust the database records

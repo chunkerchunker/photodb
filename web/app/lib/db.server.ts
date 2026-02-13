@@ -642,12 +642,22 @@ export async function getNamedClustersCount(collectionId: number) {
  * Get people with aggregated cluster data.
  * Groups clusters by person_id and sums face counts.
  * Uses person.representative_detection_id if set, otherwise falls back to largest cluster's representative.
+ * @param includeWithoutImages - If true, includes people without linked clusters (no images)
  */
-export async function getPeople(collectionId: number, limit = 50, offset = 0, sort: "photos" | "name" = "name") {
+export async function getPeople(
+  collectionId: number,
+  limit = 50,
+  offset = 0,
+  sort: "photos" | "name" = "name",
+  includeWithoutImages = false,
+) {
   const orderBy =
     sort === "photos"
-      ? "total_face_count DESC, per.first_name, per.last_name, per.id"
+      ? "COALESCE(ps.total_face_count, 0) DESC, per.first_name, per.last_name, per.id"
       : "per.first_name, per.last_name, per.id";
+
+  // Filter clause for people without images (no linked clusters)
+  const withoutImagesFilter = includeWithoutImages ? "" : "AND ps.person_id IS NOT NULL";
 
   const query = `
     WITH person_stats AS (
@@ -673,17 +683,18 @@ export async function getPeople(collectionId: number, limit = 50, offset = 0, so
     SELECT
       per.id,
       TRIM(CONCAT(per.first_name, ' ', COALESCE(per.last_name, ''))) as person_name,
-      ps.total_face_count,
-      ps.cluster_count,
+      COALESCE(ps.total_face_count, 0) as total_face_count,
+      COALESCE(ps.cluster_count, 0) as cluster_count,
       -- Use person's representative if set, otherwise use fallback from largest cluster
       COALESCE(per.representative_detection_id, ps.fallback_representative_detection_id) as representative_detection_id,
       pd.face_path,
       pd.id as detection_id
     FROM person per
-    INNER JOIN person_stats ps ON per.id = ps.person_id
+    LEFT JOIN person_stats ps ON per.id = ps.person_id
     LEFT JOIN person_detection pd ON COALESCE(per.representative_detection_id, ps.fallback_representative_detection_id) = pd.id
     WHERE per.collection_id = $1
       AND (per.hidden = false OR per.hidden IS NULL)
+      ${withoutImagesFilter}
     ORDER BY ${orderBy}
     LIMIT $2 OFFSET $3
   `;
@@ -694,8 +705,22 @@ export async function getPeople(collectionId: number, limit = 50, offset = 0, so
 
 /**
  * Get count of unique people (not clusters).
+ * @param includeWithoutImages - If true, includes people without linked clusters (no images)
  */
-export async function getPeopleCount(collectionId: number) {
+export async function getPeopleCount(collectionId: number, includeWithoutImages = false) {
+  if (includeWithoutImages) {
+    // Count all non-hidden people
+    const query = `
+      SELECT COUNT(*) as count
+      FROM person per
+      WHERE per.collection_id = $1
+        AND (per.hidden = false OR per.hidden IS NULL)
+    `;
+    const result = await pool.query(query, [collectionId]);
+    return parseInt(result.rows[0].count, 10);
+  }
+
+  // Count only people with linked clusters (original behavior)
   const query = `
     SELECT COUNT(DISTINCT c.person_id) as count
     FROM cluster c
@@ -705,6 +730,27 @@ export async function getPeopleCount(collectionId: number) {
       AND c.collection_id = $1
       AND c.person_id IS NOT NULL
       AND (per.hidden = false OR per.hidden IS NULL)
+  `;
+
+  const result = await pool.query(query, [collectionId]);
+  return parseInt(result.rows[0].count, 10);
+}
+
+/**
+ * Get count of people without linked clusters (no images).
+ */
+export async function getPeopleWithoutImagesCount(collectionId: number) {
+  const query = `
+    SELECT COUNT(*) as count
+    FROM person per
+    WHERE per.collection_id = $1
+      AND (per.hidden = false OR per.hidden IS NULL)
+      AND NOT EXISTS (
+        SELECT 1 FROM cluster c
+        WHERE c.person_id = per.id
+          AND c.face_count > 0
+          AND (c.hidden = false OR c.hidden IS NULL)
+      )
   `;
 
   const result = await pool.query(query, [collectionId]);

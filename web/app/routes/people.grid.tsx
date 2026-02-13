@@ -4,14 +4,14 @@ import { Link, useFetcher, useNavigate, useRevalidator } from "react-router";
 import { Layout } from "~/components/layout";
 import { RenamePersonDialog } from "~/components/rename-person-dialog";
 import { SearchBox } from "~/components/search-box";
-import { ControlsCount, SecondaryControls, SortToggle } from "~/components/secondary-controls";
+import { ControlsCount, SecondaryControls, SortToggle, WithoutImagesToggle } from "~/components/secondary-controls";
 import { Button } from "~/components/ui/button";
 import { Card, CardContent } from "~/components/ui/card";
 import { ContextMenu, ContextMenuContent, ContextMenuItem, ContextMenuTrigger } from "~/components/ui/context-menu";
 import { useInfiniteScroll } from "~/hooks/use-infinite-scroll";
 import { requireCollectionId } from "~/lib/auth.server";
-import { dataWithViewMode } from "~/lib/cookies.server";
-import { getHiddenPeopleCount, getPeople, getPeopleCount } from "~/lib/db.server";
+import { dataWithPreferences, getShowWithoutImagesCookie } from "~/lib/cookies.server";
+import { getHiddenPeopleCount, getPeople, getPeopleCount, getPeopleWithoutImagesCount } from "~/lib/db.server";
 import type { Route } from "./+types/people.grid";
 
 export function meta() {
@@ -32,37 +32,45 @@ export async function loader({ request }: Route.LoaderArgs) {
   const page = parseInt(url.searchParams.get("page") || "1", 10);
   const sortParam = url.searchParams.get("sort");
   const sort: "photos" | "name" = sortParam === "photos" ? "photos" : "name";
+  const showWithoutImages = getShowWithoutImagesCookie(request);
   const offset = (page - 1) * LIMIT;
 
   try {
-    const people = await getPeople(collectionId, LIMIT, offset, sort);
-    const totalPeople = await getPeopleCount(collectionId);
+    const people = await getPeople(collectionId, LIMIT, offset, sort, showWithoutImages);
+    const totalPeople = await getPeopleCount(collectionId, showWithoutImages);
     const hiddenCount = await getHiddenPeopleCount(collectionId);
+    const withoutImagesCount = await getPeopleWithoutImagesCount(collectionId);
     const hasMore = offset + people.length < totalPeople;
 
-    return dataWithViewMode(
+    return dataWithPreferences(
       {
         people,
         totalPeople,
         hiddenCount,
+        withoutImagesCount,
         hasMore,
         page,
         sort,
+        showWithoutImages,
       },
       "grid",
+      showWithoutImages,
     );
   } catch (error) {
     console.error("Failed to load people:", error);
-    return dataWithViewMode(
+    return dataWithPreferences(
       {
         people: [],
         totalPeople: 0,
         hiddenCount: 0,
+        withoutImagesCount: 0,
         hasMore: false,
         page,
         sort,
+        showWithoutImages,
       },
       "grid",
+      showWithoutImages,
     );
   }
 }
@@ -74,9 +82,11 @@ export default function PeopleView({ loaderData }: Route.ComponentProps) {
     people: initialPeople,
     totalPeople,
     hiddenCount,
+    withoutImagesCount,
     hasMore: initialHasMore,
     page: initialPage,
     sort: initialSort,
+    showWithoutImages,
   } = loaderData;
 
   const [people, setPeople] = useState<Person[]>(initialPeople);
@@ -122,7 +132,8 @@ export default function PeopleView({ loaderData }: Route.ComponentProps) {
 
   const loadMore = useCallback(() => {
     if (fetcher.state === "idle" && hasMore) {
-      fetcher.load(`/people?page=${page + 1}&sort=${sort}`);
+      const params = new URLSearchParams({ page: String(page + 1), sort });
+      fetcher.load(`/people/grid?${params.toString()}`);
     }
   }, [fetcher, hasMore, page, sort]);
 
@@ -193,6 +204,19 @@ export default function PeopleView({ loaderData }: Route.ComponentProps) {
                 </Button>
               </Link>
             )}
+            <WithoutImagesToggle
+              showWithoutImages={showWithoutImages}
+              onToggle={(show) => {
+                document.cookie = `showWithoutImages=${show}; Path=/; SameSite=Lax`;
+                // Reset to page 1 and reload
+                setPeople([]);
+                setPage(1);
+                setHasMore(true);
+                revalidator.revalidate();
+              }}
+              withoutImagesCount={withoutImagesCount}
+              variant="grid"
+            />
             <ControlsCount count={totalPeople} singular="person" plural="people" variant="grid" />
             <SortToggle
               sort={sort}
@@ -297,6 +321,15 @@ export default function PeopleView({ loaderData }: Route.ComponentProps) {
               </>
             )}
           </>
+        ) : withoutImagesCount > 0 ? (
+          <div className="text-center py-12">
+            <User className="h-16 w-16 text-gray-400 mx-auto mb-4" />
+            <div className="text-gray-500 text-lg">No people with images.</div>
+            <div className="text-gray-400 text-sm mt-2">
+              Use the "No image" toggle above to show {withoutImagesCount}{" "}
+              {withoutImagesCount === 1 ? "person" : "people"} without linked photos.
+            </div>
+          </div>
         ) : (
           <div className="text-center py-12">
             <User className="h-16 w-16 text-gray-400 mx-auto mb-4" />

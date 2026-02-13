@@ -1,4 +1,4 @@
-import { ArrowDownAZ, Users } from "lucide-react";
+import { ArrowDownAZ, ImageOff, Users } from "lucide-react";
 import { cn } from "~/lib/utils";
 
 interface SecondaryControlsProps {
@@ -143,5 +143,58 @@ export function SortToggle({
         <ArrowDownAZ className="h-4 w-4" />
       </button>
     </div>
+  );
+}
+
+/**
+ * Toggle for showing/hiding people without images (not linked to clusters)
+ */
+export function WithoutImagesToggle({
+  showWithoutImages,
+  onToggle,
+  withoutImagesCount,
+  variant = "grid",
+}: {
+  showWithoutImages: boolean;
+  onToggle: (show: boolean) => void;
+  withoutImagesCount: number;
+  variant?: "grid" | "wall";
+}) {
+  if (withoutImagesCount === 0) {
+    return null;
+  }
+
+  if (variant === "wall") {
+    return (
+      <button
+        type="button"
+        onClick={() => onToggle(!showWithoutImages)}
+        className={cn(
+          "flex items-center gap-1.5 transition-colors",
+          showWithoutImages ? "text-white" : "text-white/50 hover:text-white/80",
+        )}
+        title={showWithoutImages ? "Hide people without images" : "Show people without images"}
+      >
+        <ImageOff className="h-4 w-4" />
+        <span>No image ({withoutImagesCount})</span>
+      </button>
+    );
+  }
+
+  return (
+    <button
+      type="button"
+      onClick={() => onToggle(!showWithoutImages)}
+      className={cn(
+        "flex items-center gap-1.5 px-3 py-1.5 rounded-md text-sm font-medium transition-colors border",
+        showWithoutImages
+          ? "bg-white text-gray-900 shadow-sm border-gray-200"
+          : "text-gray-500 hover:text-gray-700 border-transparent hover:border-gray-200",
+      )}
+      title={showWithoutImages ? "Hide people without images" : "Show people without images"}
+    >
+      <ImageOff className="h-4 w-4" />
+      <span>No image ({withoutImagesCount})</span>
+    </button>
   );
 }

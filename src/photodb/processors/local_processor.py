@@ -259,7 +259,9 @@ class LocalProcessor(BaseProcessor):
                     detection_stage.repository = pooled_repo
                     detection_stage.config = self.config
                     detection_stage.stage_name = "detection"
+                    detection_stage.collection_id = self.collection_id
                     detection_stage.detector = self._shared_detector  # Reuse shared model
+                    detection_stage.faces_output_dir = self.stages["detection"].faces_output_dir
                     pooled_stages["detection"] = detection_stage
                 if "age_gender" in stages_list:
                     assert self._shared_mivolo is not None  # Loaded in __init__
@@ -267,6 +269,7 @@ class LocalProcessor(BaseProcessor):
                     age_gender_stage.repository = pooled_repo
                     age_gender_stage.config = self.config
                     age_gender_stage.stage_name = "age_gender"
+                    age_gender_stage.collection_id = self.collection_id
                     age_gender_stage.predictor = self._shared_mivolo  # Reuse shared model
                     pooled_stages["age_gender"] = age_gender_stage
                 if "clustering" in stages_list:
@@ -278,6 +281,7 @@ class LocalProcessor(BaseProcessor):
                     scene_stage.repository = pooled_repo
                     scene_stage.config = self.config
                     scene_stage.stage_name = "scene_analysis"
+                    scene_stage.collection_id = self.collection_id
                     scene_stage.analyzer = self._shared_scene_analyzer
                     scene_stage.prompt_cache = self._shared_prompt_cache
                     scene_stage.apple_classifier = self._shared_apple_classifier

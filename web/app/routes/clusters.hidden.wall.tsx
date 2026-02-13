@@ -57,17 +57,6 @@ export default function HiddenClustersWallView({ loaderData }: Route.ComponentPr
     [clusters],
   );
 
-  if (clusters.length === 0) {
-    return (
-      <div className="h-screen w-screen bg-gray-900 flex items-center justify-center">
-        <div className="text-center">
-          <Users className="h-16 w-16 text-gray-600 mx-auto mb-4" />
-          <p className="text-gray-400 text-lg mb-4">No hidden clusters.</p>
-        </div>
-      </div>
-    );
-  }
-
   const headerContent = (
     <Header
       homeTo="/wall"
@@ -78,6 +67,20 @@ export default function HiddenClustersWallView({ loaderData }: Route.ComponentPr
       viewAction={<WallViewSwitcher />}
     />
   );
+
+  if (clusters.length === 0) {
+    return (
+      <div className="h-screen w-screen bg-gray-900 flex flex-col">
+        <div className="p-4">{headerContent}</div>
+        <div className="flex-1 flex items-center justify-center">
+          <div className="text-center">
+            <Users className="h-16 w-16 text-gray-600 mx-auto mb-4" />
+            <p className="text-gray-400 text-lg mb-4">No hidden clusters.</p>
+          </div>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <>

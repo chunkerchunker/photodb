@@ -1207,16 +1207,30 @@ export default function MonthWallView({ loaderData }: Route.ComponentProps) {
   const location = useLocation();
 
   if (photos.length === 0) {
+    const headerContent = (
+      <Header
+        homeTo="/wall"
+        breadcrumbs={[{ label: year.toString(), to: `/year/${year}/wall` }, { label: monthName }]}
+        user={rootData?.userAvatar}
+        isAdmin={rootData?.user?.isAdmin}
+        isImpersonating={rootData?.impersonation?.isImpersonating}
+        viewAction={<WallViewSwitcher />}
+      />
+    );
+
     return (
-      <div className="h-screen w-screen bg-gray-900 flex items-center justify-center">
-        <div className="text-center">
-          <p className="text-gray-400 text-lg mb-4">
-            No photos found for {monthName} {year}.
-          </p>
-          <Link to={`/year/${year}`} className="text-blue-400 hover:text-blue-300 inline-flex items-center gap-2">
-            <ArrowLeft className="h-4 w-4" />
-            Back to {year}
-          </Link>
+      <div className="h-screen w-screen bg-gray-900 flex flex-col">
+        <div className="p-4">{headerContent}</div>
+        <div className="flex-1 flex items-center justify-center">
+          <div className="text-center">
+            <p className="text-gray-400 text-lg mb-4">
+              No photos found for {monthName} {year}.
+            </p>
+            <Link to={`/year/${year}`} className="text-blue-400 hover:text-blue-300 inline-flex items-center gap-2">
+              <ArrowLeft className="h-4 w-4" />
+              Back to {year}
+            </Link>
+          </div>
         </div>
       </div>
     );

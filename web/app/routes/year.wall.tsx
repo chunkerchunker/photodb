@@ -49,20 +49,6 @@ export default function YearWallView({ loaderData }: Route.ComponentProps) {
     [months, year],
   );
 
-  if (months.length === 0) {
-    return (
-      <div className="h-screen w-screen bg-gray-900 flex items-center justify-center">
-        <div className="text-center">
-          <p className="text-gray-400 text-lg mb-4">No photos found for {year}.</p>
-          <Link to="/wall" className="text-blue-400 hover:text-blue-300 inline-flex items-center gap-2">
-            <ArrowLeft className="h-4 w-4" />
-            Back to Years
-          </Link>
-        </div>
-      </div>
-    );
-  }
-
   const headerContent = (
     <Header
       user={rootData?.userAvatar}
@@ -73,6 +59,23 @@ export default function YearWallView({ loaderData }: Route.ComponentProps) {
       viewAction={<WallViewSwitcher />}
     />
   );
+
+  if (months.length === 0) {
+    return (
+      <div className="h-screen w-screen bg-gray-900 flex flex-col">
+        <div className="p-4">{headerContent}</div>
+        <div className="flex-1 flex items-center justify-center">
+          <div className="text-center">
+            <p className="text-gray-400 text-lg mb-4">No photos found for {year}.</p>
+            <Link to="/wall" className="text-blue-400 hover:text-blue-300 inline-flex items-center gap-2">
+              <ArrowLeft className="h-4 w-4" />
+              Back to Years
+            </Link>
+          </div>
+        </div>
+      </div>
+    );
+  }
 
   return <PhotoWall key={location.key} tiles={tiles} sessionKey={`year-wall-${year}`} headerContent={headerContent} />;
 }

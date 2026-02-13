@@ -47,16 +47,6 @@ export default function HomeWallView({ loaderData }: Route.ComponentProps) {
     [years],
   );
 
-  if (years.length === 0) {
-    return (
-      <div className="h-screen w-screen bg-gray-900 flex items-center justify-center">
-        <div className="text-center">
-          <p className="text-gray-400 text-lg mb-4">No photos with date information found.</p>
-        </div>
-      </div>
-    );
-  }
-
   const headerContent = (
     <Header
       user={rootData?.userAvatar}
@@ -66,6 +56,19 @@ export default function HomeWallView({ loaderData }: Route.ComponentProps) {
       viewAction={<WallViewSwitcher />}
     />
   );
+
+  if (years.length === 0) {
+    return (
+      <div className="h-screen w-screen bg-gray-900 flex flex-col">
+        <div className="p-4">{headerContent}</div>
+        <div className="flex-1 flex items-center justify-center">
+          <div className="text-center">
+            <p className="text-gray-400 text-lg mb-4">No photos with date information found.</p>
+          </div>
+        </div>
+      </div>
+    );
+  }
 
   return <PhotoWall key={location.key} tiles={tiles} sessionKey="home-wall" headerContent={headerContent} />;
 }

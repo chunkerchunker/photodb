@@ -50,17 +50,6 @@ export default function AlbumsWallView({ loaderData }: Route.ComponentProps) {
     [albums],
   );
 
-  if (albums.length === 0) {
-    return (
-      <div className="h-screen w-screen bg-gray-900 flex items-center justify-center">
-        <div className="text-center">
-          <Images className="h-16 w-16 text-gray-600 mx-auto mb-4" />
-          <p className="text-gray-400 text-lg mb-4">No albums found.</p>
-        </div>
-      </div>
-    );
-  }
-
   const headerContent = (
     <Header
       homeTo="/wall"
@@ -71,6 +60,20 @@ export default function AlbumsWallView({ loaderData }: Route.ComponentProps) {
       viewAction={<WallViewSwitcher />}
     />
   );
+
+  if (albums.length === 0) {
+    return (
+      <div className="h-screen w-screen bg-gray-900 flex flex-col">
+        <div className="p-4">{headerContent}</div>
+        <div className="flex-1 flex items-center justify-center">
+          <div className="text-center">
+            <Images className="h-16 w-16 text-gray-600 mx-auto mb-4" />
+            <p className="text-gray-400 text-lg mb-4">No albums found.</p>
+          </div>
+        </div>
+      </div>
+    );
+  }
 
   return <PhotoWall key={location.key} tiles={tiles} sessionKey="albums-wall" headerContent={headerContent} />;
 }

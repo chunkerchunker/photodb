@@ -67,29 +67,7 @@ export default function ClusterWallView({ loaderData }: Route.ComponentProps) {
     [faces],
   );
 
-  if (!cluster) {
-    return (
-      <div className="h-screen w-screen bg-gray-900 flex items-center justify-center">
-        <div className="text-center">
-          <Users className="h-16 w-16 text-gray-600 mx-auto mb-4" />
-          <p className="text-gray-400 text-lg mb-4">Cluster not found.</p>
-        </div>
-      </div>
-    );
-  }
-
-  if (faces.length === 0) {
-    return (
-      <div className="h-screen w-screen bg-gray-900 flex items-center justify-center">
-        <div className="text-center">
-          <Users className="h-16 w-16 text-gray-600 mx-auto mb-4" />
-          <p className="text-gray-400 text-lg mb-4">No faces in this cluster.</p>
-        </div>
-      </div>
-    );
-  }
-
-  const displayName = cluster.person_name || `Cluster #${cluster.id}`;
+  const displayName = cluster?.person_name || (cluster ? `Cluster #${cluster.id}` : "Cluster");
 
   const headerContent = (
     <Header
@@ -101,6 +79,34 @@ export default function ClusterWallView({ loaderData }: Route.ComponentProps) {
       viewAction={<WallViewSwitcher />}
     />
   );
+
+  if (!cluster) {
+    return (
+      <div className="h-screen w-screen bg-gray-900 flex flex-col">
+        <div className="p-4">{headerContent}</div>
+        <div className="flex-1 flex items-center justify-center">
+          <div className="text-center">
+            <Users className="h-16 w-16 text-gray-600 mx-auto mb-4" />
+            <p className="text-gray-400 text-lg mb-4">Cluster not found.</p>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  if (faces.length === 0) {
+    return (
+      <div className="h-screen w-screen bg-gray-900 flex flex-col">
+        <div className="p-4">{headerContent}</div>
+        <div className="flex-1 flex items-center justify-center">
+          <div className="text-center">
+            <Users className="h-16 w-16 text-gray-600 mx-auto mb-4" />
+            <p className="text-gray-400 text-lg mb-4">No faces in this cluster.</p>
+          </div>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <PhotoWall

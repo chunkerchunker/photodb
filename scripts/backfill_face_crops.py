@@ -16,6 +16,9 @@ Usage:
     # Create face crop images
     uv run python scripts/backfill_face_crops.py --process
 
+    # Only update database for existing crop files (don't create new crops)
+    uv run python scripts/backfill_face_crops.py --db-only
+
     # Process specific detection IDs only
     uv run python scripts/backfill_face_crops.py --process 1234 5678
 
@@ -53,6 +56,7 @@ stats = {
     "already_exists": 0,
     "missing_source": 0,
     "invalid_bbox": 0,
+    "file_missing": 0,
 }
 
 
@@ -111,6 +115,7 @@ def process_detection(
     output_dir: Path,
     quality: int,
     dry_run: bool = True,
+    db_only: bool = False,
 ) -> tuple[int, str, str | None]:
     """
     Process a single detection to create face crop.
@@ -148,6 +153,10 @@ def process_detection(
                 )
             conn.commit()
         return (detection_id, "already_exists", str(output_path))
+
+    # In db_only mode, skip if file doesn't exist
+    if db_only:
+        return (detection_id, "file_missing", str(output_path))
 
     if dry_run:
         return (detection_id, "would_process", str(output_path))
@@ -221,6 +230,11 @@ def main():
         help="Number of parallel workers (default 1)",
     )
     parser.add_argument(
+        "--db-only",
+        action="store_true",
+        help="Only update database for existing crop files (don't create new crops)",
+    )
+    parser.add_argument(
         "detection_ids",
         nargs="*",
         type=int,
@@ -228,7 +242,8 @@ def main():
     )
 
     args = parser.parse_args()
-    dry_run = not args.process
+    dry_run = not args.process and not args.db_only
+    db_only = args.db_only
 
     # Get paths from environment
     img_path = Path(os.getenv("IMG_PATH", "./photos/processed"))
@@ -238,7 +253,8 @@ def main():
     print(f"Output path: {output_dir}")
     print(f"Quality: {args.quality}")
     print(f"Workers: {args.workers}")
-    print(f"Mode: {'DRY RUN' if dry_run else 'PROCESS'}")
+    mode = "DB ONLY" if db_only else ("PROCESS" if args.process else "DRY RUN")
+    print(f"Mode: {mode}")
     print()
 
     # Find detections to process
@@ -267,6 +283,8 @@ def main():
                 stats["missing_source"] += 1
             elif status == "invalid_bbox":
                 stats["invalid_bbox"] += 1
+            elif status == "file_missing":
+                stats["file_missing"] += 1
             elif status == "failed":
                 stats["failed"] += 1
             else:
@@ -276,7 +294,7 @@ def main():
         with ThreadPoolExecutor(max_workers=args.workers) as executor:
             futures = {
                 executor.submit(
-                    process_detection, det, img_path, output_dir, args.quality, dry_run
+                    process_detection, det, img_path, output_dir, args.quality, dry_run, db_only
                 ): det
                 for det in detections
             }
@@ -291,6 +309,8 @@ def main():
                     print(f"  MISSING detection {detection_id}: {result}")
                 elif status == "invalid_bbox":
                     print(f"  INVALID detection {detection_id}: {result}")
+                elif status == "file_missing":
+                    print(f"  FILE MISSING detection {detection_id}: {result}")
                 elif status == "processed":
                     print(f"  Processed detection {detection_id} -> {result}")
                 elif status == "would_process":
@@ -300,7 +320,7 @@ def main():
     else:
         for det in detections:
             detection_id, status, result = process_detection(
-                det, img_path, output_dir, args.quality, dry_run
+                det, img_path, output_dir, args.quality, dry_run, db_only
             )
             update_stats(status)
 
@@ -310,6 +330,8 @@ def main():
                 print(f"  MISSING detection {detection_id}: {result}")
             elif status == "invalid_bbox":
                 print(f"  INVALID detection {detection_id}: {result}")
+            elif status == "file_missing":
+                print(f"  FILE MISSING detection {detection_id}: {result}")
             elif status == "processed":
                 print(f"  Processed detection {detection_id} -> {result}")
             elif status == "would_process":
@@ -319,8 +341,12 @@ def main():
 
     print()
     print("Summary:")
-    print(f"  {'Would process' if dry_run else 'Processed'}: {stats['processed']}")
-    print(f"  Already exists: {stats['already_exists']}")
+    if db_only:
+        print(f"  DB updated: {stats['already_exists']}")
+        print(f"  File missing (skipped): {stats['file_missing']}")
+    else:
+        print(f"  {'Would process' if dry_run else 'Processed'}: {stats['processed']}")
+        print(f"  Already exists: {stats['already_exists']}")
     print(f"  Missing source: {stats['missing_source']}")
     print(f"  Invalid bbox: {stats['invalid_bbox']}")
     print(f"  Failed: {stats['failed']}")

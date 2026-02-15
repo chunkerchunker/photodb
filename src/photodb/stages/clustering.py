@@ -9,13 +9,11 @@ from .base import BaseStage
 from ..database.models import Photo
 from ..utils.hdbscan_config import (
     create_hdbscan_clusterer,
-    calculate_cluster_epsilon,
     lambda_to_epsilon,
     extract_cluster_lambda_births,
     serialize_condensed_tree,
     DEFAULT_MIN_CLUSTER_SIZE,
     DEFAULT_MIN_SAMPLES,
-    DEFAULT_EPSILON_PERCENTILE,
     DEFAULT_CORE_PROBABILITY_THRESHOLD,
     DEFAULT_CLUSTERING_THRESHOLD,
 )
@@ -76,9 +74,6 @@ class ClusteringStage(BaseStage):
             config.get("HDBSCAN_MIN_CLUSTER_SIZE", DEFAULT_MIN_CLUSTER_SIZE)
         )
         self.min_samples = int(config.get("HDBSCAN_MIN_SAMPLES", DEFAULT_MIN_SAMPLES))
-        self.epsilon_percentile = float(
-            config.get("EPSILON_PERCENTILE", DEFAULT_EPSILON_PERCENTILE)
-        )
         self.core_probability_threshold = float(
             config.get("CORE_PROBABILITY_THRESHOLD", DEFAULT_CORE_PROBABILITY_THRESHOLD)
         )
@@ -96,8 +91,7 @@ class ClusteringStage(BaseStage):
             f"pool_threshold={self.pool_clustering_threshold}, "
             f"k_neighbors={self.k_neighbors}, unassigned_threshold={self.unassigned_threshold}, "
             f"medoid_recompute_threshold={self.medoid_recompute_threshold}, "
-            f"min_cluster_size={self.min_cluster_size}, min_samples={self.min_samples}, "
-            f"epsilon_percentile={self.epsilon_percentile}"
+            f"min_cluster_size={self.min_cluster_size}, min_samples={self.min_samples}"
         )
 
     def should_process(self, file_path: Path, force: bool = False) -> bool:
@@ -1022,31 +1016,6 @@ class ClusteringStage(BaseStage):
 
         return cpu_clusterer
 
-    def _calculate_cluster_epsilon(
-        self, embeddings: np.ndarray, labels: np.ndarray, label: int
-    ) -> float:
-        """
-        Calculate the epsilon threshold for a specific cluster.
-
-        Uses the percentile of pairwise distances between core points
-        to determine the cluster's natural spread.
-
-        Args:
-            embeddings: All embeddings array
-            labels: HDBSCAN labels for all embeddings
-            label: The specific cluster label to calculate epsilon for
-
-        Returns:
-            Epsilon value (distance threshold) for the cluster
-        """
-        return calculate_cluster_epsilon(
-            embeddings,
-            labels,
-            label,
-            percentile=self.epsilon_percentile,
-            fallback_threshold=self.clustering_threshold,
-        )
-
     def _assign_bootstrap_clusters(self, bootstrap_results: Dict[int, Dict], clusterer) -> None:
         """
         Create clusters and assign detections based on HDBSCAN bootstrap results.
@@ -1092,10 +1061,6 @@ class ClusteringStage(BaseStage):
             embeddings_list.append(emb if emb is not None else np.zeros(512))
         embeddings = np.array(embeddings_list)
 
-        # Create labels array matching embeddings order
-        labels_array = np.array(
-            [bootstrap_results.get(d["detection_id"], {}).get("label", -1) for d in embeddings_data]
-        )
 
         # Extract lambda_birth per cluster from the condensed tree
         lambda_births = extract_cluster_lambda_births(clusterer)
@@ -1112,12 +1077,16 @@ class ClusteringStage(BaseStage):
                 logger.debug(f"Marked {len(detection_ids)} noise detections as unassigned")
                 continue
 
-            # Calculate epsilon from lambda_birth, falling back to percentile-based calculation
+            # Calculate epsilon from lambda_birth
             label_lambda_birth = lambda_births.get(label)
             if label_lambda_birth is not None:
                 epsilon = lambda_to_epsilon(label_lambda_birth)
             else:
-                epsilon = self._calculate_cluster_epsilon(embeddings, labels_array, label)
+                # Fallback: lambda_birth not found for this label
+                epsilon = self.clustering_threshold
+                logger.debug(
+                    f"No lambda_birth for label {label}, using fallback epsilon={epsilon:.4f}"
+                )
 
             # Get embeddings for this cluster to compute centroid
             cluster_embeddings = []

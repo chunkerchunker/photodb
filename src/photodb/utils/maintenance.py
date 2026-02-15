@@ -17,7 +17,6 @@ from ..database.connection import ConnectionPool
 from ..database.repository import PhotoRepository, MIN_FACE_SIZE_PX, MIN_FACE_CONFIDENCE
 from .hdbscan_config import (
     create_hdbscan_clusterer,
-    calculate_cluster_epsilon,  # Keep for fallback
     extract_cluster_lambda_births,
     lambda_to_epsilon,
     DEFAULT_CORE_PROBABILITY_THRESHOLD,
@@ -560,13 +559,15 @@ class MaintenanceUtilities:
             if centroid_norm > 0:
                 centroid = centroid / centroid_norm
 
-            # Use lambda-derived epsilon (fall back to old method if lambda unavailable)
+            # Use lambda-derived epsilon
             label_lambda = lambda_births.get(label)
             if label_lambda is not None:
                 epsilon = lambda_to_epsilon(label_lambda)
             else:
-                epsilon = calculate_cluster_epsilon(
-                    embeddings, labels, label, fallback_threshold=DEFAULT_CLUSTERING_THRESHOLD
+                # Fallback: lambda_birth not found for this label
+                epsilon = DEFAULT_CLUSTERING_THRESHOLD
+                logger.debug(
+                    f"No lambda_birth for label {label}, using fallback epsilon={epsilon:.4f}"
                 )
 
             # Find medoid (closest to centroid)

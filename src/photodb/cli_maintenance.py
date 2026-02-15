@@ -270,6 +270,34 @@ def health_check(args):
     return run_maintenance_command(operation, "Health check failed")
 
 
+def check_staleness(args):
+    """Check if HDBSCAN bootstrap needs re-running."""
+    logger.info("Checking HDBSCAN staleness...")
+
+    def operation(maintenance: MaintenanceUtilities) -> int:
+        result = maintenance.check_hdbscan_staleness(threshold=args.threshold)
+
+        print("\nHDBSCAN Staleness Check:")
+        if result["active_run_id"] is not None:
+            print(f"  - Active run ID: {result['active_run_id']}")
+            print(f"  - Bootstrap embedding count: {result['bootstrap_embedding_count']}")
+            print(f"  - Current embedding count: {result['current_embedding_count']}")
+            print(f"  - Growth ratio: {result['growth_ratio']:.2f}x")
+            print(f"  - Status: {'STALE' if result['is_stale'] else 'CURRENT'}")
+        else:
+            print("  - No active HDBSCAN run found")
+
+        print(f"\n{result['recommendation']}")
+
+        if args.json:
+            print("\nJSON output:")
+            print(json.dumps(result, indent=2))
+
+        return 1 if result["is_stale"] else 0
+
+    return run_maintenance_command(operation, "Staleness check failed")
+
+
 def main():
     """Main entry point for maintenance CLI."""
     parser = argparse.ArgumentParser(
@@ -365,6 +393,19 @@ Examples:
     health_parser = subparsers.add_parser("health", help="Check clustering system health")
     health_parser.add_argument("--json", action="store_true", help="Output results as JSON")
     health_parser.set_defaults(func=health_check)
+
+    # Staleness check
+    staleness_parser = subparsers.add_parser(
+        "check-staleness", help="Check if HDBSCAN bootstrap needs re-running"
+    )
+    staleness_parser.add_argument(
+        "--threshold",
+        type=float,
+        default=1.25,
+        help="Growth ratio threshold for staleness (default: 1.25 = 25%% growth)",
+    )
+    staleness_parser.add_argument("--json", action="store_true", help="Output results as JSON")
+    staleness_parser.set_defaults(func=check_staleness)
 
     args = parser.parse_args()
 

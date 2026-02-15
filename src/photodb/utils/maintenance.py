@@ -790,6 +790,71 @@ class MaintenanceUtilities:
         logger.info(f"Daily maintenance completed: {results}")
         return results
 
+    def check_hdbscan_staleness(self, threshold: float = 1.25) -> Dict[str, Any]:
+        """Check if the active HDBSCAN run is stale.
+
+        A stale HDBSCAN run is one where the number of embeddings has grown
+        significantly since the bootstrap clustering was performed, indicating
+        that re-running bootstrap would likely find better clusters.
+
+        Args:
+            threshold: Growth ratio threshold for staleness (default: 1.25 = 25% growth)
+
+        Returns:
+            Dict with:
+                is_stale: bool - True if bootstrap should be re-run
+                active_run_id: Optional[int] - ID of active run if it exists
+                bootstrap_embedding_count: int - Number of embeddings at bootstrap time
+                current_embedding_count: int - Current number of embeddings
+                growth_ratio: float - Ratio of current/bootstrap embeddings
+                recommendation: str - Human-readable recommendation
+        """
+        # Get active HDBSCAN run
+        active_run = self.repo.get_active_hdbscan_run()
+
+        if active_run is None:
+            return {
+                "is_stale": True,
+                "active_run_id": None,
+                "bootstrap_embedding_count": 0,
+                "current_embedding_count": 0,
+                "growth_ratio": 0.0,
+                "recommendation": "No HDBSCAN run found. Run bootstrap.",
+            }
+
+        # Get current embedding count
+        embeddings = self.repo.get_all_embeddings_for_collection()
+        current_count = len(embeddings)
+        bootstrap_count = active_run["embedding_count"]
+
+        # Calculate growth ratio
+        if bootstrap_count > 0:
+            growth_ratio = current_count / bootstrap_count
+        else:
+            growth_ratio = float("inf") if current_count > 0 else 0.0
+
+        # Determine staleness
+        is_stale = growth_ratio >= threshold
+
+        # Generate recommendation
+        if is_stale:
+            pct_growth = (growth_ratio - 1.0) * 100
+            recommendation = (
+                f"HDBSCAN run is stale ({pct_growth:.1f}% growth). "
+                f"Re-run bootstrap to improve clustering."
+            )
+        else:
+            recommendation = "HDBSCAN run is current. No action needed."
+
+        return {
+            "is_stale": is_stale,
+            "active_run_id": active_run["id"],
+            "bootstrap_embedding_count": bootstrap_count,
+            "current_embedding_count": current_count,
+            "growth_ratio": growth_ratio,
+            "recommendation": recommendation,
+        }
+
     def run_weekly_maintenance(self, cluster_unassigned: bool = False) -> Dict[str, int]:
         """
         Run all weekly maintenance tasks.

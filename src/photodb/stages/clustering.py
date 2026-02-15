@@ -1,4 +1,5 @@
 import logging
+import pickle
 from pathlib import Path
 from typing import Dict, List, Optional, Set, Tuple
 import numpy as np
@@ -9,6 +10,9 @@ from ..database.models import Photo
 from ..utils.hdbscan_config import (
     create_hdbscan_clusterer,
     calculate_cluster_epsilon,
+    lambda_to_epsilon,
+    extract_cluster_lambda_births,
+    serialize_condensed_tree,
     DEFAULT_MIN_CLUSTER_SIZE,
     DEFAULT_MIN_SAMPLES,
     DEFAULT_EPSILON_PERCENTILE,
@@ -680,9 +684,8 @@ class ClusteringStage(BaseStage):
                 logger.warning("HDBSCAN bootstrap returned no results")
                 return False
 
-            # Group and assign clusters
-            # (Task 5 will use the clusterer to extract and persist hierarchy data)
-            self._assign_bootstrap_clusters(bootstrap_results)
+            # Group and assign clusters, extracting hierarchy data from clusterer
+            self._assign_bootstrap_clusters(bootstrap_results, clusterer)
 
             logger.info("HDBSCAN bootstrap clustering completed successfully")
             return True
@@ -885,15 +888,23 @@ class ClusteringStage(BaseStage):
             fallback_threshold=self.clustering_threshold,
         )
 
-    def _assign_bootstrap_clusters(self, bootstrap_results: Dict[int, Dict]) -> None:
+    def _assign_bootstrap_clusters(self, bootstrap_results: Dict[int, Dict], clusterer) -> None:
         """
         Create clusters and assign detections based on HDBSCAN bootstrap results.
 
         Preserves manual assignments (cluster_status = 'manual') - these are not
         reassigned during bootstrap.
 
+        After creating clusters, persists HDBSCAN hierarchy data:
+        - Per-cluster lambda_birth, persistence, and hdbscan_run_id
+        - Per-detection lambda_val and outlier_score
+        - Serialized condensed tree and clusterer state for future incremental assignment
+
         Args:
-            bootstrap_results: Dict mapping detection_id to {label, probability, is_core}
+            bootstrap_results: Dict mapping detection_id to {label, probability, is_core,
+                outlier_score}
+            clusterer: Fitted HDBSCAN clusterer with condensed_tree_, cluster_persistence_,
+                and prediction data
         """
         # Fetch all embeddings for epsilon calculation
         embeddings_data = self.repository.get_all_embeddings_for_collection()
@@ -927,6 +938,12 @@ class ClusteringStage(BaseStage):
             [bootstrap_results.get(d["detection_id"], {}).get("label", -1) for d in embeddings_data]
         )
 
+        # Extract lambda_birth per cluster from the condensed tree
+        lambda_births = extract_cluster_lambda_births(clusterer)
+
+        # Build label -> cluster_id mapping as clusters are created
+        label_to_cluster_id: Dict[int, int] = {}
+
         # Process each cluster (label >= 0)
         for label, detection_ids in labels_to_detections.items():
             if label == -1:
@@ -936,8 +953,12 @@ class ClusteringStage(BaseStage):
                 logger.debug(f"Marked {len(detection_ids)} noise detections as unassigned")
                 continue
 
-            # Calculate epsilon for this cluster
-            epsilon = self._calculate_cluster_epsilon(embeddings, labels_array, label)
+            # Calculate epsilon from lambda_birth, falling back to percentile-based calculation
+            label_lambda_birth = lambda_births.get(label)
+            if label_lambda_birth is not None:
+                epsilon = lambda_to_epsilon(label_lambda_birth)
+            else:
+                epsilon = self._calculate_cluster_epsilon(embeddings, labels_array, label)
 
             # Get embeddings for this cluster to compute centroid
             cluster_embeddings = []
@@ -982,6 +1003,8 @@ class ClusteringStage(BaseStage):
                 core_count=len(core_detection_ids),
             )
 
+            label_to_cluster_id[label] = cluster_id
+
             logger.info(
                 f"Created cluster {cluster_id} from HDBSCAN label {label} with "
                 f"{len(valid_detection_ids)} detections, epsilon={epsilon:.4f}, "
@@ -1011,10 +1034,68 @@ class ClusteringStage(BaseStage):
             if core_detection_ids:
                 self.repository.mark_detections_as_core(core_detection_ids)
 
-        # Log summary
-        n_clusters = len([label for label in labels_to_detections.keys() if label >= 0])
+        # --- Persist hierarchy data ---
+
+        # Create hdbscan_run record first to get the run ID
+        n_clusters = len(label_to_cluster_id)
         n_noise = len(labels_to_detections.get(-1, []))
+        n_embeddings = len(embeddings_data)
+
+        condensed_tree = serialize_condensed_tree(clusterer)
+        clusterer_state = pickle.dumps(clusterer)
+        serialized_label_map = {str(label): cid for label, cid in label_to_cluster_id.items()}
+
+        hdbscan_run_id = self.repository.create_hdbscan_run(
+            embedding_count=n_embeddings,
+            cluster_count=n_clusters,
+            noise_count=n_noise,
+            min_cluster_size=self.min_cluster_size,
+            min_samples=self.min_samples,
+            condensed_tree=condensed_tree,
+            label_to_cluster_id=serialized_label_map,
+            clusterer_state=clusterer_state,
+        )
+
+        logger.info(f"Created hdbscan_run {hdbscan_run_id}")
+
+        # Update per-cluster hierarchy (lambda_birth, persistence, hdbscan_run_id)
+        for label, cluster_id in label_to_cluster_id.items():
+            lb = lambda_births.get(label)
+            persistence = (
+                float(clusterer.cluster_persistence_[label])
+                if label < len(clusterer.cluster_persistence_)
+                else None
+            )
+            self.repository.update_cluster_hierarchy(
+                cluster_id=cluster_id,
+                lambda_birth=lb,
+                persistence=persistence,
+                hdbscan_run_id=hdbscan_run_id,
+            )
+
+        # Extract per-point lambda_val from the condensed tree
+        # Leaf entries have child_size == 1 and child == point_index
+        tree_df = clusterer.condensed_tree_.to_pandas()
+        leaf_entries = tree_df[tree_df["child_size"] == 1]
+        # Build a lookup: point_index -> lambda_val
+        point_lambda = {}
+        for _, row in leaf_entries.iterrows():
+            point_lambda[int(row["child"])] = float(row["lambda_val"])
+
+        # Update per-detection hierarchy (lambda_val, outlier_score)
+        for detection_id, result in bootstrap_results.items():
+            outlier_score = result.get("outlier_score")
+            idx = detection_to_idx.get(detection_id)
+            lambda_val = point_lambda.get(idx) if idx is not None else None
+            self.repository.update_detection_hierarchy(
+                detection_id=detection_id,
+                lambda_val=lambda_val,
+                outlier_score=outlier_score,
+            )
+
+        # Log summary
         logger.info(
             f"Bootstrap complete: created {n_clusters} clusters, "
-            f"{n_noise} detections marked as unassigned"
+            f"{n_noise} detections marked as unassigned, "
+            f"hdbscan_run_id={hdbscan_run_id}"
         )

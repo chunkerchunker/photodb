@@ -675,12 +675,13 @@ class ClusteringStage(BaseStage):
             logger.info("Starting HDBSCAN bootstrap clustering...")
 
             # Run HDBSCAN on all embeddings
-            bootstrap_results = self._run_hdbscan_bootstrap()
+            bootstrap_results, clusterer = self._run_hdbscan_bootstrap()
             if not bootstrap_results:
                 logger.warning("HDBSCAN bootstrap returned no results")
                 return False
 
             # Group and assign clusters
+            # (Task 5 will use the clusterer to extract and persist hierarchy data)
             self._assign_bootstrap_clusters(bootstrap_results)
 
             logger.info("HDBSCAN bootstrap clustering completed successfully")
@@ -691,7 +692,7 @@ class ClusteringStage(BaseStage):
         finally:
             self.bootstrap_mode = False
 
-    def _run_hdbscan_bootstrap(self) -> Dict[int, Dict]:
+    def _run_hdbscan_bootstrap(self) -> Tuple[Dict[int, Dict], Optional["hdbscan.HDBSCAN"]]:  # noqa: F821
         """
         Run HDBSCAN clustering on all embeddings in the collection.
 
@@ -699,16 +700,19 @@ class ClusteringStage(BaseStage):
         falling back to standard CPU implementation otherwise.
 
         Returns:
-            Dict mapping detection_id to {label, probability, is_core}
-            where label is the HDBSCAN cluster label (-1 for noise),
-            probability is the cluster membership probability,
-            and is_core indicates if the point is a core sample.
+            Tuple of:
+            - Dict mapping detection_id to {label, probability, is_core, outlier_score}
+              where label is the HDBSCAN cluster label (-1 for noise),
+              probability is the cluster membership probability,
+              is_core indicates if the point is a core sample,
+              and outlier_score is the GLOSH outlier score.
+            - Fitted HDBSCAN clusterer (or None if no embeddings found)
         """
         # Fetch all embeddings for the collection
         embeddings_data = self.repository.get_all_embeddings_for_collection()
         if not embeddings_data:
             logger.warning("No embeddings found for HDBSCAN bootstrap")
-            return {}
+            return {}, None
 
         # Extract detection IDs and embeddings
         detection_ids = [d["detection_id"] for d in embeddings_data]
@@ -731,14 +735,19 @@ class ClusteringStage(BaseStage):
         # Try Metal/MPS acceleration first, fall back to CPU
         if HAS_MPS:
             try:
-                labels, probabilities = self._run_hdbscan_metal(embeddings)
+                clusterer = self._run_hdbscan_metal(embeddings)
                 logger.info("Used Metal/MPS GPU acceleration for HDBSCAN")
             except Exception as e:
                 logger.warning(f"Metal HDBSCAN failed, falling back to CPU: {e}")
-                labels, probabilities = self._run_hdbscan_cpu(embeddings)
+                clusterer = self._run_hdbscan_cpu(embeddings)
         else:
             logger.info("Metal/MPS not available, using CPU")
-            labels, probabilities = self._run_hdbscan_cpu(embeddings)
+            clusterer = self._run_hdbscan_cpu(embeddings)
+
+        # Extract labels, probabilities, and outlier scores from the clusterer
+        labels = clusterer.labels_
+        probabilities = clusterer.probabilities_
+        outlier_scores = clusterer.outlier_scores_
 
         # Determine core points (high stability = high probability)
         results: Dict[int, Dict] = {}
@@ -748,6 +757,7 @@ class ClusteringStage(BaseStage):
                 "label": int(labels[i]),
                 "probability": float(probabilities[i]),
                 "is_core": is_core,
+                "outlier_score": float(outlier_scores[i]),
             }
 
         # Log statistics
@@ -760,23 +770,34 @@ class ClusteringStage(BaseStage):
             f"HDBSCAN found {n_clusters} clusters, {n_noise} noise points, {n_core} core points"
         )
 
-        return results
+        return results, clusterer
 
-    def _run_hdbscan_cpu(self, embeddings: np.ndarray) -> Tuple[np.ndarray, np.ndarray]:
-        """Run standard HDBSCAN on CPU."""
+    def _run_hdbscan_cpu(self, embeddings: np.ndarray):
+        """Run standard HDBSCAN on CPU.
+
+        Returns:
+            Fitted HDBSCAN clusterer with labels_, probabilities_, condensed_tree_,
+            outlier_scores_, and prediction data for approximate_predict.
+        """
         clusterer = create_hdbscan_clusterer(
             min_cluster_size=self.min_cluster_size,
             min_samples=self.min_samples,
         )
         clusterer.fit(embeddings)
-        return clusterer.labels_, clusterer.probabilities_
+        return clusterer
 
-    def _run_hdbscan_metal(self, embeddings: np.ndarray) -> Tuple[np.ndarray, np.ndarray]:
+    def _run_hdbscan_metal(self, embeddings: np.ndarray):
         """
         Run HDBSCAN with Metal/MPS GPU acceleration.
 
-        Uses GPU for k-NN search, then sparse graph HDBSCAN on CPU.
-        Typically 8x faster than standard CPU on Apple Silicon.
+        Uses GPU for k-NN search, then sparse graph HDBSCAN on CPU for speed.
+        After getting labels from the sparse graph, fits a standard CPU clusterer
+        with prediction_data=True on the raw embeddings so that approximate_predict
+        works (prediction_data is not compatible with precomputed metrics).
+
+        Returns:
+            Fitted HDBSCAN clusterer (CPU, non-precomputed) with labels_,
+            probabilities_, condensed_tree_, outlier_scores_, and prediction data.
         """
         from scipy.sparse import csr_matrix
 
@@ -822,15 +843,22 @@ class ClusteringStage(BaseStage):
 
         logger.info("Running HDBSCAN on sparse graph...")
 
-        # Run HDBSCAN on precomputed sparse graph
-        clusterer = create_hdbscan_clusterer(
+        # Run HDBSCAN on precomputed sparse graph (fast, but no prediction_data support)
+        sparse_clusterer = create_hdbscan_clusterer(
             min_cluster_size=self.min_cluster_size,
             min_samples=self.min_samples,
             precomputed=True,
         )
-        clusterer.fit(symmetric)
+        sparse_clusterer.fit(symmetric)
 
-        return clusterer.labels_, clusterer.probabilities_
+        logger.info("Fitting CPU clusterer with prediction data on raw embeddings...")
+
+        # Fit a standard CPU clusterer on raw embeddings for prediction_data support.
+        # This produces consistent labels (same data, same algorithm) and enables
+        # approximate_predict for incremental assignment in later tasks.
+        cpu_clusterer = self._run_hdbscan_cpu(embeddings)
+
+        return cpu_clusterer
 
     def _calculate_cluster_epsilon(
         self, embeddings: np.ndarray, labels: np.ndarray, label: int

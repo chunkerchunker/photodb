@@ -258,11 +258,12 @@ class PhotoRepository:
         with self.pool.get_connection() as conn:
             with conn.cursor(row_factory=dict_row) as cursor:
                 cursor.execute(
-                    """SELECT status, COUNT(*) as count 
-                       FROM processing_status
-                       WHERE stage = %s
-                       GROUP BY status""",
-                    (stage,),
+                    """SELECT ps.status, COUNT(*) as count
+                       FROM processing_status ps
+                       JOIN photo p ON ps.photo_id = p.id
+                       WHERE ps.stage = %s AND p.collection_id = %s
+                       GROUP BY ps.status""",
+                    (stage, self.collection_id),
                 )
                 rows = cursor.fetchall()
 
@@ -354,12 +355,13 @@ class PhotoRepository:
                 cursor.execute(
                     """SELECT p.* FROM photo p
                        WHERE p.med_path IS NOT NULL
+                       AND p.collection_id = %s
                        AND NOT EXISTS (
                            SELECT 1 FROM llm_analysis la
                            WHERE la.photo_id = p.id AND la.error_message IS NULL
                        )
                        LIMIT %s""",
-                    (limit,),
+                    (self.collection_id, limit),
                 )
                 rows = cursor.fetchall()
 
@@ -572,7 +574,10 @@ class PhotoRepository:
         """Get cluster by ID."""
         with self.pool.get_connection() as conn:
             with conn.cursor(row_factory=dict_row) as cursor:
-                cursor.execute("SELECT * FROM cluster WHERE id = %s", (cluster_id,))
+                cursor.execute(
+                    "SELECT * FROM cluster WHERE id = %s AND collection_id = %s",
+                    (cluster_id, self.collection_id),
+                )
                 row = cursor.fetchone()
 
                 if row:
@@ -987,6 +992,7 @@ class PhotoRepository:
                            JOIN face_embedding fe ON pd.id = fe.person_detection_id
                            WHERE pd.cluster_id IS NULL
                              AND pd.cluster_status = 'unassigned'
+                             AND pd.collection_id = %s
                              AND pd.face_confidence >= %s
                              AND pd.face_bbox_width >= %s
                              AND pd.face_bbox_height >= %s
@@ -997,6 +1003,7 @@ class PhotoRepository:
                        LIMIT %s""",
                     (
                         embedding,
+                        self.collection_id,
                         MIN_FACE_CONFIDENCE,
                         MIN_FACE_SIZE_PX,
                         MIN_FACE_SIZE_PX,

@@ -111,6 +111,9 @@ uv run photodb-maintenance merge-similar --similarity-threshold 0.25
 uv run photodb-maintenance cleanup-empty
 uv run photodb-maintenance update-stats
 
+# Clustering staleness check
+uv run photodb-maintenance check-staleness
+
 # Health check
 uv run photodb-maintenance health
 
@@ -224,37 +227,71 @@ Estimates age and gender using MiVOLO model on existing detections.
 
 **File**: `src/photodb/stages/clustering.py`
 
-Constrained incremental clustering for person identity grouping based on face embeddings.
+Hierarchical density-based clustering using HDBSCAN with two-tier incremental assignment for person identity grouping.
 
-**Algorithm** (per-detection with constraints):
+**Two-Phase Approach**:
 
-1. **Check must-link constraints** - if detection has must-link to clustered detection, assign directly
-2. **Find K nearest neighbors** (detections, not clusters) using pgvector
-3. **Calculate core distance confidence** - mean distance to K neighbors
-4. **Filter by cannot-link constraints** - remove forbidden clusters
-5. **Apply decision rules**:
-   - **No valid matches**: Add to unassigned pool
-   - **Single valid cluster**: Assign (stricter threshold for verified clusters)
-   - **Multiple valid clusters**: Mark for manual review
-6. **Unassigned pool**: When enough similar unassigned detections accumulate, form new cluster
+1. **Bootstrap Phase**: HDBSCAN runs on all embeddings to build the cluster hierarchy
+2. **Incremental Phase**: New faces are assigned to existing clusters using a two-tier strategy
 
-**Pool Cluster Formation** (prevents chaining of dissimilar detections):
+**Incremental Assignment Strategy** (two-tier):
 
-1. Calculate centroid from all similar unassigned detections
-2. Filter to only detections within `POOL_CLUSTERING_THRESHOLD` of centroid
-3. Recalculate centroid with filtered detections only
-4. Find medoid (detection closest to centroid)
-5. Assign detections with confidence based on distance to centroid
+1. **Tier 1: approximate_predict** - HDBSCAN's built-in incremental classifier
+   - Uses the condensed tree from bootstrap phase
+   - Classifies new points based on hierarchical structure
+   - Fast and hierarchically consistent
+2. **Tier 2: Epsilon-ball fallback** - Distance-based assignment if approximate_predict returns -1 (outlier)
+   - Checks distance to each cluster centroid
+   - Assigns if distance < cluster's epsilon threshold
+   - Epsilon derived from lambda_birth via condensed tree
 
-> **Note: "Failed to create cluster" warnings**
->
-> The log message `Failed to create cluster from detections [ids]` occurs when step 2 filters out too many detections, leaving fewer than 2 within threshold of the centroid. This happens with "chained" similarity: faces A↔B and B↔C are pairwise similar, but A and C are dissimilar. When the centroid is calculated, some faces end up too far from it.
->
-> This is expected behavior, especially for family photos where relatives may have similar features but shouldn't be clustered together. The filter prevents low-quality clusters from forming.
+**Lambda-derived Epsilon** (per-cluster):
 
-**Inline Medoid Recomputation**:
+Each cluster's epsilon is calculated as `1 / lambda_birth`, where:
 
-When a cluster grows by `MEDOID_RECOMPUTE_THRESHOLD` (default 25%) since last medoid computation, the medoid is recomputed inline during detection assignment. This uses `face_count_at_last_medoid` to track when recomputation is needed.
+- `lambda_birth`: The λ value at which the cluster was born in HDBSCAN's condensed tree
+- Higher λ (smaller epsilon) = denser, tighter cluster
+- Lower λ (larger epsilon) = sparser, looser cluster
+
+This makes epsilon hierarchically consistent with HDBSCAN's density-based structure.
+
+**HDBSCAN Run Persistence** (`hdbscan_run` table):
+
+Each bootstrap run is persisted with:
+
+- `condensed_tree`: Pickled HDBSCAN condensed tree (for approximate_predict)
+- `clusterer`: Pickled HDBSCAN clusterer object (for metadata and diagnostics)
+- `min_cluster_size`, `min_samples`: Parameters used for this run
+- Clusters reference their parent run via `hdbscan_run_id`
+
+**Cluster Hierarchy Metadata**:
+
+Each cluster stores HDBSCAN hierarchy information:
+
+- `lambda_birth`: Birth λ from condensed tree (used to calculate epsilon)
+- `persistence`: Lifetime of cluster in hierarchy (lambda_death - lambda_birth)
+- Higher persistence = more stable cluster
+
+**Detection-level Metadata**:
+
+Each person_detection stores:
+
+- `lambda_val`: λ value at assignment (from HDBSCAN)
+- `outlier_score`: HDBSCAN's GLOSH outlier score (0-1, higher = more outlier-like)
+
+**Staleness Detection**:
+
+Clusters can become stale if:
+
+- Face embeddings change significantly
+- Bootstrap parameters change (min_cluster_size, min_samples)
+- Many new faces added without re-bootstrapping
+
+Check staleness with:
+
+```bash
+uv run photodb-maintenance check-staleness
+```
 
 **Concurrency Safety**:
 
@@ -264,28 +301,29 @@ When a cluster grows by `MEDOID_RECOMPUTE_THRESHOLD` (default 25%) since last me
 
 **Constraint System**:
 
-- **Must-link**: Forces faces into same cluster (human override)
-- **Cannot-link**: Prevents faces from sharing cluster (human override)
-- **Verified clusters**: Protected from auto-merge, use stricter assignment threshold
+- **Cannot-link**: Prevents faces from sharing cluster (checked during incremental assignment)
+- Constraints are applied after HDBSCAN bootstrap completes
 
 **Configuration**:
 
-- `CLUSTERING_THRESHOLD`: Cosine distance threshold for assigning to existing clusters (default: 0.45)
-- `POOL_CLUSTERING_THRESHOLD`: Stricter threshold for forming clusters from unassigned pool (default: 70% of CLUSTERING_THRESHOLD)
-- `CLUSTERING_K_NEIGHBORS`: K nearest neighbors to check (default: 5)
-- `UNASSIGNED_CLUSTER_THRESHOLD`: Faces needed to form pool cluster (default: 5)
-- `VERIFIED_THRESHOLD_MULTIPLIER`: Stricter threshold for verified clusters (default: 0.8)
-- `MEDOID_RECOMPUTE_THRESHOLD`: Growth ratio to trigger inline medoid recomputation (default: 0.25)
+- `HDBSCAN_MIN_CLUSTER_SIZE`: Minimum faces to form a cluster (default: 3)
+- `HDBSCAN_MIN_SAMPLES`: Core point requirement for HDBSCAN (default: 2)
+- `CLUSTERING_THRESHOLD`: Fallback distance threshold for clusters without epsilon (default: 0.45)
 
 **Centroid update formula** (incremental, during assignment):
 
-```
+```text
 new_centroid = (old_centroid * face_count + embedding) / (face_count + 1)
 ```
 
 All embeddings and centroids are L2-normalized to unit vectors for cosine similarity.
 
-**Output**: Face cluster assignments + cluster centroids + constraint records
+**Future Work**:
+
+- **FISHDBC**: True incremental hierarchical clustering without periodic re-bootstrapping
+- Currently, HDBSCAN bootstrap must be rerun periodically to maintain cluster quality
+
+**Output**: Hierarchical cluster assignments + condensed tree persistence + lambda/persistence metadata
 
 ### Stage R1: Enrich
 
@@ -382,6 +420,8 @@ person_detection (
     -- Clustering
     person_id, cluster_status, cluster_id, cluster_confidence,
     unassigned_since,  -- When added to unassigned pool
+    lambda_val,        -- Lambda value from HDBSCAN assignment
+    outlier_score,     -- GLOSH outlier score (0-1, higher = more outlier-like)
     -- Detector metadata
     detector_model, detector_version,
     created_at
@@ -401,7 +441,19 @@ cluster (
     centroid VECTOR(512), medoid_detection_id,
     face_count_at_last_medoid,  -- Tracks when to recompute medoid
     person_id, verified, verified_at, verified_by,  -- Cluster verification
+    hdbscan_run_id,    -- Reference to HDBSCAN bootstrap run
+    lambda_birth,      -- Birth lambda from condensed tree (for epsilon calculation)
+    persistence,       -- Cluster lifetime in hierarchy (lambda_death - lambda_birth)
     created_at, updated_at
+)
+
+-- HDBSCAN bootstrap runs
+hdbscan_run (
+    id, run_date, min_cluster_size, min_samples,
+    total_embeddings, clusters_created,
+    condensed_tree BYTEA,  -- Pickled condensed tree (for approximate_predict)
+    clusterer BYTEA,       -- Pickled clusterer object (for metadata)
+    created_at
 )
 
 -- Ambiguous detection matches for review
@@ -570,13 +622,10 @@ DETECTION_FORCE_CPU=false          # Force CPU for detection
 MIVOLO_MODEL_PATH=models/mivolo_d1.pth.tar
 MIVOLO_FORCE_CPU=false             # Force CPU for MiVOLO
 
-# Clustering (constrained incremental)
-CLUSTERING_THRESHOLD=0.45          # Face similarity threshold for existing clusters
-POOL_CLUSTERING_THRESHOLD=0.315    # Stricter threshold for pool clustering (default: 70% of main)
-CLUSTERING_K_NEIGHBORS=5           # K nearest neighbors to check
-UNASSIGNED_CLUSTER_THRESHOLD=5     # Faces needed to form pool cluster
-VERIFIED_THRESHOLD_MULTIPLIER=0.8  # Stricter threshold for verified clusters
-MEDOID_RECOMPUTE_THRESHOLD=0.25    # Growth ratio to trigger inline medoid recomputation
+# Clustering (HDBSCAN + incremental assignment)
+HDBSCAN_MIN_CLUSTER_SIZE=3         # Minimum faces to form a cluster
+HDBSCAN_MIN_SAMPLES=2              # Core point requirement for HDBSCAN
+CLUSTERING_THRESHOLD=0.45          # Fallback distance threshold for clusters without epsilon
 
 # LLM - Anthropic
 LLM_PROVIDER=anthropic
@@ -629,7 +678,7 @@ LOG_LEVEL=INFO
 
 ## Project Structure
 
-```
+```text
 photodb/
 ├── src/photodb/
 │   ├── cli_local.py           # process-local CLI

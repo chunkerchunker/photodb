@@ -149,6 +149,9 @@ For existing databases, run migrations to add new tables:
 ```bash
 # Add person detection tables (required for detection and age_gender stages)
 psql $DATABASE_URL -f migrations/005_add_person_detection.sql
+
+# Add HDBSCAN hierarchy support (required for clustering stage)
+psql $DATABASE_URL -f migrations/020_hdbscan_hierarchy.sql
 ```
 
 ### Model Setup
@@ -224,15 +227,36 @@ Always import `timm_compat` before importing mivolo to apply the patches.
 
 ### Clustering Stage Configuration
 
-The clustering stage uses a hybrid HDBSCAN → Incremental DBSCAN approach:
-- **Bootstrap phase**: HDBSCAN identifies stable clusters and core points from existing embeddings
-- **Incremental phase**: New faces are assigned using per-cluster epsilon-ball queries
+The clustering stage uses HDBSCAN with two-tier incremental assignment:
+- **Bootstrap phase**: HDBSCAN identifies stable clusters and builds hierarchical condensed tree
+- **Incremental phase**: New faces are assigned using approximate_predict (tier 1) and epsilon-ball fallback (tier 2)
 
 **Configuration:**
 - `HDBSCAN_MIN_CLUSTER_SIZE`: Minimum faces to form a cluster (default: `3`)
 - `HDBSCAN_MIN_SAMPLES`: Core point requirement for HDBSCAN (default: `2`)
-- `EPSILON_PERCENTILE`: Percentile of core point distances for epsilon calculation (default: `90`)
 - `CLUSTERING_THRESHOLD`: Fallback distance threshold for clusters without epsilon (default: `0.45`)
+
+**Epsilon Calculation:**
+Each cluster's epsilon is derived from its `lambda_birth` value in the HDBSCAN condensed tree:
+```
+epsilon = 1 / lambda_birth
+```
+This makes epsilon hierarchically consistent with HDBSCAN's density-based structure. Higher λ (denser clusters) results in smaller epsilon (tighter assignment threshold).
+
+**HDBSCAN Run Persistence:**
+Each bootstrap run is stored in the `hdbscan_run` table with:
+- Pickled condensed tree (used for approximate_predict)
+- Pickled clusterer object (for metadata and diagnostics)
+- Bootstrap parameters (min_cluster_size, min_samples)
+- Run statistics (total_embeddings, clusters_created)
+
+Clusters reference their parent run via `hdbscan_run_id` and store hierarchy metadata (lambda_birth, persistence).
+
+**Staleness Detection:**
+Check if clusters need re-bootstrapping due to significant changes:
+```bash
+uv run photodb-maintenance check-staleness
+```
 
 **Bootstrap Clustering:**
 To run HDBSCAN bootstrap on existing embeddings:
@@ -242,17 +266,18 @@ uv run python scripts/migrate_to_hdbscan.py            # Run migration
 ```
 
 **Database Migration:**
-For existing databases, run the migration for HDBSCAN support:
+For existing databases, run the migration for HDBSCAN hierarchy support:
 ```bash
-psql $DATABASE_URL -f migrations/010_hdbscan_clustering.sql
+psql $DATABASE_URL -f migrations/020_hdbscan_hierarchy.sql
 ```
 
 **How it works:**
-1. HDBSCAN runs on all embeddings to identify density-based clusters
-2. Core points (high-probability cluster members) are marked with `is_core = true`
-3. Per-cluster epsilon is calculated as the 90th percentile of core point distances
-4. New faces are assigned if distance to any cluster centroid < that cluster's epsilon
-5. Manual assignments (`cluster_status = 'manual'`) and verified clusters are preserved
+1. HDBSCAN runs on all embeddings to build hierarchical condensed tree
+2. Clusters store lambda_birth (for epsilon) and persistence (stability metric)
+3. Condensed tree and clusterer are pickled and stored in `hdbscan_run` table
+4. New faces use approximate_predict for hierarchically consistent assignment
+5. Fallback to epsilon-ball assignment if approximate_predict returns -1 (outlier)
+6. Manual assignments (`cluster_status = 'manual'`) and verified clusters are preserved
 
 **Metal/MPS GPU Acceleration (Apple Silicon):**
 On Apple Silicon Macs, HDBSCAN bootstrap uses Metal/MPS for ~8x faster clustering:

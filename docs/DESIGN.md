@@ -259,9 +259,12 @@ This makes epsilon hierarchically consistent with HDBSCAN's density-based struct
 
 Each bootstrap run is persisted with:
 
-- `condensed_tree`: Pickled HDBSCAN condensed tree (for approximate_predict)
-- `clusterer`: Pickled HDBSCAN clusterer object (for metadata and diagnostics)
+- `condensed_tree`: HDBSCAN condensed tree as JSONB (serialized via `to_pandas().to_dict()`)
+- `clusterer_state`: Pickled HDBSCAN clusterer object as BYTEA (for `approximate_predict`)
+- `label_to_cluster_id`: Mapping from HDBSCAN label to database cluster ID (JSONB)
+- `embedding_count`, `cluster_count`, `noise_count`: Run statistics
 - `min_cluster_size`, `min_samples`: Parameters used for this run
+- `is_active`: Only one active run per collection (partial unique index)
 - Clusters reference their parent run via `hdbscan_run_id`
 
 **Cluster Hierarchy Metadata**:
@@ -449,11 +452,13 @@ cluster (
 
 -- HDBSCAN bootstrap runs
 hdbscan_run (
-    id, run_date, min_cluster_size, min_samples,
-    total_embeddings, clusters_created,
-    condensed_tree BYTEA,  -- Pickled condensed tree (for approximate_predict)
-    clusterer BYTEA,       -- Pickled clusterer object (for metadata)
-    created_at
+    id, collection_id, created_at,
+    embedding_count, cluster_count, noise_count,
+    min_cluster_size, min_samples,
+    condensed_tree JSONB,          -- Condensed tree (serialized via to_pandas().to_dict())
+    label_to_cluster_id JSONB,     -- HDBSCAN label -> database cluster_id mapping
+    clusterer_state BYTEA,         -- Pickled clusterer (for approximate_predict)
+    is_active BOOLEAN              -- Only one active per collection
 )
 
 -- Ambiguous detection matches for review

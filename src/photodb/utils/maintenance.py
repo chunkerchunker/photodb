@@ -823,9 +823,8 @@ class MaintenanceUtilities:
                 "recommendation": "No HDBSCAN run found. Run bootstrap.",
             }
 
-        # Get current embedding count
-        embeddings = self.repo.get_all_embeddings_for_collection()
-        current_count = len(embeddings)
+        # Get current embedding count (COUNT query, not full fetch)
+        current_count = self.repo.get_embedding_count_for_collection()
         bootstrap_count = active_run["embedding_count"]
 
         # Calculate growth ratio

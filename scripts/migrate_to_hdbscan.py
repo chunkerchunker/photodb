@@ -86,7 +86,6 @@ def main(dry_run: bool, force: bool, collection_id: int):
         config = {
             "HDBSCAN_MIN_CLUSTER_SIZE": os.getenv("HDBSCAN_MIN_CLUSTER_SIZE", "3"),
             "HDBSCAN_MIN_SAMPLES": os.getenv("HDBSCAN_MIN_SAMPLES", "2"),
-            "EPSILON_PERCENTILE": os.getenv("EPSILON_PERCENTILE", "90"),
             "CORE_PROBABILITY_THRESHOLD": os.getenv("CORE_PROBABILITY_THRESHOLD", "0.8"),
             "CLUSTERING_THRESHOLD": os.getenv("CLUSTERING_THRESHOLD", "0.45"),
         }
@@ -95,7 +94,6 @@ def main(dry_run: bool, force: bool, collection_id: int):
         logger.info("HDBSCAN Configuration:")
         logger.info(f"  min_cluster_size: {config['HDBSCAN_MIN_CLUSTER_SIZE']}")
         logger.info(f"  min_samples: {config['HDBSCAN_MIN_SAMPLES']}")
-        logger.info(f"  epsilon_percentile: {config['EPSILON_PERCENTILE']}")
         logger.info(f"  core_probability_threshold: {config['CORE_PROBABILITY_THRESHOLD']}")
         logger.info("")
 

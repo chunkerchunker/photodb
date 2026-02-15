@@ -1572,6 +1572,40 @@ class PhotoRepository:
                 )
                 return [dict(row) for row in cursor.fetchall()]
 
+    def get_embedding_count_for_collection(
+        self, collection_id: Optional[int] = None
+    ) -> int:
+        """Count embeddings eligible for clustering (fast COUNT query).
+
+        Uses the same filters as get_all_embeddings_for_collection but returns
+        only the count, avoiding loading all embedding vectors into memory.
+
+        Args:
+            collection_id: Optional collection ID to filter by. Uses instance default if not provided.
+
+        Returns:
+            Number of eligible embeddings.
+        """
+        resolved_collection_id = self._resolve_collection_id(collection_id)
+        with self.pool.get_connection() as conn:
+            with conn.cursor() as cursor:
+                cursor.execute(
+                    """SELECT COUNT(*)
+                       FROM person_detection pd
+                       JOIN face_embedding fe ON pd.id = fe.person_detection_id
+                       WHERE pd.collection_id = %s
+                         AND pd.face_confidence >= %s
+                         AND pd.face_bbox_width >= %s
+                         AND pd.face_bbox_height >= %s""",
+                    (
+                        resolved_collection_id,
+                        MIN_FACE_CONFIDENCE,
+                        MIN_FACE_SIZE_PX,
+                        MIN_FACE_SIZE_PX,
+                    ),
+                )
+                return cursor.fetchone()[0]
+
     def mark_detection_as_core(self, detection_id: int, is_core: bool = True) -> None:
         """Set the is_core flag on a detection.
 

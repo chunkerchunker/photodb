@@ -248,10 +248,10 @@ class ClusteringStage(BaseStage):
 
             # Check staleness once per cache load (avoid repeated DB queries)
             if not self._staleness_warned:
+                self._staleness_warned = True
                 run_embedding_count = run.get("embedding_count", 0)
                 if run_embedding_count > 0:
-                    current_embeddings = self.repository.get_all_embeddings_for_collection()
-                    current_count = len(current_embeddings)
+                    current_count = self.repository.get_embedding_count_for_collection()
                     if current_count > 0:
                         growth_ratio = (
                             (current_count - run_embedding_count) / run_embedding_count
@@ -263,7 +263,6 @@ class ClusteringStage(BaseStage):
                                 f"(growth={growth_ratio:.1%}). "
                                 f"Consider re-running bootstrap."
                             )
-                            self._staleness_warned = True
 
             # Run approximate_predict
             labels, strengths = hdbscan_lib.approximate_predict(

@@ -433,7 +433,7 @@ class TestIncrementalAssignment:
 
         mock_repository.get_active_hdbscan_run.return_value = run
         # Staleness check: return same count as the run
-        mock_repository.get_all_embeddings_for_collection.return_value = [{}] * 20
+        mock_repository.get_embedding_count_for_collection.return_value = 20
 
         # Create a new embedding close to cluster 0 (offset at dim 0)
         rng = np.random.RandomState(99)
@@ -472,7 +472,7 @@ class TestIncrementalAssignment:
         run = _make_hdbscan_run(clusterer, label_to_cluster_id)
 
         mock_repository.get_active_hdbscan_run.return_value = run
-        mock_repository.get_all_embeddings_for_collection.return_value = [{}] * 20
+        mock_repository.get_embedding_count_for_collection.return_value = 20
 
         # Create an embedding far from both clusters (should be noise)
         rng = np.random.RandomState(77)
@@ -526,7 +526,7 @@ class TestIncrementalAssignment:
         run = _make_hdbscan_run(clusterer, label_to_cluster_id)
 
         mock_repository.get_active_hdbscan_run.return_value = run
-        mock_repository.get_all_embeddings_for_collection.return_value = [{}] * 20
+        mock_repository.get_embedding_count_for_collection.return_value = 20
 
         # Create a new embedding close to cluster 0 (should predict label 0 -> cluster_id 100)
         rng = np.random.RandomState(99)
@@ -598,7 +598,7 @@ class TestIncrementalAssignment:
         run = _make_hdbscan_run(clusterer, label_to_cluster_id)
 
         mock_repository.get_active_hdbscan_run.return_value = run
-        mock_repository.get_all_embeddings_for_collection.return_value = [{}] * 20
+        mock_repository.get_embedding_count_for_collection.return_value = 20
 
         # Create embedding close-ish to cluster 0 but beyond strict threshold
         # We'll set epsilon very small so strict_threshold = epsilon * 0.8 is tiny
@@ -642,7 +642,7 @@ class TestIncrementalAssignment:
         run = _make_hdbscan_run(clusterer, label_to_cluster_id)
 
         mock_repository.get_active_hdbscan_run.return_value = run
-        mock_repository.get_all_embeddings_for_collection.return_value = [{}] * 20
+        mock_repository.get_embedding_count_for_collection.return_value = 20
 
         rng = np.random.RandomState(99)
         emb = (rng.randn(512) * 0.05 + np.array([1.0] + [0.0] * 511)).astype(np.float32)
@@ -672,7 +672,7 @@ class TestIncrementalAssignment:
         run1["id"] = 1
 
         mock_repository.get_active_hdbscan_run.return_value = run1
-        mock_repository.get_all_embeddings_for_collection.return_value = [{}] * 20
+        mock_repository.get_embedding_count_for_collection.return_value = 20
 
         rng = np.random.RandomState(99)
         emb = (rng.randn(512) * 0.05 + np.array([1.0] + [0.0] * 511)).astype(np.float32)

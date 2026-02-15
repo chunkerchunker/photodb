@@ -84,6 +84,13 @@ class ClusteringStage(BaseStage):
         )
         self.bootstrap_mode = False  # Set externally when bootstrap is requested
 
+        # Cached HDBSCAN clusterer for approximate_predict (two-tier incremental assignment)
+        # Cache is invalidated when hdbscan_run.id changes (new bootstrap run)
+        self._cached_clusterer = None
+        self._cached_label_map = None  # Maps HDBSCAN label (int) -> cluster_id (int)
+        self._cached_hdbscan_run_id = None
+        self._staleness_warned = False
+
         logger.debug(
             f"Initialized ClusteringStage with threshold={self.clustering_threshold}, "
             f"pool_threshold={self.pool_clustering_threshold}, "
@@ -203,16 +210,110 @@ class ClusteringStage(BaseStage):
             logger.error("Zero-norm embedding")
             return None
 
+    def _try_approximate_predict(self, embedding: np.ndarray) -> Optional[Tuple[int, float]]:
+        """
+        Try to assign embedding using HDBSCAN approximate_predict.
+
+        Uses a cached clusterer from the active hdbscan_run to predict cluster
+        membership for a new embedding without rerunning HDBSCAN.
+
+        Args:
+            embedding: Normalized 512-d embedding vector.
+
+        Returns:
+            Tuple of (cluster_id, strength) if a cluster is predicted, or None
+            if the point is predicted as noise or no active run exists.
+        """
+        try:
+            import hdbscan as hdbscan_lib
+
+            # Load or refresh cached clusterer from active hdbscan_run
+            run = self.repository.get_active_hdbscan_run()
+            if run is None:
+                return None
+
+            run_id = run["id"]
+
+            # Refresh cache if run_id changed or not yet cached
+            if self._cached_hdbscan_run_id != run_id:
+                clusterer_state = run.get("clusterer_state")
+                if clusterer_state is None:
+                    logger.debug("Active hdbscan_run has no clusterer_state")
+                    return None
+
+                self._cached_clusterer = pickle.loads(clusterer_state)
+                # label_to_cluster_id has string keys from JSON serialization
+                label_map_raw = run.get("label_to_cluster_id", {})
+                self._cached_label_map = {int(k): v for k, v in label_map_raw.items()}
+                self._cached_hdbscan_run_id = run_id
+                self._staleness_warned = False
+                logger.debug(
+                    f"Loaded cached clusterer from hdbscan_run {run_id} "
+                    f"with {len(self._cached_label_map)} label mappings"
+                )
+
+            # Check staleness once per cache load (avoid repeated DB queries)
+            if not self._staleness_warned:
+                run_embedding_count = run.get("embedding_count", 0)
+                if run_embedding_count > 0:
+                    current_embeddings = self.repository.get_all_embeddings_for_collection()
+                    current_count = len(current_embeddings)
+                    if current_count > 0:
+                        growth_ratio = (
+                            (current_count - run_embedding_count) / run_embedding_count
+                        )
+                        if growth_ratio > 0.25:
+                            logger.warning(
+                                f"HDBSCAN run is stale: {run_embedding_count} embeddings "
+                                f"at run time, {current_count} now "
+                                f"(growth={growth_ratio:.1%}). "
+                                f"Consider re-running bootstrap."
+                            )
+                            self._staleness_warned = True
+
+            # Run approximate_predict
+            labels, strengths = hdbscan_lib.approximate_predict(
+                self._cached_clusterer, embedding.reshape(1, -1)
+            )
+            label = int(labels[0])
+            strength = float(strengths[0])
+
+            if label == -1:
+                logger.debug("approximate_predict returned noise (-1)")
+                return None
+
+            # Map HDBSCAN label to database cluster_id
+            cluster_id = self._cached_label_map.get(label)
+            if cluster_id is None:
+                logger.warning(
+                    f"approximate_predict returned label {label} with no cluster_id mapping"
+                )
+                return None
+
+            logger.debug(
+                f"approximate_predict: label={label} -> cluster_id={cluster_id}, "
+                f"strength={strength:.4f}"
+            )
+            return (cluster_id, strength)
+
+        except Exception as e:
+            logger.warning(f"approximate_predict failed, falling back to epsilon-ball: {e}")
+            return None
+
     def _cluster_single_detection(self, detection: dict) -> None:
         """
-        Cluster a single detection using epsilon-ball approach.
+        Cluster a single detection using two-tier incremental assignment.
 
         Decision flow:
-        1. Get all clusters with centroids (epsilon may be NULL for legacy clusters)
-        2. Check if detection falls within epsilon-ball of any cluster centroid
+        1. If not in bootstrap mode, try approximate_predict first
+           - If it returns a cluster_id, check cannot-link and verified thresholds
+           - If passes: assign to cluster
+           - If blocked: fall through to epsilon-ball
+        2. Get all clusters with centroids (epsilon may be NULL for legacy clusters)
+        3. Check if detection falls within epsilon-ball of any cluster centroid
            - Uses cluster.epsilon if set, otherwise falls back to self.clustering_threshold
-        3. Filter by cannot-link constraints
-        4. Apply decision rules (assign, review, or add to unassigned pool)
+        4. Filter by cannot-link constraints
+        5. Apply decision rules (assign, review, or add to unassigned pool)
         """
         detection_id = detection["id"]
         embedding = self._normalize_embedding(detection.get("embedding"))
@@ -220,6 +321,64 @@ class ClusteringStage(BaseStage):
         if embedding is None:
             logger.warning(f"No valid embedding for detection {detection_id} - skipping clustering")
             return
+
+        # Tier 1: Try approximate_predict (only if not in bootstrap mode)
+        if not self.bootstrap_mode:
+            predict_result = self._try_approximate_predict(embedding)
+            if predict_result is not None:
+                predicted_cluster_id, strength = predict_result
+
+                # Check cannot-link constraints for the predicted cluster
+                allowed = self._filter_cannot_link_clusters(detection_id, [predicted_cluster_id])
+
+                if allowed:
+                    # Check verified cluster stricter threshold
+                    cluster = self.repository.get_cluster_by_id(predicted_cluster_id)
+                    if cluster and cluster.verified:
+                        # For verified clusters, require strength above verified threshold
+                        # strength is already a confidence-like value from approximate_predict
+                        # Use cosine distance to centroid for threshold comparison
+                        centroid = self._normalize_embedding(cluster.centroid)
+                        if centroid is not None:
+                            distance = float(1.0 - np.dot(embedding, centroid))
+                            cluster_epsilon = (
+                                cluster.epsilon if cluster.epsilon else self.clustering_threshold
+                            )
+                            strict_threshold = cluster_epsilon * self.verified_threshold_multiplier
+                            if distance < strict_threshold:
+                                confidence = float(max(0.0, 1.0 - distance))
+                                self._assign_to_cluster(
+                                    detection_id, predicted_cluster_id, confidence, embedding
+                                )
+                                return
+                            else:
+                                logger.debug(
+                                    f"Detection {detection_id}: approximate_predict suggested "
+                                    f"verified cluster {predicted_cluster_id} but distance "
+                                    f"{distance:.3f} exceeds strict threshold {strict_threshold:.3f}"
+                                )
+                                # Fall through to epsilon-ball
+                        else:
+                            # No centroid to compare against - fall through
+                            logger.debug(
+                                f"Detection {detection_id}: verified cluster "
+                                f"{predicted_cluster_id} has no centroid, falling through"
+                            )
+                    else:
+                        # Non-verified cluster: assign directly
+                        confidence = float(max(0.0, strength))
+                        self._assign_to_cluster(
+                            detection_id, predicted_cluster_id, confidence, embedding
+                        )
+                        return
+                else:
+                    logger.debug(
+                        f"Detection {detection_id}: approximate_predict suggested "
+                        f"cluster {predicted_cluster_id} but blocked by cannot-link"
+                    )
+                    # Fall through to epsilon-ball
+
+        # Tier 2: Epsilon-ball assignment (existing logic)
 
         # Step 1: Get all clusters with centroids (epsilon may be NULL for legacy clusters)
         clusters_with_epsilon = self.repository.get_clusters_with_epsilon()

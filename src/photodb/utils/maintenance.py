@@ -17,7 +17,9 @@ from ..database.connection import ConnectionPool
 from ..database.repository import PhotoRepository, MIN_FACE_SIZE_PX, MIN_FACE_CONFIDENCE
 from .hdbscan_config import (
     create_hdbscan_clusterer,
-    calculate_cluster_epsilon,
+    calculate_cluster_epsilon,  # Keep for fallback
+    extract_cluster_lambda_births,
+    lambda_to_epsilon,
     DEFAULT_CORE_PROBABILITY_THRESHOLD,
     DEFAULT_CLUSTERING_THRESHOLD,
 )
@@ -501,6 +503,7 @@ class MaintenanceUtilities:
 
         labels = clusterer.labels_
         probabilities = clusterer.probabilities_
+        outlier_scores = clusterer.outlier_scores_
 
         # Count clusters found
         unique_labels = set(labels)
@@ -513,6 +516,17 @@ class MaintenanceUtilities:
 
         if n_clusters == 0:
             return 0
+
+        # Extract lambda_birth per cluster from the condensed tree
+        lambda_births = extract_cluster_lambda_births(clusterer)
+
+        # Extract per-point lambda_val from the condensed tree
+        # Leaf entries have child_size == 1 and child == point_index
+        tree_df = clusterer.condensed_tree_.to_pandas()
+        leaf_entries = tree_df[tree_df["child_size"] == 1]
+        point_lambda: Dict[int, float] = {}
+        for _, row in leaf_entries.iterrows():
+            point_lambda[int(row["child"])] = float(row["lambda_val"])
 
         # Group detections by label
         label_to_detections: Dict[int, List[int]] = {}
@@ -546,10 +560,14 @@ class MaintenanceUtilities:
             if centroid_norm > 0:
                 centroid = centroid / centroid_norm
 
-            # Calculate epsilon using shared function
-            epsilon = calculate_cluster_epsilon(
-                embeddings, labels, label, fallback_threshold=DEFAULT_CLUSTERING_THRESHOLD
-            )
+            # Use lambda-derived epsilon (fall back to old method if lambda unavailable)
+            label_lambda = lambda_births.get(label)
+            if label_lambda is not None:
+                epsilon = lambda_to_epsilon(label_lambda)
+            else:
+                epsilon = calculate_cluster_epsilon(
+                    embeddings, labels, label, fallback_threshold=DEFAULT_CLUSTERING_THRESHOLD
+                )
 
             # Find medoid (closest to centroid)
             distances_to_centroid = np.linalg.norm(cluster_embeddings - centroid, axis=1)
@@ -595,6 +613,30 @@ class MaintenanceUtilities:
             # Mark core points
             if core_detection_ids:
                 self.repo.mark_detections_as_core(core_detection_ids)
+
+            # Update per-cluster hierarchy (lambda_birth, persistence)
+            lb = lambda_births.get(label)
+            persistence = (
+                float(clusterer.cluster_persistence_[label])
+                if label < len(clusterer.cluster_persistence_)
+                else None
+            )
+            self.repo.update_cluster_hierarchy(
+                cluster_id=cluster_id,
+                lambda_birth=lb,
+                persistence=persistence,
+                hdbscan_run_id=None,
+            )
+
+            # Update per-detection hierarchy (lambda_val, outlier_score)
+            for detection_id in cluster_detection_ids:
+                idx = detection_ids.index(detection_id)
+                lambda_val = point_lambda.get(idx)
+                self.repo.update_detection_hierarchy(
+                    detection_id=detection_id,
+                    lambda_val=lambda_val,
+                    outlier_score=float(outlier_scores[idx]),
+                )
 
             clusters_created += 1
 

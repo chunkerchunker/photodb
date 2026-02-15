@@ -127,6 +127,27 @@ def main(dry_run: bool, force: bool, collection_id: int):
                     f"  Clusters with epsilon: "
                     f"{sum(1 for c in new_clusters if c.get('epsilon') is not None)}"
                 )
+
+                # Count clusters with lambda_birth set
+                with repository.pool.get_connection() as conn:
+                    with conn.cursor() as cursor:
+                        cursor.execute(
+                            """SELECT COUNT(*) FROM cluster
+                               WHERE collection_id = %s AND lambda_birth IS NOT NULL""",
+                            (collection_id,),
+                        )
+                        lambda_birth_count = cursor.fetchone()[0]
+                logger.info(f"  Clusters with lambda_birth: {lambda_birth_count}")
+
+                # Check hdbscan_run was created
+                active_run = repository.get_active_hdbscan_run()
+                if active_run:
+                    logger.info(f"  Active HDBSCAN run: #{active_run['id']}")
+                    logger.info(f"  Embeddings in run: {active_run['embedding_count']}")
+                    logger.info(
+                        f"  Clusterer state: "
+                        f"{'persisted' if active_run.get('clusterer_state') else 'not persisted'}"
+                    )
             else:
                 logger.error("Migration failed")
                 sys.exit(1)

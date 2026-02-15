@@ -1815,6 +1815,128 @@ class PhotoRepository:
                 )
 
     # ============================================
+    # HDBSCAN RUN METHODS
+    # ============================================
+
+    def create_hdbscan_run(
+        self,
+        embedding_count: int,
+        cluster_count: int,
+        noise_count: int,
+        min_cluster_size: int,
+        min_samples: int,
+        condensed_tree: dict,
+        label_to_cluster_id: dict,
+        clusterer_state: Optional[bytes] = None,
+        collection_id: Optional[int] = None,
+    ) -> int:
+        """Create a new HDBSCAN run record, deactivating any previous active run.
+
+        Args:
+            embedding_count: Number of embeddings clustered
+            cluster_count: Number of clusters found
+            noise_count: Number of noise points
+            min_cluster_size: HDBSCAN min_cluster_size parameter used
+            min_samples: HDBSCAN min_samples parameter used
+            condensed_tree: Serialized condensed tree (dict for JSONB)
+            label_to_cluster_id: Mapping from HDBSCAN label to database cluster ID
+            clusterer_state: Pickled HDBSCAN clusterer bytes (for approximate_predict)
+            collection_id: Optional collection ID (uses instance default)
+
+        Returns:
+            The newly created hdbscan_run ID
+        """
+        resolved_collection_id = self._resolve_collection_id(collection_id)
+        with self.pool.transaction() as conn:
+            with conn.cursor() as cursor:
+                # Deactivate any previous active run for this collection
+                cursor.execute(
+                    """UPDATE hdbscan_run SET is_active = FALSE
+                       WHERE collection_id = %s AND is_active = TRUE""",
+                    (resolved_collection_id,),
+                )
+                # Insert new active run
+                cursor.execute(
+                    """INSERT INTO hdbscan_run
+                       (collection_id, embedding_count, cluster_count, noise_count,
+                        min_cluster_size, min_samples, condensed_tree,
+                        label_to_cluster_id, clusterer_state, is_active)
+                       VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, TRUE)
+                       RETURNING id""",
+                    (
+                        resolved_collection_id,
+                        embedding_count,
+                        cluster_count,
+                        noise_count,
+                        min_cluster_size,
+                        min_samples,
+                        json.dumps(condensed_tree),
+                        json.dumps(label_to_cluster_id),
+                        clusterer_state,
+                    ),
+                )
+                return cursor.fetchone()[0]
+
+    def get_active_hdbscan_run(
+        self, collection_id: Optional[int] = None
+    ) -> Optional[Dict[str, Any]]:
+        """Get the active HDBSCAN run for a collection.
+
+        Returns:
+            Dict with id, embedding_count, cluster_count, label_to_cluster_id,
+            clusterer_state, created_at, or None if no active run exists.
+        """
+        resolved_collection_id = self._resolve_collection_id(collection_id)
+        with self.pool.get_connection() as conn:
+            with conn.cursor(row_factory=dict_row) as cursor:
+                cursor.execute(
+                    """SELECT id, embedding_count, cluster_count, label_to_cluster_id,
+                              clusterer_state, created_at
+                       FROM hdbscan_run
+                       WHERE collection_id = %s AND is_active = TRUE""",
+                    (resolved_collection_id,),
+                )
+                row = cursor.fetchone()
+                return dict(row) if row else None
+
+    def update_cluster_hierarchy(
+        self,
+        cluster_id: int,
+        lambda_birth: Optional[float] = None,
+        persistence: Optional[float] = None,
+        hdbscan_run_id: Optional[int] = None,
+    ) -> None:
+        """Update hierarchy-related columns on a cluster."""
+        with self.pool.transaction() as conn:
+            with conn.cursor() as cursor:
+                cursor.execute(
+                    """UPDATE cluster
+                       SET lambda_birth = %s,
+                           persistence = %s,
+                           hdbscan_run_id = %s,
+                           updated_at = NOW()
+                       WHERE id = %s""",
+                    (lambda_birth, persistence, hdbscan_run_id, cluster_id),
+                )
+
+    def update_detection_hierarchy(
+        self,
+        detection_id: int,
+        lambda_val: Optional[float] = None,
+        outlier_score: Optional[float] = None,
+    ) -> None:
+        """Update hierarchy-related columns on a person_detection."""
+        with self.pool.transaction() as conn:
+            with conn.cursor() as cursor:
+                cursor.execute(
+                    """UPDATE person_detection
+                       SET lambda_val = %s,
+                           outlier_score = %s
+                       WHERE id = %s""",
+                    (lambda_val, outlier_score, detection_id),
+                )
+
+    # ============================================
     # GENEALOGICAL RELATIONSHIP METHODS
     # ============================================
 

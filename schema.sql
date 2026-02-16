@@ -338,7 +338,7 @@ CREATE TABLE IF NOT EXISTS face_embedding(
     embedding vector(512) NOT NULL
 );
 
-CREATE INDEX IF NOT EXISTS face_embedding_idx ON face_embedding USING ivfflat(embedding vector_cosine_ops) WITH (lists = 100);
+CREATE INDEX IF NOT EXISTS face_embedding_hnsw_idx ON face_embedding USING hnsw(embedding vector_cosine_ops) WITH (m = 16, ef_construction = 64);
 
 -- Group of faces belonging to the same person
 CREATE TABLE IF NOT EXISTS "cluster"(

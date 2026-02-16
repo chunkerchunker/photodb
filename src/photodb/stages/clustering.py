@@ -468,6 +468,11 @@ class ClusteringStage(BaseStage):
         self.repository.update_detection_unassigned(detection_id)
         logger.debug(f"Detection {detection_id} added to unassigned pool")
 
+        # During bootstrap, skip the expensive pool similarity search —
+        # bootstrap will cluster everything via HDBSCAN afterward.
+        if self.bootstrap_mode:
+            return
+
         # Check if enough similar unassigned detections to form cluster
         # Use stricter pool threshold to prevent chaining of dissimilar detections
         similar_unassigned = self.repository.find_similar_unassigned_detections(

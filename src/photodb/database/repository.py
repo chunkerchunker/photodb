@@ -1016,41 +1016,41 @@ class PhotoRepository:
         Excludes detections with faces smaller than MIN_FACE_SIZE_PX pixels.
         Excludes detections with confidence below MIN_FACE_CONFIDENCE.
 
-        Note: The query uses a subquery structure to allow the IVFFlat index to be
-        used efficiently. Vector indexes (IVFFlat/HNSW) can only optimize
-        ORDER BY + LIMIT, not WHERE distance < X. By moving the distance filter
-        to the outer query, we fetch candidates using the index first, then filter.
-        The inner LIMIT is 5x the requested limit to ensure enough candidates
-        after threshold filtering.
+        The query is structured as vector-search-first: the inner subquery uses
+        ORDER BY + LIMIT on face_embedding alone so the HNSW index can be used.
+        The outer query then joins person_detection to apply pool filters. The
+        inner LIMIT is set high (limit * 20) because not all nearest embeddings
+        will belong to unassigned detections meeting the size/confidence criteria.
         """
-        # Overfetch factor to ensure enough results after threshold filtering
-        overfetch_limit = limit * 5
+        overfetch_limit = max(limit * 20, 200)
         with self.pool.get_connection() as conn:
             with conn.cursor(row_factory=dict_row) as cursor:
                 cursor.execute(
-                    """SELECT id, distance FROM (
-                           SELECT pd.id, fe.embedding <=> %s AS distance
-                           FROM person_detection pd
-                           JOIN face_embedding fe ON pd.id = fe.person_detection_id
-                           WHERE pd.cluster_id IS NULL
-                             AND pd.cluster_status = 'unassigned'
-                             AND pd.collection_id = %s
-                             AND pd.face_confidence >= %s
-                             AND pd.face_bbox_width >= %s
-                             AND pd.face_bbox_height >= %s
+                    """SELECT sub.id, sub.distance
+                       FROM (
+                           SELECT fe.person_detection_id AS id,
+                                  fe.embedding <=> %s AS distance
+                           FROM face_embedding fe
                            ORDER BY fe.embedding <=> %s
                            LIMIT %s
                        ) sub
-                       WHERE distance < %s
+                       JOIN person_detection pd ON pd.id = sub.id
+                       WHERE pd.cluster_id IS NULL
+                         AND pd.cluster_status = 'unassigned'
+                         AND pd.collection_id = %s
+                         AND pd.face_confidence >= %s
+                         AND pd.face_bbox_width >= %s
+                         AND pd.face_bbox_height >= %s
+                         AND sub.distance < %s
                        LIMIT %s""",
                     (
                         embedding,
+                        embedding,
+                        overfetch_limit,
                         self.collection_id,
                         MIN_FACE_CONFIDENCE,
                         MIN_FACE_SIZE_PX,
                         MIN_FACE_SIZE_PX,
-                        embedding,
-                        overfetch_limit,
                         threshold,
                         limit,
                     ),

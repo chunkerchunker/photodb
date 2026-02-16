@@ -6,6 +6,7 @@ import numpy as np
 from decimal import Decimal
 
 from .base import BaseStage
+from .. import config as defaults
 from ..database.models import Photo
 from ..utils.hdbscan_config import (
     create_hdbscan_clusterer,
@@ -22,9 +23,9 @@ logger = logging.getLogger(__name__)
 
 # Metal/MPS k-NN parameters for GPU-accelerated HDBSCAN
 # Number of neighbors for sparse graph construction (must be large enough for connectivity)
-KNN_NEIGHBORS = 60
+KNN_NEIGHBORS = defaults.KNN_NEIGHBORS
 # Batch size for GPU k-NN computation (balances memory vs. speed)
-KNN_BATCH_SIZE = 2000
+KNN_BATCH_SIZE = defaults.KNN_BATCH_SIZE
 
 # Check for PyTorch MPS (Metal) availability
 try:
@@ -253,9 +254,7 @@ class ClusteringStage(BaseStage):
                 if run_embedding_count > 0:
                     current_count = self.repository.get_embedding_count_for_collection()
                     if current_count > 0:
-                        growth_ratio = (
-                            (current_count - run_embedding_count) / run_embedding_count
-                        )
+                        growth_ratio = (current_count - run_embedding_count) / run_embedding_count
                         if growth_ratio > 0.25:
                             logger.warning(
                                 f"HDBSCAN run is stale: {run_embedding_count} embeddings "
@@ -458,9 +457,7 @@ class ClusteringStage(BaseStage):
         if not cluster_ids:
             return []
 
-        forbidden_clusters = self.repository.get_cannot_linked_clusters(
-            detection_id, cluster_ids
-        )
+        forbidden_clusters = self.repository.get_cannot_linked_clusters(detection_id, cluster_ids)
         return [cid for cid in cluster_ids if cid not in forbidden_clusters]
 
     def _add_to_unassigned_pool(self, detection_id: int, embedding: np.ndarray) -> None:
@@ -1054,7 +1051,6 @@ class ClusteringStage(BaseStage):
             emb = self._normalize_embedding(d["embedding"])
             embeddings_list.append(emb if emb is not None else np.zeros(512))
         embeddings = np.array(embeddings_list)
-
 
         # Extract lambda_birth per cluster from the condensed tree
         lambda_births = extract_cluster_lambda_births(clusterer)

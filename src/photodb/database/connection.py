@@ -1,10 +1,11 @@
 import psycopg
 from psycopg_pool import ConnectionPool as PsycopgPool
-import os
 from contextlib import contextmanager
 from typing import Optional, Generator, Any
 import logging
 from pgvector.psycopg import register_vector
+
+from .. import config as defaults
 
 logger = logging.getLogger(__name__)
 
@@ -22,9 +23,7 @@ class Connection:
             connection_string: PostgreSQL connection string. If not provided,
                              uses DATABASE_URL env var or defaults to local connection.
         """
-        self.connection_string = connection_string or os.getenv(
-            "DATABASE_URL", "postgresql://localhost/photodb"
-        )
+        self.connection_string = connection_string or defaults.DATABASE_URL
 
     @contextmanager
     def get_connection(self) -> Generator[Any, None, None]:
@@ -62,9 +61,7 @@ class ConnectionPool:
             min_conn: Minimum number of connections to maintain
             max_conn: Maximum number of connections allowed
         """
-        self.connection_string = connection_string or os.getenv(
-            "DATABASE_URL", "postgresql://localhost/photodb"
-        )
+        self.connection_string = connection_string or defaults.DATABASE_URL
 
         self.pool = PsycopgPool(
             self.connection_string,

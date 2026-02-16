@@ -130,7 +130,9 @@ def main(
 
         # Validate that path is provided when scanning directories
         if path is None and not skip_directory_scan:
-            logger.error("PATH is required when scanning directories. Use --skip-directory-scan to process from database.")
+            logger.error(
+                "PATH is required when scanning directories. Use --skip-directory-scan to process from database."
+            )
             sys.exit(1)
 
         # Create PostgreSQL connection pool
@@ -210,14 +212,16 @@ def main(
 
 def load_configuration(config_path: Optional[str]) -> dict:
     """Load configuration from environment and optional config file."""
+    from . import config as defaults
+
     config = {
-        "DATABASE_URL": os.getenv("DATABASE_URL", "postgresql://localhost/photodb"),
-        "INGEST_PATH": os.getenv("INGEST_PATH", "./photos/raw"),
-        "IMG_PATH": os.getenv("IMG_PATH", "./photos/processed"),
-        "COLLECTION_ID": int(os.getenv("COLLECTION_ID", "1")),
-        "LOG_LEVEL": os.getenv("LOG_LEVEL", "INFO"),
-        "LOG_FILE": os.getenv("LOG_FILE", "./logs/photodb.log"),
-        "RESIZE_SCALE": float(os.getenv("RESIZE_SCALE", "1.0")),
+        "DATABASE_URL": defaults.DATABASE_URL,
+        "INGEST_PATH": defaults.INGEST_PATH,
+        "IMG_PATH": defaults.IMG_PATH,
+        "COLLECTION_ID": defaults.COLLECTION_ID,
+        "LOG_LEVEL": defaults.LOG_LEVEL,
+        "LOG_FILE": defaults.LOG_FILE,
+        "RESIZE_SCALE": defaults.RESIZE_SCALE,
     }
 
     if config_path:

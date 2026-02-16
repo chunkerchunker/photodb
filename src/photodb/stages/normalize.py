@@ -5,6 +5,7 @@ from PIL import Image
 from PIL.ExifTags import Base as ExifBase
 
 from .base import BaseStage
+from .. import config as defaults
 from ..database.models import Photo
 from ..utils.image import ImageHandler
 
@@ -20,7 +21,7 @@ class NormalizeStage(BaseStage):
     """Stage 1: Normalize photos to WebP format with standard sizes."""
 
     # WebP quality for lossy compression (0-100)
-    WEBP_QUALITY = 95
+    WEBP_QUALITY = defaults.WEBP_QUALITY
 
     # Subdirectory for medium-sized images (preparation for multiple sizes)
     MED_SUBDIR = "med"

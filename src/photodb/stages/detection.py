@@ -2,13 +2,13 @@
 Detection stage: Face and body detection using PersonDetector (YOLO + InsightFace).
 """
 
-import os
 from pathlib import Path
 import logging
 
 from PIL import Image
 
 from .base import BaseStage
+from .. import config as defaults
 from ..database.models import Photo, PersonDetection
 from ..utils.person_detector import PersonDetector
 
@@ -18,7 +18,7 @@ logger = logging.getLogger(__name__)
 FACES_SUBDIR = "faces"
 
 # WebP quality for face crops
-FACE_WEBP_QUALITY = 95
+FACE_WEBP_QUALITY = defaults.WEBP_QUALITY
 
 
 class DetectionStage(BaseStage):
@@ -27,11 +27,12 @@ class DetectionStage(BaseStage):
     def __init__(self, repository, config: dict):
         super().__init__(repository, config)
 
-        # Check if we should force CPU mode
-        force_cpu = os.getenv("DETECTION_FORCE_CPU", "false").lower() == "true"
+        force_cpu = defaults.DETECTION_FORCE_CPU
 
         self.detector = PersonDetector(force_cpu=force_cpu)
-        self.faces_output_dir = Path(self.config.get("IMG_PATH", "./photos/processed")) / FACES_SUBDIR
+        self.faces_output_dir = (
+            Path(self.config.get("IMG_PATH", "./photos/processed")) / FACES_SUBDIR
+        )
         logger.debug(f"DetectionStage initialized with device: {self.detector.device}")
 
     def process_photo(self, photo: Photo, file_path: Path) -> bool:
@@ -92,9 +93,7 @@ class DetectionStage(BaseStage):
                 # Crop and save face if present
                 face_path = None
                 if face_data is not None:
-                    face_path = self._crop_and_save_face(
-                        image, face_data, photo_id, face_index
-                    )
+                    face_path = self._crop_and_save_face(image, face_data, photo_id, face_index)
                     face_index += 1
 
                 # Create PersonDetection record

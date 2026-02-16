@@ -16,6 +16,8 @@ import Quartz
 import Vision
 from Foundation import NSURL  # type: ignore[attr-defined]
 
+from .. import config as defaults
+
 logger = logging.getLogger(__name__)
 
 
@@ -32,7 +34,10 @@ class AppleVisionClassifier:
         logger.info("AppleVisionClassifier initialized")
 
     def classify(
-        self, image_path: str, top_k: int = 10, min_confidence: float = 0.01
+        self,
+        image_path: str,
+        top_k: int = defaults.APPLE_VISION_TOP_K,
+        min_confidence: float = defaults.APPLE_VISION_MIN_CONFIDENCE,
     ) -> Dict[str, Any]:
         """Classify scene content in an image.
 

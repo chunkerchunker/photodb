@@ -12,7 +12,6 @@ This script:
 4. Calculates and stores per-cluster epsilon values
 """
 
-import os
 import sys
 import logging
 import click
@@ -20,6 +19,7 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
+from photodb import config as defaults  # noqa: E402
 from photodb.database.connection import ConnectionPool  # noqa: E402
 from photodb.database.repository import PhotoRepository  # noqa: E402
 from photodb.stages.clustering import ClusteringStage  # noqa: E402
@@ -39,7 +39,7 @@ def main(dry_run: bool, force: bool, collection_id: int):
     )
     logger = logging.getLogger(__name__)
 
-    database_url = os.getenv("DATABASE_URL", "postgresql://localhost/photodb")
+    database_url = defaults.DATABASE_URL
 
     logger.info("=" * 60)
     logger.info("HDBSCAN Clustering Migration")
@@ -84,10 +84,10 @@ def main(dry_run: bool, force: bool, collection_id: int):
 
         # Load HDBSCAN configuration from environment
         config = {
-            "HDBSCAN_MIN_CLUSTER_SIZE": os.getenv("HDBSCAN_MIN_CLUSTER_SIZE", "3"),
-            "HDBSCAN_MIN_SAMPLES": os.getenv("HDBSCAN_MIN_SAMPLES", "2"),
-            "CORE_PROBABILITY_THRESHOLD": os.getenv("CORE_PROBABILITY_THRESHOLD", "0.8"),
-            "CLUSTERING_THRESHOLD": os.getenv("CLUSTERING_THRESHOLD", "0.45"),
+            "HDBSCAN_MIN_CLUSTER_SIZE": defaults.HDBSCAN_MIN_CLUSTER_SIZE,
+            "HDBSCAN_MIN_SAMPLES": defaults.HDBSCAN_MIN_SAMPLES,
+            "CORE_PROBABILITY_THRESHOLD": defaults.CORE_PROBABILITY_THRESHOLD,
+            "CLUSTERING_THRESHOLD": defaults.CLUSTERING_THRESHOLD,
         }
 
         logger.info("")

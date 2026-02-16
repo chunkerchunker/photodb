@@ -13,6 +13,7 @@ import logging
 from typing import Dict, Any, List
 import numpy as np
 
+from .. import config as defaults
 from ..database.connection import ConnectionPool
 from ..database.repository import PhotoRepository, MIN_FACE_SIZE_PX, MIN_FACE_CONFIDENCE
 from .hdbscan_config import (
@@ -387,7 +388,7 @@ class MaintenanceUtilities:
 
         return violations
 
-    def cleanup_unassigned_pool(self, max_age_days: int = 30) -> int:
+    def cleanup_unassigned_pool(self, max_age_days: int = defaults.UNASSIGNED_MAX_AGE_DAYS) -> int:
         """
         Create singleton clusters for old unassigned faces.
 
@@ -451,7 +452,7 @@ class MaintenanceUtilities:
                 if self.repo.update_detection_cluster(
                     detection_id=detection_id,
                     cluster_id=cluster_id,
-                    cluster_confidence=0.5,  # Low confidence for singleton
+                    cluster_confidence=defaults.SINGLETON_CLUSTER_CONFIDENCE,
                     cluster_status="auto",
                 ):
                     self.repo.update_cluster_face_count(cluster_id, 1)
@@ -739,7 +740,11 @@ class MaintenanceUtilities:
         logger.info(f"Reverted {reverted} singleton clusters to unassigned pool")
         return reverted
 
-    def calculate_missing_epsilons(self, min_faces: int = 3, percentile: float = 90.0) -> int:
+    def calculate_missing_epsilons(
+        self,
+        min_faces: int = defaults.EPSILON_MIN_FACES,
+        percentile: float = defaults.EPSILON_PERCENTILE,
+    ) -> int:
         """
         Calculate epsilon for clusters that have NULL epsilon but 3+ faces.
 
@@ -841,7 +846,7 @@ class MaintenanceUtilities:
         return results
 
     def check_hdbscan_staleness(
-        self, threshold: float = 1.25
+        self, threshold: float = defaults.HDBSCAN_STALENESS_THRESHOLD
     ) -> Dict[str, Any] | List[Dict[str, Any]]:
         """Check if the active HDBSCAN run is stale.
 
@@ -884,9 +889,7 @@ class MaintenanceUtilities:
                 "recommendation": "No HDBSCAN run found. Run bootstrap.",
             }
 
-        current_count = self.repo.get_embedding_count_for_collection(
-            collection_id=collection_id
-        )
+        current_count = self.repo.get_embedding_count_for_collection(collection_id=collection_id)
         bootstrap_count = active_run["embedding_count"]
 
         if bootstrap_count > 0:

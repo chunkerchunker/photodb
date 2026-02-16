@@ -8,12 +8,14 @@ ClusteringStage (for bootstrap) and MaintenanceUtilities (for pool clustering).
 from typing import Any
 import numpy as np
 
-# Default HDBSCAN parameters
-DEFAULT_MIN_CLUSTER_SIZE = 3
-DEFAULT_MIN_SAMPLES = 2
-DEFAULT_CORE_PROBABILITY_THRESHOLD = 0.8
-DEFAULT_CLUSTERING_THRESHOLD = 0.45
-DEFAULT_MIN_EPSILON = 0.1
+from .. import config as _config
+
+# Default HDBSCAN parameters — re-exported from config for backward compatibility
+DEFAULT_MIN_CLUSTER_SIZE = _config.HDBSCAN_MIN_CLUSTER_SIZE
+DEFAULT_MIN_SAMPLES = _config.HDBSCAN_MIN_SAMPLES
+DEFAULT_CORE_PROBABILITY_THRESHOLD = _config.CORE_PROBABILITY_THRESHOLD
+DEFAULT_CLUSTERING_THRESHOLD = _config.CLUSTERING_THRESHOLD
+DEFAULT_MIN_EPSILON = _config.MIN_EPSILON
 
 
 def create_hdbscan_clusterer(
@@ -42,7 +44,6 @@ def create_hdbscan_clusterer(
             min_samples=min_samples,
             metric="precomputed",
             cluster_selection_method="eom",
-            prediction_data=True,
             gen_min_span_tree=True,
         )
 

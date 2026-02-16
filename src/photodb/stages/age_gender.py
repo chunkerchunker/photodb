@@ -8,7 +8,6 @@ improved accuracy.
 Supports free-threaded Python 3.13t for true parallel inference on CPU.
 """
 
-import os
 import logging
 import threading
 from pathlib import Path
@@ -17,6 +16,7 @@ from typing import Any, Dict, List, Tuple
 import torch
 
 from .base import BaseStage
+from .. import config as defaults
 from ..database.models import Photo
 
 logger = logging.getLogger(__name__)
@@ -278,7 +278,7 @@ class AgeGenderStage(BaseStage):
         self.stage_name = "age_gender"
 
         # Determine device
-        force_cpu = os.getenv("MIVOLO_FORCE_CPU", "false").lower() == "true"
+        force_cpu = defaults.MIVOLO_FORCE_CPU
         if force_cpu:
             device = "cpu"
         else:
@@ -297,13 +297,13 @@ class AgeGenderStage(BaseStage):
         # Get checkpoint path from config or environment
         checkpoint_path = config.get(
             "MIVOLO_MODEL_PATH",
-            os.getenv("MIVOLO_MODEL_PATH", "models/mivolo_d1.pth.tar"),
+            defaults.MIVOLO_MODEL_PATH,
         )
 
         # Get detector weights path (same YOLO model used by DetectionStage)
         detector_weights_path = config.get(
             "DETECTION_MODEL_PATH",
-            os.getenv("DETECTION_MODEL_PATH", "models/yolov8x_person_face.pt"),
+            defaults.DETECTION_MODEL_PATH,
         )
 
         self.predictor = MiVOLOPredictor(
@@ -362,7 +362,7 @@ class AgeGenderStage(BaseStage):
             updated = 0
             for prediction in predictions:
                 best_match = None
-                best_iou = 0.3  # Minimum IoU threshold
+                best_iou = defaults.AGE_GENDER_MIN_IOU  # Minimum IoU threshold
 
                 for detection in detections:
                     # Try matching by face bbox first (all coordinates must be present)

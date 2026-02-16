@@ -6,6 +6,7 @@ import os
 from psycopg.rows import dict_row
 
 from .connection import ConnectionPool
+from .. import config as defaults
 from .models import (
     AnalysisOutput,
     BatchJob,
@@ -31,26 +32,14 @@ from .models import (
 
 logger = logging.getLogger(__name__)
 
-# Minimum face size for clustering (in pixels)
-# Faces smaller than this (in either dimension) will be excluded from clustering
-MIN_FACE_SIZE_PX = int(os.environ.get("MIN_FACE_SIZE_PX", 50))  # Default 50 pixels
-
-# Minimum face detection confidence for clustering
-# Faces with lower confidence will be excluded from clustering
-MIN_FACE_CONFIDENCE = float(os.environ.get("MIN_FACE_CONFIDENCE", 0.9))  # Default 90%
+MIN_FACE_SIZE_PX = defaults.MIN_FACE_SIZE_PX
+MIN_FACE_CONFIDENCE = defaults.MIN_FACE_CONFIDENCE
 
 
 class PhotoRepository:
     def __init__(self, connection_pool: ConnectionPool, collection_id: Optional[int] = None):
         self.pool = connection_pool
-        env_collection_id = os.environ.get("COLLECTION_ID")
-        self.collection_id = (
-            collection_id
-            if collection_id is not None
-            else int(env_collection_id)
-            if env_collection_id
-            else 1
-        )
+        self.collection_id = collection_id if collection_id is not None else defaults.COLLECTION_ID
 
     def _resolve_collection_id(self, collection_id: Optional[int]) -> int:
         return collection_id if collection_id is not None else self.collection_id
@@ -887,9 +876,7 @@ class PhotoRepository:
                 )
                 return [dict(row) for row in cursor.fetchall()]
 
-    def get_cannot_linked_clusters(
-        self, detection_id: int, cluster_ids: List[int]
-    ) -> set[int]:
+    def get_cannot_linked_clusters(self, detection_id: int, cluster_ids: List[int]) -> set[int]:
         """Get which of the given clusters have a cannot-link with this detection.
 
         Checks both directions: detection cannot-link to any member of the cluster,
@@ -1614,9 +1601,7 @@ class PhotoRepository:
                 )
                 return [dict(row) for row in cursor.fetchall()]
 
-    def get_embedding_count_for_collection(
-        self, collection_id: Optional[int] = None
-    ) -> int:
+    def get_embedding_count_for_collection(self, collection_id: Optional[int] = None) -> int:
         """Count embeddings eligible for clustering (fast COUNT query).
 
         Uses the same filters as get_all_embeddings_for_collection but returns

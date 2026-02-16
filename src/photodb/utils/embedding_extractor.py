@@ -5,7 +5,6 @@ Provides 512-dimensional face embeddings for face clustering and recognition.
 """
 
 import logging
-import os
 import sys
 from pathlib import Path
 from typing import List, Optional, Tuple
@@ -16,10 +15,9 @@ import onnxruntime as ort
 from insightface.model_zoo import get_model
 from PIL import Image
 
-logger = logging.getLogger(__name__)
+from .. import config as defaults
 
-# Default model directory (InsightFace convention)
-DEFAULT_MODEL_ROOT = os.path.expanduser("~/.insightface/models")
+logger = logging.getLogger(__name__)
 
 
 def _get_providers() -> List[str]:
@@ -131,9 +129,9 @@ class EmbeddingExtractor:
                        ~/.insightface/models. Can be overridden with
                        EMBEDDING_MODEL_ROOT environment variable.
         """
-        self.model_name = model_name or os.environ.get("EMBEDDING_MODEL_NAME", "buffalo_l")
+        self.model_name = model_name or defaults.EMBEDDING_MODEL_NAME
         self.det_size = det_size
-        self.model_root = model_root or os.environ.get("EMBEDDING_MODEL_ROOT") or DEFAULT_MODEL_ROOT
+        self.model_root = model_root or defaults.EMBEDDING_MODEL_ROOT
 
         # Get optimal providers for current platform
         self.providers = _get_providers()
@@ -151,7 +149,7 @@ class EmbeddingExtractor:
         self,
         image: Image.Image,
         bbox: dict,
-        padding: float = 0.2,
+        padding: float = defaults.FACE_CROP_PADDING,
     ) -> Optional[List[float]]:
         """
         Extract face embedding from a bounding box region in an image.

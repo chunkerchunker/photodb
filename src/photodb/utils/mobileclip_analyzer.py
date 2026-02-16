@@ -10,7 +10,6 @@ compatibility shim (timm_compat.py) to make MiVOLO work with newer timm versions
 """
 
 import logging
-import os
 import threading
 from pathlib import Path
 from typing import List, Union
@@ -18,11 +17,13 @@ from typing import List, Union
 import torch
 from PIL import Image
 
+from .. import config as _config
+
 logger = logging.getLogger(__name__)
 
-# Model configuration - can be changed via environment variables
-DEFAULT_MODEL_NAME = "MobileCLIP-S2"
-DEFAULT_PRETRAINED = "datacompdr"
+# Model configuration — re-exported from config for backward compatibility
+DEFAULT_MODEL_NAME = _config.CLIP_MODEL_NAME
+DEFAULT_PRETRAINED = _config.CLIP_PRETRAINED
 
 # Lazy-loaded model
 _model = None
@@ -48,8 +49,8 @@ def _load_model():
 
         import open_clip
 
-        model_name = os.environ.get("CLIP_MODEL_NAME", DEFAULT_MODEL_NAME)
-        pretrained = os.environ.get("CLIP_PRETRAINED", DEFAULT_PRETRAINED)
+        model_name = _config.CLIP_MODEL_NAME
+        pretrained = _config.CLIP_PRETRAINED
 
         logger.info(f"Loading CLIP model {model_name} (pretrained={pretrained})...")
         _model, _, _preprocess = open_clip.create_model_and_transforms(

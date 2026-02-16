@@ -5,7 +5,6 @@ Supports CoreML on macOS for faster inference via Neural Engine.
 """
 
 import logging
-import os
 import sys
 from pathlib import Path
 from typing import Any, Dict, List, Optional
@@ -17,6 +16,7 @@ from PIL import Image
 from ultralytics import YOLO
 
 from .embedding_extractor import EmbeddingExtractor
+from .. import config as defaults
 
 logger = logging.getLogger(__name__)
 
@@ -82,22 +82,22 @@ class PersonDetector:
         model_path: Optional[str] = None,
         device: Optional[str] = None,
         force_cpu: bool = False,
-        prefer_coreml: bool = True,
+        prefer_coreml: bool = defaults.DETECTION_PREFER_COREML,
     ):
         """
         Initialize person detection and embedding models.
 
         Args:
-            model_path: Path to YOLO model. If None, uses DETECTION_MODEL_PATH env var
-                       or defaults to 'yolov8n.pt' (will auto-download).
+            model_path: Path to YOLO model. If None, uses DETECTION_MODEL_PATH env var.
             device: Device to use ('mps', 'cuda', 'cpu'). Auto-detects if not specified.
             force_cpu: Force CPU-only mode for PyTorch models.
             prefer_coreml: On macOS, prefer CoreML (.mlpackage) if available.
                           CoreML is faster (5x) and thread-safe. Default True.
         """
+
         # Get model path from env or parameter
         if model_path is None:
-            model_path = os.environ.get("DETECTION_MODEL_PATH", "yolov8n.pt")
+            model_path = defaults.DETECTION_MODEL_PATH
 
         # Check for CoreML model on macOS
         self.using_coreml = False
@@ -122,8 +122,7 @@ class PersonDetector:
             else:
                 self.device = "cpu"
 
-        # Get minimum confidence from env
-        self.min_confidence = float(os.environ.get("DETECTION_MIN_CONFIDENCE", "0.5"))
+        self.min_confidence = defaults.DETECTION_MIN_CONFIDENCE
 
         # Load YOLO model
         if self.using_coreml:

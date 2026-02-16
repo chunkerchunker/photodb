@@ -9,7 +9,6 @@ These tasks should be run on regular schedules to keep the database optimized.
 import argparse
 import logging
 import sys
-import os
 import json
 from contextlib import contextmanager
 from typing import Callable, Generator
@@ -44,7 +43,9 @@ def maintenance_context(
     Yields:
         MaintenanceUtilities instance with active connection pool
     """
-    database_url = os.getenv("DATABASE_URL", "postgresql://localhost/photodb")
+    from . import config as defaults
+
+    database_url = defaults.DATABASE_URL
     pool = ConnectionPool(connection_string=database_url)
     try:
         yield MaintenanceUtilities(pool, collection_id=collection_id)
@@ -287,10 +288,12 @@ def check_staleness(args):
         cid = result.get("collection_id")
         prefix = f"  [collection {cid}] " if cid is not None else "  "
         if result["active_run_id"] is not None:
-            print(f"{prefix}Run {result['active_run_id']}: "
-                  f"{result['bootstrap_embedding_count']} -> {result['current_embedding_count']} "
-                  f"embeddings ({result['growth_ratio']:.2f}x) "
-                  f"{'STALE' if result['is_stale'] else 'CURRENT'}")
+            print(
+                f"{prefix}Run {result['active_run_id']}: "
+                f"{result['bootstrap_embedding_count']} -> {result['current_embedding_count']} "
+                f"embeddings ({result['growth_ratio']:.2f}x) "
+                f"{'STALE' if result['is_stale'] else 'CURRENT'}"
+            )
         else:
             print(f"{prefix}No active HDBSCAN run. {result['recommendation']}")
 

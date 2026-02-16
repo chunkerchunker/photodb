@@ -5,6 +5,8 @@ from pillow_heif import register_heif_opener
 import logging
 import os
 
+from .. import config as defaults
+
 # Register HEIF opener with Pillow
 register_heif_opener()
 
@@ -28,7 +30,7 @@ class ImageHandler:
     }
 
     # Maximum pixel count (to prevent memory issues)
-    MAX_PIXELS = 178_956_970  # ~179 megapixels
+    MAX_PIXELS = defaults.MAX_IMAGE_PIXELS
 
     @classmethod
     def is_supported(cls, file_path: Path) -> bool:
@@ -190,9 +192,7 @@ class ImageHandler:
         return resized
 
     @classmethod
-    def _apply_exif_orientation(
-        cls, image: Image.Image, original_path: Path
-    ) -> Image.Image:
+    def _apply_exif_orientation(cls, image: Image.Image, original_path: Path) -> Image.Image:
         """
         Apply EXIF orientation correction to an image.
 
@@ -268,7 +268,7 @@ class ImageHandler:
 
         # Add compression for RGB images
         if image.mode == "RGB":
-            save_kwargs["compress_level"] = 9
+            save_kwargs["compress_level"] = defaults.PNG_COMPRESS_LEVEL
 
         image.save(output_path, **save_kwargs)
         logger.debug(f"Saved image to {output_path}")
@@ -302,5 +302,5 @@ class ImageHandler:
                 image.close()
             image = converted
 
-        image.save(output_path, format="WEBP", quality=quality, method=6)
+        image.save(output_path, format="WEBP", quality=quality, method=defaults.WEBP_METHOD)
         logger.debug(f"Saved WebP image to {output_path}")

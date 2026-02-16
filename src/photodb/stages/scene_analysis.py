@@ -11,6 +11,7 @@ from pathlib import Path
 from typing import List
 
 from .base import BaseStage
+from .. import config as defaults
 from ..database.models import (
     AnalysisOutput,
     DetectionTag,
@@ -83,7 +84,9 @@ class SceneAnalysisStage(BaseStage):
             taxonomy_confidences = None
 
             if self.apple_classifier:
-                taxonomy_result = self.apple_classifier.classify(str(normalized_path), top_k=15)
+                taxonomy_result = self.apple_classifier.classify(
+                    str(normalized_path), top_k=defaults.APPLE_VISION_TOP_K
+                )
 
                 taxonomy_output = AnalysisOutput.create(
                     photo_id=photo_id,

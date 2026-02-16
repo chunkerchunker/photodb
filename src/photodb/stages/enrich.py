@@ -10,6 +10,7 @@ import instructor
 from instructor.batch import BatchProcessor, filter_successful, filter_errors
 
 from .base import BaseStage
+from .. import config as defaults
 from ..database.models import Photo, LLMAnalysis
 from ..database.repository import PhotoRepository
 from ..models.photo_analysis import PhotoAnalysisResponse
@@ -43,8 +44,8 @@ class EnrichStage(BaseStage):
                 self.model_name = config.get(
                     "BEDROCK_MODEL_ID", "anthropic.claude-3-5-sonnet-20241022-v2:0"
                 )
-                aws_region = config.get("AWS_REGION", os.getenv("AWS_REGION", "us-east-1"))
-                aws_profile = config.get("AWS_PROFILE", os.getenv("AWS_PROFILE"))
+                aws_region = config.get("AWS_REGION", defaults.AWS_REGION)
+                aws_profile = config.get("AWS_PROFILE", defaults.AWS_PROFILE)
 
                 session_kwargs = {}
                 if aws_profile:
@@ -79,7 +80,7 @@ class EnrichStage(BaseStage):
                 from anthropic import Anthropic
 
                 self.model_name = config.get("LLM_MODEL", "claude-3-5-sonnet-20241022")
-                api_key = config.get("LLM_API_KEY") or os.getenv("ANTHROPIC_API_KEY")
+                api_key = config.get("LLM_API_KEY") or defaults.LLM_API_KEY
 
                 if api_key:
                     anthropic_client = Anthropic(api_key=api_key)
@@ -274,7 +275,7 @@ class EnrichStage(BaseStage):
                 return None
 
             # Create batch file using Instructor's batch processor
-            batch_requests_dir = os.getenv("BATCH_REQUESTS_PATH", "./batch_requests")
+            batch_requests_dir = defaults.BATCH_REQUESTS_PATH
             Path(batch_requests_dir).mkdir(parents=True, exist_ok=True)
             batch_file_path = Path(batch_requests_dir) / f"batch_requests_{int(time.time())}.jsonl"
             batch_file = self.batch_processor.create_batch_from_messages(
@@ -309,7 +310,7 @@ class EnrichStage(BaseStage):
 
         try:
             # Create input data file for Bedrock batch inference
-            batch_requests_dir = os.getenv("BATCH_REQUESTS_PATH", "./batch_requests")
+            batch_requests_dir = defaults.BATCH_REQUESTS_PATH
             Path(batch_requests_dir).mkdir(parents=True, exist_ok=True)
 
             # Generate unique identifier for this batch (Bedrock allows: [a-zA-Z0-9-+.])

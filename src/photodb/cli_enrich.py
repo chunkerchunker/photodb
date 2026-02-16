@@ -31,9 +31,7 @@ from .utils.batch import wait_for_batch_completion  # noqa: E402
     "--max-photos", type=int, help="Maximum number of photos to process (excluding skipped ones)"
 )
 @click.option("--check-batches", is_flag=True, help="Check status of running LLM analysis batches")
-@click.option(
-    "--retry-failed", is_flag=True, help="Retry failed LLM analysis"
-)
+@click.option("--retry-failed", is_flag=True, help="Retry failed LLM analysis")
 @click.option("--no-batch", is_flag=True, help="Disable batch processing (process one at a time)")
 @click.option(
     "--no-async", is_flag=True, help="Disable async batch monitoring (use synchronous processing)"
@@ -61,9 +59,9 @@ def main(
 ):
     """
     Enrich photos with LLM analysis from PATH (file or directory).
-    
+
     This tool handles the enrichment stage with LLM batch processing support.
-    
+
     When called without PATH and with --check-batches, it monitors batch status.
 
     PATH can be:
@@ -179,9 +177,7 @@ def handle_batch_checking(repository, config_data, wait, logger):
         if result["all_completed"]:
             logger.info(f"All {len(batch_ids)} batches completed successfully")
             if result["failed_count"] > 0:
-                logger.warning(
-                    f"Total failed items across all batches: {result['failed_count']}"
-                )
+                logger.warning(f"Total failed items across all batches: {result['failed_count']}")
         else:
             logger.warning("Some batches did not complete or timed out")
             if result["timed_out"]:
@@ -233,35 +229,29 @@ def handle_batch_checking(repository, config_data, wait, logger):
 
 def load_configuration(config_path: Optional[str]) -> dict:
     """Load configuration from environment and optional config file."""
+    from . import config as defaults
+
     config = {
-        "DATABASE_URL": os.getenv("DATABASE_URL", "postgresql://localhost/photodb"),
-        "INGEST_PATH": os.getenv("INGEST_PATH", "./photos/raw"),
-        "IMG_PATH": os.getenv("IMG_PATH", "./photos/processed"),
-        "COLLECTION_ID": int(os.getenv("COLLECTION_ID", "1")),
-        "LOG_LEVEL": os.getenv("LOG_LEVEL", "INFO"),
-        "LOG_FILE": os.getenv("LOG_FILE", "./logs/photodb.log"),
+        "DATABASE_URL": defaults.DATABASE_URL,
+        "INGEST_PATH": defaults.INGEST_PATH,
+        "IMG_PATH": defaults.IMG_PATH,
+        "COLLECTION_ID": defaults.COLLECTION_ID,
+        "LOG_LEVEL": defaults.LOG_LEVEL,
+        "LOG_FILE": defaults.LOG_FILE,
         # LLM Configuration
-        "LLM_PROVIDER": os.getenv("LLM_PROVIDER", "anthropic"),  # "anthropic" or "bedrock"
-        "LLM_MODEL": os.getenv("LLM_MODEL", "claude-sonnet-4-20250514"),
-        "LLM_API_KEY": os.getenv("LLM_API_KEY") or os.getenv("ANTHROPIC_API_KEY"),
+        "LLM_PROVIDER": defaults.LLM_PROVIDER,
+        "LLM_MODEL": defaults.LLM_MODEL,
+        "LLM_API_KEY": defaults.LLM_API_KEY,
         # Bedrock-specific configuration
-        "BEDROCK_MODEL_ID": os.getenv(
-            "BEDROCK_MODEL_ID", "anthropic.claude-3-5-sonnet-20241022-v2:0"
-        ),
-        "AWS_REGION": os.getenv("AWS_REGION", "us-east-1"),
-        "AWS_PROFILE": os.getenv("AWS_PROFILE"),  # Optional: use specific AWS profile
-        "BEDROCK_BATCH_S3_BUCKET": os.getenv(
-            "BEDROCK_BATCH_S3_BUCKET"
-        ),  # S3 bucket for batch processing
-        "BEDROCK_BATCH_ROLE_ARN": os.getenv(
-            "BEDROCK_BATCH_ROLE_ARN"
-        ),  # IAM role ARN for batch processing
-        "BATCH_SIZE": int(os.getenv("BATCH_SIZE", "100")),
-        "MIN_BATCH_SIZE": int(
-            os.getenv("MIN_BATCH_SIZE", "10")
-        ),  # Minimum batch size for enrich processing
-        "BATCH_CHECK_INTERVAL": int(os.getenv("BATCH_CHECK_INTERVAL", "300")),
-        "RESIZE_SCALE": float(os.getenv("RESIZE_SCALE", "1.0")),
+        "BEDROCK_MODEL_ID": defaults.BEDROCK_MODEL_ID,
+        "AWS_REGION": defaults.AWS_REGION,
+        "AWS_PROFILE": defaults.AWS_PROFILE,
+        "BEDROCK_BATCH_S3_BUCKET": defaults.BEDROCK_BATCH_S3_BUCKET,
+        "BEDROCK_BATCH_ROLE_ARN": defaults.BEDROCK_BATCH_ROLE_ARN,
+        "BATCH_SIZE": defaults.BATCH_SIZE,
+        "MIN_BATCH_SIZE": defaults.MIN_BATCH_SIZE,
+        "BATCH_CHECK_INTERVAL": defaults.BATCH_CHECK_INTERVAL,
+        "RESIZE_SCALE": defaults.RESIZE_SCALE,
     }
 
     if config_path:

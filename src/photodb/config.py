@@ -113,6 +113,10 @@ SINGLETON_CLUSTER_CONFIDENCE = 0.5
 EPSILON_MIN_FACES = 3
 # Percentile of centroid distances used to derive cluster epsilon
 EPSILON_PERCENTILE = 90.0
+# Cosine distance threshold for auto-associating clusters to the same person
+# pgvector <=> returns cosine distance (0=identical, 2=opposite)
+# Looser than per-cluster epsilon since this is cross-context matching
+PERSON_ASSOCIATION_THRESHOLD = 0.55
 
 # --- Scene Analysis ---
 

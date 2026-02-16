@@ -1,7 +1,7 @@
 import logging
 import pickle
 from pathlib import Path
-from typing import Dict, List, Optional, Set, Tuple
+from typing import Dict, List, Optional, Tuple
 import numpy as np
 from decimal import Decimal
 
@@ -450,29 +450,17 @@ class ClusteringStage(BaseStage):
             self._mark_for_review(detection_id, allowed_clusters, allowed_distances)
 
     def _filter_cannot_link_clusters(self, detection_id: int, cluster_ids: List[int]) -> List[int]:
-        """Remove clusters that have cannot-link constraints with this detection."""
+        """Remove clusters that have cannot-link constraints with this detection.
+
+        Uses a single query to check both directions of cannot-link constraints
+        between this detection and all members of the candidate clusters.
+        """
         if not cluster_ids:
             return []
 
-        # Get detections this detection cannot link to
-        forbidden_detections = self.repository.get_cannot_linked_detections(detection_id)
-        forbidden_clusters: Set[int] = {
-            d["cluster_id"] for d in forbidden_detections if d.get("cluster_id")
-        }
-
-        # Also check cluster-level constraints
-        for cluster_id in cluster_ids:
-            # Check if any existing detection in this cluster has cannot-link with detection_id
-            detections_in_cluster = self.repository.get_detections_in_cluster(cluster_id)
-            for detection_in_cluster in detections_in_cluster:
-                other_detection_id = detection_in_cluster["id"]
-                # Check if cannot-link exists
-                cannot_linked = self.repository.get_cannot_linked_detections(other_detection_id)
-                for cd in cannot_linked:
-                    if cd["id"] == detection_id:
-                        forbidden_clusters.add(cluster_id)
-                        break
-
+        forbidden_clusters = self.repository.get_cannot_linked_clusters(
+            detection_id, cluster_ids
+        )
         return [cid for cid in cluster_ids if cid not in forbidden_clusters]
 
     def _add_to_unassigned_pool(self, detection_id: int, embedding: np.ndarray) -> None:

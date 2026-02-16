@@ -887,6 +887,38 @@ class PhotoRepository:
                 )
                 return [dict(row) for row in cursor.fetchall()]
 
+    def get_cannot_linked_clusters(
+        self, detection_id: int, cluster_ids: List[int]
+    ) -> set[int]:
+        """Get which of the given clusters have a cannot-link with this detection.
+
+        Checks both directions: detection cannot-link to any member of the cluster,
+        and any cluster member cannot-link to this detection. Single query, no N+1.
+
+        Args:
+            detection_id: The detection to check constraints for.
+            cluster_ids: Candidate cluster IDs to check against.
+
+        Returns:
+            Set of cluster IDs that are forbidden by cannot-link constraints.
+        """
+        if not cluster_ids:
+            return set()
+        with self.pool.get_connection() as conn:
+            with conn.cursor() as cursor:
+                cursor.execute(
+                    """SELECT DISTINCT pd.cluster_id
+                       FROM cannot_link cl
+                       JOIN person_detection pd ON (
+                           (cl.detection_id_1 = %s AND pd.id = cl.detection_id_2)
+                           OR (cl.detection_id_2 = %s AND pd.id = cl.detection_id_1)
+                       )
+                       WHERE cl.collection_id = %s
+                         AND pd.cluster_id = ANY(%s)""",
+                    (detection_id, detection_id, self.collection_id, cluster_ids),
+                )
+                return {row[0] for row in cursor.fetchall()}
+
     def update_detection_cluster(
         self,
         detection_id: int,

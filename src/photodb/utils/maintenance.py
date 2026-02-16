@@ -15,6 +15,7 @@ import numpy as np
 
 from .. import config as defaults
 from ..database.connection import ConnectionPool
+from ..database.models import Person
 from ..database.repository import PhotoRepository, MIN_FACE_SIZE_PX, MIN_FACE_CONFIDENCE
 from .hdbscan_config import (
     create_hdbscan_clusterer,
@@ -807,6 +808,179 @@ class MaintenanceUtilities:
         logger.info(f"Calculated epsilon for {updated_count} clusters")
         return updated_count
 
+    # --- Person auto-association ---
+
+    def auto_associate_clusters(
+        self,
+        threshold: float = defaults.PERSON_ASSOCIATION_THRESHOLD,
+        dry_run: bool = False,
+    ) -> Dict[str, Any]:
+        """Auto-associate clusters to shared person records based on centroid similarity.
+
+        Uses pgvector cosine distance to find cluster pairs within threshold,
+        builds connected components via union-find, then creates/links person records.
+
+        Args:
+            threshold: Maximum cosine distance between centroids (default from config)
+            dry_run: If True, log groups but make no changes
+
+        Returns:
+            Dict with persons_created, persons_merged, clusters_linked, groups_found
+        """
+        logger.info(
+            f"Starting auto-association (threshold={threshold}, dry_run={dry_run})"
+        )
+        totals: Dict[str, int] = {
+            "persons_created": 0,
+            "persons_merged": 0,
+            "clusters_linked": 0,
+            "groups_found": 0,
+        }
+
+        for cid in self._get_collection_ids():
+            result = self._auto_associate_for_collection(cid, threshold, dry_run)
+            for key in totals:
+                totals[key] += result[key]
+
+        logger.info(f"Auto-association completed: {totals}")
+        return totals
+
+    def _auto_associate_for_collection(
+        self,
+        collection_id: int,
+        threshold: float,
+        dry_run: bool,
+    ) -> Dict[str, int]:
+        """Run auto-association for a single collection."""
+        results: Dict[str, int] = {
+            "persons_created": 0,
+            "persons_merged": 0,
+            "clusters_linked": 0,
+            "groups_found": 0,
+        }
+
+        pairs = self.repo.find_similar_cluster_pairs(threshold, collection_id)
+        if not pairs:
+            logger.debug(f"Collection {collection_id}: no similar cluster pairs found")
+            return results
+
+        clusters = self.repo.get_clusters_for_association(collection_id)
+        cluster_map = {c["id"]: c for c in clusters}
+
+        # Union-find to build connected components
+        parent: Dict[int, int] = {}
+
+        def find(x: int) -> int:
+            while parent.get(x, x) != x:
+                parent[x] = parent.get(parent[x], parent[x])
+                x = parent[x]
+            return x
+
+        def union(a: int, b: int) -> None:
+            ra, rb = find(a), find(b)
+            if ra != rb:
+                parent[ra] = rb
+
+        for pair in pairs:
+            union(pair["cluster_id_1"], pair["cluster_id_2"])
+
+        # Build groups from union-find
+        groups: Dict[int, List[int]] = {}
+        all_ids = set()
+        for pair in pairs:
+            all_ids.add(pair["cluster_id_1"])
+            all_ids.add(pair["cluster_id_2"])
+        for cid in all_ids:
+            root = find(cid)
+            groups.setdefault(root, []).append(cid)
+
+        for group in groups.values():
+            if len(group) < 2:
+                continue
+            results["groups_found"] += 1
+
+            if dry_run:
+                person_ids = {
+                    cluster_map[c]["person_id"]
+                    for c in group
+                    if c in cluster_map and cluster_map[c]["person_id"] is not None
+                }
+                logger.info(
+                    f"Collection {collection_id}: would link clusters {group} "
+                    f"(existing persons: {person_ids or 'none'})"
+                )
+                continue
+
+            self._link_group_to_person(group, cluster_map, collection_id, results)
+
+        return results
+
+    def _link_group_to_person(
+        self,
+        group: List[int],
+        cluster_map: Dict[int, Dict[str, Any]],
+        collection_id: int,
+        results: Dict[str, int],
+    ) -> None:
+        """Link a group of clusters to a single person, creating or merging as needed."""
+        # Collect existing person_ids from the group
+        person_ids: Dict[int, List[int]] = {}  # person_id -> [cluster_ids]
+        unlinked: List[int] = []
+        for cid in group:
+            info = cluster_map.get(cid)
+            if info is None:
+                continue
+            pid = info["person_id"]
+            if pid is not None:
+                person_ids.setdefault(pid, []).append(cid)
+            else:
+                unlinked.append(cid)
+
+        if not person_ids:
+            # No cluster has a person — create a new one
+            person = Person.create(collection_id=collection_id, first_name="Unknown")
+            self.repo.create_person(person)
+
+            linked = self.repo.link_clusters_to_person(group, person.id, collection_id)
+            results["persons_created"] += 1
+            results["clusters_linked"] += linked
+            logger.info(
+                f"Created person {person.id} and linked {linked} clusters: {group}"
+            )
+
+        elif len(person_ids) == 1:
+            # All linked clusters share one person — link the unlinked ones
+            pid = next(iter(person_ids))
+            if unlinked:
+                linked = self.repo.link_clusters_to_person(unlinked, pid, collection_id)
+                results["clusters_linked"] += linked
+                logger.info(f"Linked {linked} clusters to existing person {pid}: {unlinked}")
+
+        else:
+            # Multiple person_ids — merge into the best one
+            # Priority: verified clusters > most clusters > highest person ID
+            def _person_priority(pid: int) -> tuple:
+                clusters_for_pid = person_ids[pid]
+                has_verified = any(
+                    cluster_map.get(c, {}).get("verified", False) for c in clusters_for_pid
+                )
+                return (has_verified, len(clusters_for_pid), pid)
+
+            sorted_pids = sorted(person_ids.keys(), key=_person_priority, reverse=True)
+            keep_pid = sorted_pids[0]
+
+            for remove_pid in sorted_pids[1:]:
+                moved = self.repo.merge_persons(keep_pid, remove_pid, collection_id)
+                results["persons_merged"] += 1
+                logger.info(
+                    f"Merged person {remove_pid} into {keep_pid} ({moved} clusters moved)"
+                )
+
+            if unlinked:
+                linked = self.repo.link_clusters_to_person(unlinked, keep_pid, collection_id)
+                results["clusters_linked"] += linked
+                logger.info(f"Linked {linked} unlinked clusters to person {keep_pid}")
+
     def run_daily_maintenance(self) -> Dict[str, int]:
         """
         Run all daily maintenance tasks.
@@ -918,18 +1092,23 @@ class MaintenanceUtilities:
             "recommendation": recommendation,
         }
 
-    def run_weekly_maintenance(self, cluster_unassigned: bool = False) -> Dict[str, int]:
+    def run_weekly_maintenance(
+        self,
+        cluster_unassigned: bool = False,
+        auto_associate: bool = True,
+    ) -> Dict[str, Any]:
         """
         Run all weekly maintenance tasks.
 
         Args:
             cluster_unassigned: If True, run HDBSCAN on unassigned pool to find new clusters
+            auto_associate: If True, auto-associate clusters to persons (default True)
 
         Returns:
             Dictionary with results of each task
         """
         logger.info("Starting weekly maintenance tasks")
-        results = {}
+        results: Dict[str, Any] = {}
 
         # Run daily tasks first
         results.update(self.run_daily_maintenance())
@@ -945,6 +1124,14 @@ class MaintenanceUtilities:
         except Exception as e:
             logger.error(f"Failed to update medoids: {e}")
             results["medoids_updated"] = 0
+
+        if auto_associate:
+            try:
+                assoc = self.auto_associate_clusters()
+                results["auto_association"] = assoc
+            except Exception as e:
+                logger.error(f"Failed to auto-associate clusters: {e}")
+                results["auto_association"] = {}
 
         if cluster_unassigned:
             try:

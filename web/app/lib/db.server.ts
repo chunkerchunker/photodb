@@ -1365,26 +1365,82 @@ export async function dissociateFacesFromCluster(
 }
 
 export async function searchClusters(collectionId: number, query: string, excludeClusterId?: string, limit = 20) {
-  // Search by cluster ID or person name
+  // Search persons (aggregated) and unassigned clusters.
+  // Person results use their primary cluster ID as `id` for backward compatibility
+  // with callers that pass `id` directly to the merge/link API.
   const searchQuery = `
-    SELECT c.id, c.face_count, c.representative_detection_id,
-           pd.face_path, pd.id as detection_id,
-           TRIM(CONCAT(per.first_name, ' ', COALESCE(per.last_name, ''))) as person_name
-    FROM cluster c
-    LEFT JOIN person_detection pd ON c.representative_detection_id = pd.id
-    LEFT JOIN person per ON c.person_id = per.id
-    WHERE c.face_count > 0
-      AND (c.hidden = false OR c.hidden IS NULL)
-      AND c.collection_id = $4
-      AND ($1::text IS NULL OR c.id::text = $1
-           OR per.first_name ILIKE '%' || $1 || '%'
-           OR per.last_name ILIKE '%' || $1 || '%'
-           OR CONCAT(per.first_name, ' ', COALESCE(per.last_name, '')) ILIKE '%' || $1 || '%')
-      AND ($2::text IS NULL OR c.id::text != $2)
+    WITH source_person AS (
+      SELECT person_id FROM cluster
+      WHERE id::text = $2 AND collection_id = $4
+    ),
+    person_results AS (
+      SELECT
+        'person' as item_type,
+        (SELECT c2.id FROM cluster c2
+         WHERE c2.person_id = per.id AND c2.collection_id = $4
+         ORDER BY c2.face_count DESC
+         LIMIT 1)::text as id,
+        per.id::text as person_id,
+        COALESCE(SUM(c.face_count) FILTER (WHERE c.hidden = false OR c.hidden IS NULL), 0)::integer as face_count,
+        COALESCE(
+          per.representative_detection_id,
+          (SELECT c2.representative_detection_id FROM cluster c2
+           WHERE c2.person_id = per.id
+             AND c2.representative_detection_id IS NOT NULL
+             AND (c2.hidden = false OR c2.hidden IS NULL)
+           ORDER BY c2.face_count DESC
+           LIMIT 1)
+        ) as representative_detection_id,
+        TRIM(CONCAT(per.first_name, ' ', COALESCE(per.last_name, ''))) as person_name,
+        COUNT(c.id) FILTER (WHERE c.hidden = false OR c.hidden IS NULL)::integer as cluster_count,
+        CASE WHEN EXISTS (
+          SELECT 1 FROM cluster c3
+          WHERE c3.person_id = per.id AND c3.collection_id = $4 AND c3.id::text = $1
+        ) THEN 0 ELSE 1 END as id_match_rank,
+        CASE WHEN per.first_name ILIKE $1 || '%' OR per.last_name ILIKE $1 || '%' THEN 0 ELSE 1 END as name_match_rank
+      FROM person per
+      LEFT JOIN cluster c ON c.person_id = per.id AND c.collection_id = $4
+      WHERE per.collection_id = $4
+        AND ($1::text IS NULL
+             OR per.first_name ILIKE '%' || $1 || '%'
+             OR per.last_name ILIKE '%' || $1 || '%'
+             OR CONCAT(per.first_name, ' ', COALESCE(per.last_name, '')) ILIKE '%' || $1 || '%'
+             OR EXISTS (SELECT 1 FROM cluster c3
+                        WHERE c3.person_id = per.id AND c3.collection_id = $4 AND c3.id::text = $1))
+        AND ($2::text IS NULL OR per.id IS DISTINCT FROM (SELECT person_id FROM source_person))
+      GROUP BY per.id, per.first_name, per.last_name, per.representative_detection_id
+    ),
+    cluster_results AS (
+      SELECT
+        'cluster' as item_type,
+        c.id::text as id,
+        NULL::text as person_id,
+        c.face_count::integer as face_count,
+        c.representative_detection_id,
+        NULL::text as person_name,
+        1::integer as cluster_count,
+        CASE WHEN c.id::text = $1 THEN 0 ELSE 1 END as id_match_rank,
+        1::integer as name_match_rank
+      FROM cluster c
+      WHERE c.face_count > 0
+        AND (c.hidden = false OR c.hidden IS NULL)
+        AND c.collection_id = $4
+        AND c.person_id IS NULL
+        AND ($1::text IS NULL OR c.id::text = $1)
+        AND ($2::text IS NULL OR c.id::text != $2)
+    )
+    SELECT item_type, combined.id, combined.person_id, face_count, person_name, cluster_count,
+           pd.face_path, pd.id as detection_id
+    FROM (
+      SELECT * FROM person_results
+      UNION ALL
+      SELECT * FROM cluster_results
+    ) combined
+    LEFT JOIN person_detection pd ON combined.representative_detection_id = pd.id
     ORDER BY
-      CASE WHEN c.id::text = $1 THEN 0 ELSE 1 END,
-      CASE WHEN per.first_name ILIKE $1 || '%' OR per.last_name ILIKE $1 || '%' THEN 0 ELSE 1 END,
-      c.face_count DESC
+      combined.id_match_rank,
+      combined.name_match_rank,
+      combined.face_count DESC
     LIMIT $3
   `;
 
@@ -1587,6 +1643,75 @@ export async function linkClustersToSamePerson(collectionId: number, sourceClust
     await client.query("ROLLBACK");
     console.error("Failed to link clusters:", error);
     return { success: false, message: "Failed to link clusters" };
+  } finally {
+    client.release();
+  }
+}
+
+/**
+ * Assign a cluster directly to an existing person.
+ * Used when linking to a person that may have no clusters.
+ * If the source cluster already belongs to a different person,
+ * that person's clusters are all merged into the target person.
+ */
+export async function assignClusterToPerson(collectionId: number, sourceClusterId: string, targetPersonId: string) {
+  const client = await pool.connect();
+  try {
+    await client.query("BEGIN");
+
+    const sourceResult = await client.query(
+      `SELECT c.id, c.person_id,
+              TRIM(CONCAT(p.first_name, ' ', COALESCE(p.last_name, ''))) as person_name
+       FROM cluster c
+       LEFT JOIN person p ON c.person_id = p.id
+       WHERE c.id = $1 AND c.collection_id = $2`,
+      [sourceClusterId, collectionId],
+    );
+    if (sourceResult.rows.length === 0) {
+      await client.query("ROLLBACK");
+      return { success: false, message: "Source cluster not found" };
+    }
+    const sourceCluster = sourceResult.rows[0];
+
+    const targetResult = await client.query(
+      `SELECT id, TRIM(CONCAT(first_name, ' ', COALESCE(last_name, ''))) as person_name
+       FROM person WHERE id = $1 AND collection_id = $2`,
+      [targetPersonId, collectionId],
+    );
+    if (targetResult.rows.length === 0) {
+      await client.query("ROLLBACK");
+      return { success: false, message: "Target person not found" };
+    }
+    const targetPerson = targetResult.rows[0];
+
+    if (sourceCluster.person_id === targetPerson.id) {
+      await client.query("ROLLBACK");
+      return { success: true, message: "Already linked" };
+    }
+
+    if (sourceCluster.person_id && sourceCluster.person_id !== targetPerson.id) {
+      // Source has a different person - merge into target
+      const sourcePersonId = sourceCluster.person_id;
+      await client.query(
+        `UPDATE cluster SET person_id = $1, updated_at = NOW()
+         WHERE person_id = $2 AND collection_id = $3`,
+        [targetPerson.id, sourcePersonId, collectionId],
+      );
+      await client.query(`DELETE FROM person WHERE id = $1 AND collection_id = $2`, [sourcePersonId, collectionId]);
+    } else {
+      await client.query(`UPDATE cluster SET person_id = $1, updated_at = NOW() WHERE id = $2 AND collection_id = $3`, [
+        targetPerson.id,
+        sourceClusterId,
+        collectionId,
+      ]);
+    }
+
+    await client.query("COMMIT");
+    return { success: true, message: `Linked to "${targetPerson.person_name}"` };
+  } catch (error) {
+    await client.query("ROLLBACK");
+    console.error("Failed to assign cluster to person:", error);
+    return { success: false, message: "Failed to assign cluster to person" };
   } finally {
     client.release();
   }

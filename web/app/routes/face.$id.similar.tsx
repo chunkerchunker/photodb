@@ -445,7 +445,7 @@ export default function SimilarFacesPage({ loaderData }: Route.ComponentProps) {
     try {
       const response = await fetch(`/api/clusters/search?q=${encodeURIComponent(query)}`);
       const data = await response.json();
-      setSearchResults(data.clusters || []);
+      setSearchResults((data.clusters || []).filter((c: { id: string | null }) => c.id != null) as SearchCluster[]);
     } catch (error) {
       console.error("Failed to search clusters:", error);
       setSearchResults([]);

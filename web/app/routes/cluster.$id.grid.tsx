@@ -45,6 +45,7 @@ import {
   getClusterDetails,
   getClusterFaces,
   getClusterFacesCount,
+  assignClusterToPerson,
   linkClustersToSamePerson,
   setClusterHidden,
   setClusterPersonName,
@@ -128,8 +129,18 @@ export async function action({ request, params }: Route.ActionArgs) {
 
   if (intent === "link") {
     const targetClusterId = formData.get("targetClusterId") as string;
-    if (!targetClusterId || !clusterId) {
-      return { success: false, message: "Invalid cluster IDs" };
+    const targetPersonId = formData.get("targetPersonId") as string;
+    if (!clusterId) {
+      return { success: false, message: "Invalid cluster ID" };
+    }
+
+    if (targetPersonId) {
+      const result = await assignClusterToPerson(collectionId, clusterId, targetPersonId);
+      return result;
+    }
+
+    if (!targetClusterId) {
+      return { success: false, message: "Missing target cluster or person ID" };
     }
 
     const result = await linkClustersToSamePerson(collectionId, clusterId, targetClusterId);
@@ -198,10 +209,13 @@ export async function loader({ params, request }: Route.LoaderArgs) {
 }
 
 interface SearchCluster {
-  id: string;
+  id: string | null;
+  item_type?: "person" | "cluster";
+  person_id?: string;
   face_count: number;
   person_name?: string;
   detection_id?: number;
+  cluster_count?: number;
 }
 
 type Face = Route.ComponentProps["loaderData"]["faces"][number];
@@ -455,12 +469,17 @@ export default function ClusterDetailView({ loaderData }: Route.ComponentProps) 
     }
   }, [searchQuery, linkModalOpen, searchClusters]);
 
-  const handleLinkClick = (targetClusterId: string) => {
-    setPendingLinkClusterId(targetClusterId);
+  const handleLinkClick = (result: SearchCluster) => {
+    const key = `${result.item_type || "cluster"}:${result.person_id || result.id}`;
+    setPendingLinkClusterId(key);
   };
 
-  const confirmLink = (targetClusterId: string) => {
-    fetcher.submit({ intent: "link", targetClusterId }, { method: "post" });
+  const confirmLink = (result: SearchCluster) => {
+    if (result.item_type === "person" && !result.id && result.person_id) {
+      fetcher.submit({ intent: "link", targetPersonId: result.person_id }, { method: "post" });
+    } else if (result.id) {
+      fetcher.submit({ intent: "link", targetClusterId: result.id }, { method: "post" });
+    }
     setLinkModalOpen(false);
     setPendingLinkClusterId(null);
   };
@@ -724,12 +743,13 @@ export default function ClusterDetailView({ loaderData }: Route.ComponentProps) 
                       <div className="text-center py-4 text-gray-500">Searching...</div>
                     ) : searchResults.length > 0 ? (
                       searchResults.map((result) => {
-                        const isPending = pendingLinkClusterId === result.id;
+                        const resultKey = `${result.item_type || "cluster"}:${result.person_id || result.id}`;
+                        const isPending = pendingLinkClusterId === resultKey;
                         const targetName = result.person_name || `Cluster ${result.id}`;
 
                         return (
                           <div
-                            key={result.id}
+                            key={resultKey}
                             className={cn(
                               "w-full flex items-center justify-between p-3 border rounded-lg transition-colors",
                               isPending ? "bg-amber-50 border-amber-200" : "hover:bg-gray-50",
@@ -740,7 +760,7 @@ export default function ClusterDetailView({ loaderData }: Route.ComponentProps) 
                                 <div className="w-12 h-12 bg-gray-100 rounded border overflow-hidden flex-shrink-0">
                                   <img
                                     src={`/api/face/${result.detection_id}`}
-                                    alt={`Cluster ${result.id}`}
+                                    alt={targetName}
                                     className="w-full h-full object-cover"
                                   />
                                 </div>
@@ -758,6 +778,9 @@ export default function ClusterDetailView({ loaderData }: Route.ComponentProps) 
                                     <div className="text-sm text-gray-500">
                                       {result.face_count} face
                                       {result.face_count !== 1 ? "s" : ""}
+                                      {result.item_type === "person" && (result.cluster_count ?? 0) > 1 && (
+                                        <span className="text-gray-400"> · {result.cluster_count} clusters</span>
+                                      )}
                                     </div>
                                   </>
                                 )}
@@ -768,7 +791,7 @@ export default function ClusterDetailView({ loaderData }: Route.ComponentProps) 
                                 <Button variant="outline" size="sm" onClick={cancelLink}>
                                   Cancel
                                 </Button>
-                                <Button size="sm" onClick={() => confirmLink(result.id)}>
+                                <Button size="sm" onClick={() => confirmLink(result)}>
                                   Confirm
                                 </Button>
                               </div>
@@ -776,7 +799,7 @@ export default function ClusterDetailView({ loaderData }: Route.ComponentProps) 
                               <button
                                 type="button"
                                 className="text-sm text-blue-600 hover:text-blue-800"
-                                onClick={() => handleLinkClick(result.id)}
+                                onClick={() => handleLinkClick(result)}
                               >
                                 Same Person
                               </button>

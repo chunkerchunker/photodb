@@ -1,4 +1,4 @@
-import { AlertTriangle, Link2, Loader2, Search, Users } from "lucide-react";
+import { AlertTriangle, Link2, Loader2, Search, User, Users } from "lucide-react";
 import { useCallback, useEffect, useState } from "react";
 import { useFetcher } from "react-router";
 import { Button } from "~/components/ui/button";
@@ -14,10 +14,13 @@ import { Input } from "~/components/ui/input";
 import { cn } from "~/lib/utils";
 
 interface SearchCluster {
-  id: string;
+  id: string | null;
+  item_type?: "person" | "cluster";
+  person_id?: string;
   face_count: number;
   person_name?: string;
   detection_id?: number;
+  cluster_count?: number;
 }
 
 interface LinkPreview {
@@ -36,6 +39,13 @@ interface LinkPreview {
   };
   willMergePersons?: boolean;
   sourcePersonWillBeDeleted?: boolean;
+}
+
+interface PendingTarget {
+  key: string;
+  clusterId: string | null;
+  personId: string | null;
+  targetName: string;
 }
 
 interface ClusterLinkDialogProps {
@@ -66,7 +76,7 @@ export function ClusterLinkDialog({
   const [searchQuery, setSearchQuery] = useState("");
   const [searchResults, setSearchResults] = useState<SearchCluster[]>([]);
   const [isSearching, setIsSearching] = useState(false);
-  const [pendingLinkClusterId, setPendingLinkClusterId] = useState<string | null>(null);
+  const [pendingTarget, setPendingTarget] = useState<PendingTarget | null>(null);
   const [linkPreview, setLinkPreview] = useState<LinkPreview | null>(null);
   const [isLoadingPreview, setIsLoadingPreview] = useState(false);
   const linkFetcher = useFetcher();
@@ -78,7 +88,7 @@ export function ClusterLinkDialog({
     if (open) {
       setSearchQuery("");
       setSearchResults([]);
-      setPendingLinkClusterId(null);
+      setPendingTarget(null);
       setLinkPreview(null);
     }
   }, [open]);
@@ -119,37 +129,56 @@ export function ClusterLinkDialog({
     }
   }, [searchQuery, open, searchClusters]);
 
-  // Fetch preview when a cluster is selected
-  const handleLinkClick = async (targetClusterId: string) => {
-    setPendingLinkClusterId(targetClusterId);
-    setIsLoadingPreview(true);
+  const getResultKey = (result: SearchCluster) => {
+    const type = result.item_type || "cluster";
+    return `${type}:${result.person_id || result.id}`;
+  };
+
+  // Select a target and fetch preview if applicable
+  const handleLinkClick = async (result: SearchCluster) => {
+    const key = getResultKey(result);
+    const clusterId = result.id || null;
+    const personId = result.item_type === "person" ? result.person_id || null : null;
+    const targetName = result.person_name || `Cluster ${result.id}`;
+
+    setPendingTarget({ key, clusterId, personId, targetName });
     setLinkPreview(null);
 
-    try {
-      const response = await fetch(`/api/clusters/link-preview?source=${sourceClusterId}&target=${targetClusterId}`);
-      const preview = await response.json();
-      setLinkPreview(preview);
-    } catch (error) {
-      console.error("Failed to fetch link preview:", error);
-    } finally {
-      setIsLoadingPreview(false);
+    if (clusterId) {
+      // Has a cluster to preview against
+      setIsLoadingPreview(true);
+      try {
+        const response = await fetch(`/api/clusters/link-preview?source=${sourceClusterId}&target=${clusterId}`);
+        const preview = await response.json();
+        setLinkPreview(preview);
+      } catch (error) {
+        console.error("Failed to fetch link preview:", error);
+      } finally {
+        setIsLoadingPreview(false);
+      }
     }
   };
 
-  const confirmLink = (targetClusterId: string) => {
-    linkFetcher.submit(
-      {
-        sourceClusterId,
-        targetClusterId,
-      },
-      { method: "post", action: "/api/clusters/merge" },
-    );
-    setPendingLinkClusterId(null);
+  const confirmLink = () => {
+    if (!pendingTarget) return;
+
+    if (pendingTarget.clusterId) {
+      linkFetcher.submit(
+        { sourceClusterId, targetClusterId: pendingTarget.clusterId },
+        { method: "post", action: "/api/clusters/merge" },
+      );
+    } else if (pendingTarget.personId) {
+      linkFetcher.submit(
+        { sourceClusterId, targetPersonId: pendingTarget.personId },
+        { method: "post", action: "/api/clusters/merge" },
+      );
+    }
+    setPendingTarget(null);
     setLinkPreview(null);
   };
 
   const cancelLink = () => {
-    setPendingLinkClusterId(null);
+    setPendingTarget(null);
     setLinkPreview(null);
   };
 
@@ -162,7 +191,7 @@ export function ClusterLinkDialog({
             Link "{sourceClusterName}" as Same Person
           </DialogTitle>
           <DialogDescription>
-            Search for another cluster of the same person. Both clusters will be linked to the same identity.
+            Search for another cluster or person to link to the same identity.
           </DialogDescription>
         </DialogHeader>
         <div className="space-y-4">
@@ -181,12 +210,14 @@ export function ClusterLinkDialog({
               <div className="text-center py-4 text-gray-500">Searching...</div>
             ) : searchResults.length > 0 ? (
               searchResults.map((result) => {
-                const isPending = pendingLinkClusterId === result.id;
+                const resultKey = getResultKey(result);
+                const isPending = pendingTarget?.key === resultKey;
+                const isPerson = result.item_type === "person";
                 const targetName = result.person_name || `Cluster ${result.id}`;
 
                 return (
                   <div
-                    key={result.id}
+                    key={resultKey}
                     className={cn(
                       "w-full flex flex-col p-3 border rounded-lg transition-colors",
                       isPending ? "bg-amber-50 border-amber-200" : "hover:bg-gray-50",
@@ -198,19 +229,26 @@ export function ClusterLinkDialog({
                           <div className="w-12 h-12 bg-gray-100 rounded border overflow-hidden flex-shrink-0">
                             <img
                               src={`/api/face/${result.detection_id}`}
-                              alt={`Cluster ${result.id}`}
+                              alt={targetName}
                               className="w-full h-full object-cover"
                             />
                           </div>
                         ) : (
                           <div className="w-12 h-12 bg-gray-200 rounded flex items-center justify-center flex-shrink-0">
-                            <Users className="h-5 w-5 text-gray-400" />
+                            {isPerson ? (
+                              <User className="h-5 w-5 text-gray-400" />
+                            ) : (
+                              <Users className="h-5 w-5 text-gray-400" />
+                            )}
                           </div>
                         )}
                         <div>
                           <div className="font-medium">{targetName}</div>
                           <div className="text-sm text-gray-500">
                             {result.face_count} face{result.face_count !== 1 ? "s" : ""}
+                            {isPerson && (result.cluster_count ?? 0) > 1 && (
+                              <span className="text-gray-400"> · {result.cluster_count} clusters</span>
+                            )}
                           </div>
                         </div>
                       </div>
@@ -218,7 +256,7 @@ export function ClusterLinkDialog({
                         <button
                           type="button"
                           className="text-sm text-blue-600 hover:text-blue-800"
-                          onClick={() => handleLinkClick(result.id)}
+                          onClick={() => handleLinkClick(result)}
                         >
                           Same Person
                         </button>
@@ -254,7 +292,7 @@ export function ClusterLinkDialog({
                               <Button variant="outline" size="sm" onClick={cancelLink} disabled={isLinking}>
                                 Cancel
                               </Button>
-                              <Button size="sm" onClick={() => confirmLink(result.id)} disabled={isLinking}>
+                              <Button size="sm" onClick={confirmLink} disabled={isLinking}>
                                 {isLinking ? (
                                   <>
                                     <Loader2 className="h-4 w-4 mr-1 animate-spin" />
@@ -273,7 +311,7 @@ export function ClusterLinkDialog({
                               <Button variant="outline" size="sm" onClick={cancelLink} disabled={isLinking}>
                                 Cancel
                               </Button>
-                              <Button size="sm" onClick={() => confirmLink(result.id)} disabled={isLinking}>
+                              <Button size="sm" onClick={confirmLink} disabled={isLinking}>
                                 {isLinking ? (
                                   <>
                                     <Loader2 className="h-4 w-4 mr-1 animate-spin" />
@@ -292,9 +330,9 @@ export function ClusterLinkDialog({
                 );
               })
             ) : searchQuery ? (
-              <div className="text-center py-4 text-gray-500">No clusters found</div>
+              <div className="text-center py-4 text-gray-500">No results found</div>
             ) : (
-              <div className="text-center py-4 text-gray-500">Type to search for clusters</div>
+              <div className="text-center py-4 text-gray-500">Type to search for clusters or persons</div>
             )}
           </div>
         </div>

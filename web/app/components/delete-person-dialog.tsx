@@ -49,8 +49,8 @@ export function DeletePersonDialog({
           <DialogTitle>Delete Person</DialogTitle>
           <DialogDescription>
             This will unlink all {clusterCount} cluster{clusterCount !== 1 ? "s" : ""} from{" "}
-            <span className="font-medium text-gray-700">{personName}</span>. The clusters and their
-            photos will not be deleted.
+            <span className="font-medium text-gray-700">{personName}</span>. The clusters and their photos will not be
+            deleted.
           </DialogDescription>
         </DialogHeader>
         <DialogFooter>

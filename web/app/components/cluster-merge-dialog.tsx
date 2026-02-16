@@ -190,9 +190,7 @@ export function ClusterLinkDialog({
             <Link2 className="h-5 w-5" />
             Link "{sourceClusterName}" as Same Person
           </DialogTitle>
-          <DialogDescription>
-            Search for another cluster or person to link to the same identity.
-          </DialogDescription>
+          <DialogDescription>Search for another cluster or person to link to the same identity.</DialogDescription>
         </DialogHeader>
         <div className="space-y-4">
           <div className="relative">

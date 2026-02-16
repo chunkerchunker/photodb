@@ -1158,7 +1158,7 @@ export async function deleteCluster(collectionId: number, clusterId: string) {
 export async function getClusterDetails(collectionId: number, clusterId: string) {
   const query = `
     SELECT c.id, c.face_count, c.representative_detection_id,
-           c.hidden,
+           c.hidden, c.person_id,
            per.first_name, per.last_name,
            per.gender as person_gender, per.gender_confidence as person_gender_confidence,
            per.estimated_birth_year, per.birth_year_stddev,

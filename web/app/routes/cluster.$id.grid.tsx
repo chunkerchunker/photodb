@@ -2,7 +2,6 @@ import {
   Check,
   Eye,
   EyeOff,
-  Grid,
   Link2,
   Loader2,
   Pencil,
@@ -11,15 +10,15 @@ import {
   Search,
   Star,
   Trash2,
+  Unlink,
   UserMinus,
   Users,
   XCircle,
   ZoomIn,
 } from "lucide-react";
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Link, redirect, useFetcher, useNavigate } from "react-router";
+import { Link, redirect, useFetcher } from "react-router";
 import { Breadcrumb } from "~/components/breadcrumb";
-import { CoverflowIcon } from "~/components/coverflow-icon";
 import { Layout } from "~/components/layout";
 import { Badge } from "~/components/ui/badge";
 import { Button } from "~/components/ui/button";
@@ -34,22 +33,22 @@ import {
   DialogTrigger,
 } from "~/components/ui/dialog";
 import { Input } from "~/components/ui/input";
-import { ViewSwitcher } from "~/components/view-switcher";
 import { useInfiniteScroll } from "~/hooks/use-infinite-scroll";
 import { requireCollectionId } from "~/lib/auth.server";
 import { dataWithViewMode } from "~/lib/cookies.server";
 import {
+  assignClusterToPerson,
   deleteCluster,
   dissociateFacesFromCluster,
   dissociateFaceWithConfidenceCutoff,
   getClusterDetails,
   getClusterFaces,
   getClusterFacesCount,
-  assignClusterToPerson,
   linkClustersToSamePerson,
   setClusterHidden,
   setClusterPersonName,
   setClusterRepresentative,
+  unlinkClusterFromPerson,
 } from "~/lib/db.server";
 import { cn } from "~/lib/utils";
 import type { Route } from "./+types/cluster.$id.grid";
@@ -156,6 +155,14 @@ export async function action({ request, params }: Route.ActionArgs) {
 
     const result = await setClusterPersonName(collectionId, clusterId, firstName, lastName || undefined);
     return result;
+  }
+
+  if (intent === "unlink") {
+    if (clusterId) {
+      const result = await unlinkClusterFromPerson(collectionId, clusterId);
+      return result;
+    }
+    return { success: false, message: "Invalid cluster ID" };
   }
 
   return { success: false, message: "Unknown action" };
@@ -353,7 +360,6 @@ export default function ClusterDetailView({ loaderData }: Route.ComponentProps) 
   const [previewFaceId, setPreviewFaceId] = useState<number | null>(null);
   const previewTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   const fetcher = useFetcher();
-  const navigate = useNavigate();
 
   // Memoized Set for O(1) selection lookup
   const selectedFacesSet = useMemo(() => new Set(selectedFaces), [selectedFaces]);
@@ -698,124 +704,123 @@ export default function ClusterDetailView({ loaderData }: Route.ComponentProps) 
             </Dialog>
           </div>
           <div className="flex items-center space-x-4">
-            <ViewSwitcher
-              variant="light"
-              modes={[
-                { key: "grid", label: "Grid View", icon: <Grid className="h-4 w-4" />, isActive: true },
-                {
-                  key: "wall",
-                  label: "3D Wall",
-                  icon: <CoverflowIcon className="size-4" />,
-                  to: `/cluster/${cluster.id}/wall`,
-                  isActive: false,
-                },
-              ]}
-            />
             <span className="text-gray-600">
               {totalFaces} face{totalFaces !== 1 ? "s" : ""}
             </span>
-            <Dialog open={linkModalOpen} onOpenChange={setLinkModalOpen}>
-              <DialogTrigger asChild>
-                <Button variant="outline" size="sm" disabled={isSubmitting}>
-                  <Link2 className="h-4 w-4 mr-1" />
-                  Same Person
-                </Button>
-              </DialogTrigger>
-              <DialogContent className="max-w-lg">
-                <DialogHeader>
-                  <DialogTitle>Link as Same Person</DialogTitle>
-                  <DialogDescription>
-                    Search for another cluster of the same person. Both clusters will be linked to the same identity.
-                  </DialogDescription>
-                </DialogHeader>
-                <div className="space-y-4">
-                  <div className="relative">
-                    <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-gray-400" />
-                    <Input
-                      placeholder="Search by cluster ID or person name..."
-                      value={searchQuery}
-                      onChange={(e) => setSearchQuery(e.target.value)}
-                      className="pl-9"
-                    />
-                  </div>
-                  <div className="max-h-80 overflow-y-auto space-y-2">
-                    {isSearching ? (
-                      <div className="text-center py-4 text-gray-500">Searching...</div>
-                    ) : searchResults.length > 0 ? (
-                      searchResults.map((result) => {
-                        const resultKey = `${result.item_type || "cluster"}:${result.person_id || result.id}`;
-                        const isPending = pendingLinkClusterId === resultKey;
-                        const targetName = result.person_name || `Cluster ${result.id}`;
+            {cluster.person_id ? (
+              <Button
+                variant="outline"
+                size="sm"
+                disabled={isSubmitting}
+                onClick={() => fetcher.submit({ intent: "unlink" }, { method: "post" })}
+              >
+                <Unlink className="h-4 w-4 mr-1" />
+                Unlink from Person
+              </Button>
+            ) : (
+              <Dialog open={linkModalOpen} onOpenChange={setLinkModalOpen}>
+                <DialogTrigger asChild>
+                  <Button variant="outline" size="sm" disabled={isSubmitting}>
+                    <Link2 className="h-4 w-4 mr-1" />
+                    Same Person
+                  </Button>
+                </DialogTrigger>
+                <DialogContent className="max-w-lg">
+                  <DialogHeader>
+                    <DialogTitle>Link as Same Person</DialogTitle>
+                    <DialogDescription>
+                      Search for another cluster of the same person. Both clusters will be linked to the same identity.
+                    </DialogDescription>
+                  </DialogHeader>
+                  <div className="space-y-4">
+                    <div className="relative">
+                      <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-gray-400" />
+                      <Input
+                        placeholder="Search by cluster ID or person name..."
+                        value={searchQuery}
+                        onChange={(e) => setSearchQuery(e.target.value)}
+                        className="pl-9"
+                      />
+                    </div>
+                    <div className="max-h-80 overflow-y-auto space-y-2">
+                      {isSearching ? (
+                        <div className="text-center py-4 text-gray-500">Searching...</div>
+                      ) : searchResults.length > 0 ? (
+                        searchResults.map((result) => {
+                          const resultKey = `${result.item_type || "cluster"}:${result.person_id || result.id}`;
+                          const isPending = pendingLinkClusterId === resultKey;
+                          const targetName = result.person_name || `Cluster ${result.id}`;
 
-                        return (
-                          <div
-                            key={resultKey}
-                            className={cn(
-                              "w-full flex items-center justify-between p-3 border rounded-lg transition-colors",
-                              isPending ? "bg-amber-50 border-amber-200" : "hover:bg-gray-50",
-                            )}
-                          >
-                            <div className="flex items-center space-x-3">
-                              {result.detection_id ? (
-                                <div className="w-12 h-12 bg-gray-100 rounded border overflow-hidden flex-shrink-0">
-                                  <img
-                                    src={`/api/face/${result.detection_id}`}
-                                    alt={targetName}
-                                    className="w-full h-full object-cover"
-                                  />
+                          return (
+                            <div
+                              key={resultKey}
+                              className={cn(
+                                "w-full flex items-center justify-between p-3 border rounded-lg transition-colors",
+                                isPending ? "bg-amber-50 border-amber-200" : "hover:bg-gray-50",
+                              )}
+                            >
+                              <div className="flex items-center space-x-3">
+                                {result.detection_id ? (
+                                  <div className="w-12 h-12 bg-gray-100 rounded border overflow-hidden flex-shrink-0">
+                                    <img
+                                      src={`/api/face/${result.detection_id}`}
+                                      alt={targetName}
+                                      className="w-full h-full object-cover"
+                                    />
+                                  </div>
+                                ) : (
+                                  <div className="w-12 h-12 bg-gray-200 rounded flex items-center justify-center flex-shrink-0">
+                                    <Users className="h-5 w-5 text-gray-400" />
+                                  </div>
+                                )}
+                                <div>
+                                  {isPending ? (
+                                    <div className="font-medium text-amber-800">Link with "{targetName}"?</div>
+                                  ) : (
+                                    <>
+                                      <div className="font-medium">{targetName}</div>
+                                      <div className="text-sm text-gray-500">
+                                        {result.face_count} face
+                                        {result.face_count !== 1 ? "s" : ""}
+                                        {result.item_type === "person" && (result.cluster_count ?? 0) > 1 && (
+                                          <span className="text-gray-400"> · {result.cluster_count} clusters</span>
+                                        )}
+                                      </div>
+                                    </>
+                                  )}
+                                </div>
+                              </div>
+                              {isPending ? (
+                                <div className="flex items-center space-x-2">
+                                  <Button variant="outline" size="sm" onClick={cancelLink}>
+                                    Cancel
+                                  </Button>
+                                  <Button size="sm" onClick={() => confirmLink(result)}>
+                                    Confirm
+                                  </Button>
                                 </div>
                               ) : (
-                                <div className="w-12 h-12 bg-gray-200 rounded flex items-center justify-center flex-shrink-0">
-                                  <Users className="h-5 w-5 text-gray-400" />
-                                </div>
+                                <button
+                                  type="button"
+                                  className="text-sm text-blue-600 hover:text-blue-800"
+                                  onClick={() => handleLinkClick(result)}
+                                >
+                                  Same Person
+                                </button>
                               )}
-                              <div>
-                                {isPending ? (
-                                  <div className="font-medium text-amber-800">Link with "{targetName}"?</div>
-                                ) : (
-                                  <>
-                                    <div className="font-medium">{targetName}</div>
-                                    <div className="text-sm text-gray-500">
-                                      {result.face_count} face
-                                      {result.face_count !== 1 ? "s" : ""}
-                                      {result.item_type === "person" && (result.cluster_count ?? 0) > 1 && (
-                                        <span className="text-gray-400"> · {result.cluster_count} clusters</span>
-                                      )}
-                                    </div>
-                                  </>
-                                )}
-                              </div>
                             </div>
-                            {isPending ? (
-                              <div className="flex items-center space-x-2">
-                                <Button variant="outline" size="sm" onClick={cancelLink}>
-                                  Cancel
-                                </Button>
-                                <Button size="sm" onClick={() => confirmLink(result)}>
-                                  Confirm
-                                </Button>
-                              </div>
-                            ) : (
-                              <button
-                                type="button"
-                                className="text-sm text-blue-600 hover:text-blue-800"
-                                onClick={() => handleLinkClick(result)}
-                              >
-                                Same Person
-                              </button>
-                            )}
-                          </div>
-                        );
-                      })
-                    ) : searchQuery ? (
-                      <div className="text-center py-4 text-gray-500">No clusters found</div>
-                    ) : (
-                      <div className="text-center py-4 text-gray-500">Type to search for clusters</div>
-                    )}
+                          );
+                        })
+                      ) : searchQuery ? (
+                        <div className="text-center py-4 text-gray-500">No clusters found</div>
+                      ) : (
+                        <div className="text-center py-4 text-gray-500">Type to search for clusters</div>
+                      )}
+                    </div>
                   </div>
-                </div>
-              </DialogContent>
-            </Dialog>
+                </DialogContent>
+              </Dialog>
+            )}
             <Button variant="outline" size="sm" onClick={handleToggleHidden} disabled={isSubmitting}>
               {cluster.hidden ? (
                 <>

@@ -16,7 +16,7 @@ from .utils.logging import setup_logging  # noqa: E402
 
 
 @click.command()
-@click.argument("path", type=click.Path(exists=False))
+@click.argument("path", type=click.Path(exists=False), required=False, default=None)
 @click.option("--force", is_flag=True, help="Force reprocessing of already processed photos")
 @click.option(
     "--stage",
@@ -68,7 +68,7 @@ from .utils.logging import setup_logging  # noqa: E402
     help="Collection ID to use (overrides COLLECTION_ID env var)",
 )
 def main(
-    path: str,
+    path: Optional[str],
     force: bool,
     stage: str,
     exclude: tuple,
@@ -94,12 +94,14 @@ def main(
     - A single image file
     - A directory containing images
     - A relative path from INGEST_PATH
+    - Omitted (when using --skip-directory-scan) to process all photos in the collection
 
     Examples:
         process-local /path/to/photo.jpg
         process-local /path/to/directory
         process-local . --recursive --pattern "*.heic" --parallel 500
         process-local /path/to/directory --stage faces --parallel 100
+        process-local --skip-directory-scan --stage clustering
     """
     if quiet:
         log_level = logging.WARNING
@@ -112,6 +114,11 @@ def main(
 
     try:
         config_data = load_configuration(config)
+
+        # Validate that path is provided when scanning directories
+        if path is None and not skip_directory_scan:
+            logger.error("PATH is required when scanning directories. Use --skip-directory-scan to process from database.")
+            sys.exit(1)
 
         # Create PostgreSQL connection pool
         # Limit connections to avoid exceeding PostgreSQL's max_connections (typically 100)
@@ -135,14 +142,16 @@ def main(
             config_data["COLLECTION_ID"] = effective_collection_id
             repository = PhotoRepository(connection_pool, collection_id=effective_collection_id)
 
-            input_path = resolve_path(
-                path, config_data["INGEST_PATH"], skip_disk_check=skip_directory_scan
-            )
-
-            # When skip_directory_scan is enabled, don't access disk at all
-            if not skip_directory_scan and not input_path.exists():
-                logger.error(f"Path does not exist: {input_path}")
-                sys.exit(1)
+            # Resolve path if provided
+            input_path = None
+            if path is not None:
+                input_path = resolve_path(
+                    path, config_data["INGEST_PATH"], skip_disk_check=skip_directory_scan
+                )
+                # When skip_directory_scan is enabled, don't access disk at all
+                if not skip_directory_scan and not input_path.exists():
+                    logger.error(f"Path does not exist: {input_path}")
+                    sys.exit(1)
 
             # Create local processor for parallel processing
             # Pass stage to constructor so only required ML models are loaded
@@ -160,11 +169,14 @@ def main(
                 skip_directory_scan=skip_directory_scan,
             ) as processor:
                 # When skip_directory_scan is enabled, assume directory (no disk access)
-                if not skip_directory_scan and input_path.is_file():
+                if input_path is not None and not skip_directory_scan and input_path.is_file():
                     logger.info(f"Processing single file: {input_path}")
                     result = processor.process_file(input_path)
                 else:
-                    logger.info(f"Processing directory: {input_path}")
+                    if input_path is None:
+                        logger.info("Processing all photos in collection")
+                    else:
+                        logger.info(f"Processing directory: {input_path}")
                     result = processor.process_directory(
                         input_path, recursive=recursive, pattern=pattern
                     )

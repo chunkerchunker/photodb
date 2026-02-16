@@ -217,12 +217,20 @@ class LocalProcessor(BaseProcessor):
 
     def process_directory(
         self,
-        directory: Path,
+        directory: Optional[Path],
         stage: Optional[str] = None,
         recursive: bool = True,
         pattern: str = "*",
     ) -> ProcessingResult:
-        """Process all matching files in a directory."""
+        """Process all matching files in a directory or all photos in collection.
+
+        Args:
+            directory: Directory to process. If None (only valid when skip_directory_scan
+                       is True), processes all photos in the collection.
+            stage: Processing stage(s) to run.
+            recursive: Whether to process subdirectories recursively.
+            pattern: File pattern to match (e.g., "*.jpg").
+        """
         stage = stage or self.stage
         result = ProcessingResult()
         supported_extensions = {
@@ -308,14 +316,20 @@ class LocalProcessor(BaseProcessor):
                 should_scan = True
 
             if should_scan:
+                if directory is None:
+                    raise ValueError("directory is required when scanning (not using database)")
                 logger.info("Scanning directory for files...")
                 if recursive:
                     file_iter = directory.rglob(pattern)
                 else:
                     file_iter = directory.glob(pattern)
             else:
-                logger.info(f"Querying database for photos in {directory}...")
-                photos = self.repository.get_photos_by_directory(str(directory))
+                directory_str = str(directory) if directory is not None else None
+                if directory_str:
+                    logger.info(f"Querying database for photos in {directory_str}...")
+                else:
+                    logger.info("Querying database for all photos in collection...")
+                photos = self.repository.get_photos_by_directory(directory_str)
                 # Create generator that matches the pattern (consistent with glob)
                 file_iter = (Path(p.orig_path) for p in photos if Path(p.orig_path).match(pattern))
 
@@ -332,7 +346,8 @@ class LocalProcessor(BaseProcessor):
                     futures[future] = file_path
 
             if result.total_files == 0:
-                logger.warning(f"No matching files found in {directory}")
+                location = str(directory) if directory else "collection"
+                logger.warning(f"No matching files found in {location}")
                 return result
 
             logger.info(f"Found {result.total_files} files to process")

@@ -552,19 +552,29 @@ class PhotoRepository:
 
                 return [Person(**dict(row)) for row in rows]  # type: ignore[arg-type]
 
-    def get_photos_by_directory(self, directory: str) -> List[Photo]:
-        """Get all photos whose filename starts with the given directory path."""
-        # Ensure directory path ends with a separator to avoid partial matches
-        # e.g., /foo/bar shouldn't match /foo/barbaz.jpg, only /foo/bar/baz.jpg
-        if not directory.endswith(os.sep):
-            directory += os.sep
+    def get_photos_by_directory(self, directory: Optional[str] = None) -> List[Photo]:
+        """Get all photos, optionally filtered by directory path.
 
+        Args:
+            directory: If provided, only return photos whose orig_path starts with this
+                       directory. If None, return all photos in the collection.
+        """
         with self.pool.get_connection() as conn:
             with conn.cursor(row_factory=dict_row) as cursor:
-                cursor.execute(
-                    "SELECT * FROM photo WHERE orig_path LIKE %s AND collection_id = %s",
-                    (f"{directory}%", self.collection_id),
-                )
+                if directory is None:
+                    cursor.execute(
+                        "SELECT * FROM photo WHERE collection_id = %s",
+                        (self.collection_id,),
+                    )
+                else:
+                    # Ensure directory path ends with a separator to avoid partial matches
+                    # e.g., /foo/bar shouldn't match /foo/barbaz.jpg, only /foo/bar/baz.jpg
+                    if not directory.endswith(os.sep):
+                        directory += os.sep
+                    cursor.execute(
+                        "SELECT * FROM photo WHERE orig_path LIKE %s AND collection_id = %s",
+                        (f"{directory}%", self.collection_id),
+                    )
                 rows = cursor.fetchall()
                 return [Photo(**dict(row)) for row in rows]  # type: ignore[arg-type]
 

@@ -365,6 +365,8 @@ class PersonDetection:
     cluster_confidence: Optional[float] = None
     unassigned_since: Optional[datetime] = None  # When added to unassigned pool
     is_core: bool = False  # True if this is a core point from HDBSCAN clustering
+    lambda_val: Optional[float] = None  # Point lambda from condensed tree
+    outlier_score: Optional[float] = None  # GLOSH outlier score (0=inlier, 1=outlier)
     # Detector metadata
     detector_model: Optional[str] = None
     detector_version: Optional[str] = None
@@ -568,6 +570,9 @@ class Cluster:
     # HDBSCAN clustering fields
     epsilon: Optional[float] = None  # Per-cluster distance threshold
     core_count: int = 0  # Number of core points in this cluster
+    lambda_birth: Optional[float] = None  # Birth density from condensed tree
+    persistence: Optional[float] = None  # Cluster stability score
+    hdbscan_run_id: Optional[int] = None  # Parent bootstrap run
 
     @classmethod
     def create(

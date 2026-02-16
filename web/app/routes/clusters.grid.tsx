@@ -156,11 +156,15 @@ export default function ClustersView({ loaderData }: Route.ComponentProps) {
 
   // Revalidate after drag-and-drop link completes
   useEffect(() => {
-    if (linkFetcher.data?.success && pendingLink) {
+    if (linkFetcher.state === "idle" && linkFetcher.data?.success && pendingLink) {
       setPendingLink(null);
+      setLinkPreview(null);
       revalidator.revalidate();
     }
-  }, [linkFetcher.data, pendingLink, revalidator]);
+    // pendingLink intentionally omitted — including it causes stale linkFetcher.data
+    // to immediately clear the next pendingLink before the user can confirm
+    // biome-ignore lint/correctness/useExhaustiveDependencies: see above
+  }, [linkFetcher.state, linkFetcher.data, revalidator]);
 
   // Helper to get item key
   const getItemKey = (item: Item) => `${item.item_type}:${item.id}`;

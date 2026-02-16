@@ -67,6 +67,17 @@ from .utils.logging import setup_logging  # noqa: E402
     type=int,
     help="Collection ID to use (overrides COLLECTION_ID env var)",
 )
+@click.option(
+    "--progress-interval",
+    type=float,
+    default=10.0,
+    help="Seconds between progress updates (default: 10)",
+)
+@click.option(
+    "--show-progress",
+    is_flag=True,
+    help="Show progress updates even when --quiet is specified",
+)
 def main(
     path: Optional[str],
     force: bool,
@@ -83,6 +94,8 @@ def main(
     force_directory_scan: bool,
     skip_directory_scan: bool,
     collection_id: Optional[int],
+    progress_interval: float,
+    show_progress: bool,
 ):
     """
     Process photos locally from PATH (file or directory).
@@ -167,6 +180,8 @@ def main(
                 exclude=list(exclude),
                 force_directory_scan=force_directory_scan,
                 skip_directory_scan=skip_directory_scan,
+                progress_interval=progress_interval,
+                force_progress=show_progress,
             ) as processor:
                 # When skip_directory_scan is enabled, assume directory (no disk access)
                 if input_path is not None and not skip_directory_scan and input_path.is_file():

@@ -1,6 +1,7 @@
 from pathlib import Path
 from typing import List, Optional
 import logging
+import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
 from .base_processor import BaseProcessor, ProcessingResult
@@ -32,6 +33,8 @@ class LocalProcessor(BaseProcessor):
         exclude: Optional[List[str]] = None,
         force_directory_scan: bool = False,
         skip_directory_scan: bool = False,
+        progress_interval: float = 10.0,
+        force_progress: bool = False,
     ):
         super().__init__(repository, config, force, dry_run, max_photos)
         self.collection_id = collection_id
@@ -40,6 +43,8 @@ class LocalProcessor(BaseProcessor):
         self.exclude = exclude or []
         self.force_directory_scan = force_directory_scan
         self.skip_directory_scan = skip_directory_scan
+        self.progress_interval = progress_interval
+        self.force_progress = force_progress
 
         # Create connection pool for parallel processing
         if parallel > 1:
@@ -323,6 +328,11 @@ class LocalProcessor(BaseProcessor):
                     file_iter = directory.rglob(pattern)
                 else:
                     file_iter = directory.glob(pattern)
+                # Collect matching files upfront so we can log the count before processing
+                files_to_process = [
+                    f for f in file_iter
+                    if f.is_file() and f.suffix.lower() in supported_extensions
+                ]
             else:
                 directory_str = str(directory) if directory is not None else None
                 if directory_str:
@@ -330,29 +340,30 @@ class LocalProcessor(BaseProcessor):
                 else:
                     logger.info("Querying database for all photos in collection...")
                 photos = self.repository.get_photos_by_directory(directory_str)
-                # Create generator that matches the pattern (consistent with glob)
-                file_iter = (Path(p.orig_path) for p in photos if Path(p.orig_path).match(pattern))
+                logger.info(f"Found {len(photos)} photos in database")
+                files_to_process = [
+                    Path(p.orig_path) for p in photos
+                    if Path(p.orig_path).match(pattern)
+                    and Path(p.orig_path).suffix.lower() in supported_extensions
+                ]
 
-            for file_path in file_iter:
-                # When using database (not scanning), trust the database records
-                # and don't access disk. Only check file extension.
-                # When scanning directory, verify it's actually a file.
-                if should_scan:
-                    if not file_path.is_file():
-                        continue
-                if file_path.suffix.lower() in supported_extensions:
-                    result.total_files += 1
-                    future = executor.submit(process_with_pooled_repo, file_path)
-                    futures[future] = file_path
+            result.total_files = len(files_to_process)
 
             if result.total_files == 0:
                 location = str(directory) if directory else "collection"
                 logger.warning(f"No matching files found in {location}")
                 return result
 
-            logger.info(f"Found {result.total_files} files to process")
+            logger.info(f"Expecting to process {result.total_files} files")
+
+            for file_path in files_to_process:
+                future = executor.submit(process_with_pooled_repo, file_path)
+                futures[future] = file_path
 
             # Process completed futures as they finish
+            start_time = time.monotonic()
+            last_progress_time = start_time
+            completed_count = 0
             for future in as_completed(futures):
                 file_path = futures[future]
                 try:
@@ -377,6 +388,24 @@ class LocalProcessor(BaseProcessor):
                     logger.error(f"Streaming parallel processing error for {file_path}: {e}")
                     result.failed += 1
                     result.failed_files.append((str(file_path), str(e)))
+
+                completed_count += 1
+                now = time.monotonic()
+                if now - last_progress_time >= self.progress_interval:
+                    elapsed = now - start_time
+                    pct = completed_count / result.total_files * 100
+                    elapsed_min, elapsed_sec = divmod(int(elapsed), 60)
+                    per_photo = elapsed / completed_count
+                    msg = (
+                        f"Progress: {completed_count}/{result.total_files}"
+                        f" ({pct:.1f}%) elapsed {elapsed_min}m{elapsed_sec:02d}s"
+                        f" ({per_photo:.2f}s/photo)"
+                    )
+                    if self.force_progress:
+                        logger.warning(msg)
+                    else:
+                        logger.info(msg)
+                    last_progress_time = now
 
         result.success = result.failed == 0
         return result

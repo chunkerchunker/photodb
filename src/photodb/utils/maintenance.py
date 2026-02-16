@@ -867,51 +867,78 @@ class MaintenanceUtilities:
         clusters = self.repo.get_clusters_for_association(collection_id)
         cluster_map = {c["id"]: c for c in clusters}
 
-        # Union-find to build connected components
-        parent: Dict[int, int] = {}
-
-        def find(x: int) -> int:
-            while parent.get(x, x) != x:
-                parent[x] = parent.get(parent[x], parent[x])
-                x = parent[x]
-            return x
-
-        def union(a: int, b: int) -> None:
-            ra, rb = find(a), find(b)
-            if ra != rb:
-                parent[ra] = rb
-
+        # Build adjacency set from pairs (complete-linkage needs O(1) edge lookup)
+        adj: set[tuple[int, int]] = set()
         for pair in pairs:
-            union(pair["cluster_id_1"], pair["cluster_id_2"])
+            a, b = pair["cluster_id_1"], pair["cluster_id_2"]
+            adj.add((a, b))
+            adj.add((b, a))
 
-        # Build groups from union-find
-        groups: Dict[int, List[int]] = {}
-        all_ids = set()
+        def _are_connected(x: int, y: int) -> bool:
+            return (x, y) in adj
+
+        # Complete-linkage grouping: a cluster joins a group only if it's
+        # within threshold of EVERY existing member (prevents single-linkage chaining)
+        groups: List[set[int]] = []
+        cluster_to_group: Dict[int, int] = {}  # cluster_id -> group index
+
+        # Process pairs in distance order (already sorted by SQL)
         for pair in pairs:
-            all_ids.add(pair["cluster_id_1"])
-            all_ids.add(pair["cluster_id_2"])
-        for cid in all_ids:
-            root = find(cid)
-            groups.setdefault(root, []).append(cid)
+            a, b = pair["cluster_id_1"], pair["cluster_id_2"]
+            ga = cluster_to_group.get(a)
+            gb = cluster_to_group.get(b)
 
-        for group in groups.values():
-            if len(group) < 2:
-                continue
+            if ga is not None and gb is not None:
+                if ga == gb:
+                    continue  # Already in same group
+                # Merge groups only if every cross-pair is connected
+                group_a, group_b = groups[ga], groups[gb]
+                if all(_are_connected(x, y) for x in group_a for y in group_b):
+                    # Merge smaller into larger
+                    if len(group_a) < len(group_b):
+                        ga, gb = gb, ga
+                        group_a, group_b = group_b, group_a
+                    group_a.update(group_b)
+                    for c in group_b:
+                        cluster_to_group[c] = ga
+                    group_b.clear()
+            elif ga is not None:
+                # Add b to group_a if connected to all members
+                if all(_are_connected(b, x) for x in groups[ga]):
+                    groups[ga].add(b)
+                    cluster_to_group[b] = ga
+            elif gb is not None:
+                # Add a to group_b if connected to all members
+                if all(_are_connected(a, x) for x in groups[gb]):
+                    groups[gb].add(a)
+                    cluster_to_group[a] = gb
+            else:
+                # New group
+                idx = len(groups)
+                groups.append({a, b})
+                cluster_to_group[a] = idx
+                cluster_to_group[b] = idx
+
+        # Filter out empty groups (from merges)
+        final_groups = [g for g in groups if len(g) >= 2]
+
+        for group in final_groups:
             results["groups_found"] += 1
+            group_list = sorted(group)
 
             if dry_run:
                 person_ids = {
                     cluster_map[c]["person_id"]
-                    for c in group
+                    for c in group_list
                     if c in cluster_map and cluster_map[c]["person_id"] is not None
                 }
                 logger.info(
-                    f"Collection {collection_id}: would link clusters {group} "
+                    f"Collection {collection_id}: would link clusters {group_list} "
                     f"(existing persons: {person_ids or 'none'})"
                 )
                 continue
 
-            self._link_group_to_person(group, cluster_map, collection_id, results)
+            self._link_group_to_person(group_list, cluster_map, collection_id, results)
 
         return results
 

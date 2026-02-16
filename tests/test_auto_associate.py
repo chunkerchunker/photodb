@@ -104,10 +104,11 @@ class TestAutoAssociateClusters:
         # Person 200 (verified) should be kept, person 100 removed
         maintenance.repo.merge_persons.assert_called_once_with(200, 100, 1)
 
-    def test_transitive_closure(self, maintenance):
-        """A~B, B~C → one group {A, B, C}."""
+    def test_complete_linkage_merges_full_clique(self, maintenance):
+        """A~B, B~C, A~C (full clique) → one group {A, B, C}."""
         maintenance.repo.find_similar_cluster_pairs.return_value = [
             {"cluster_id_1": 1, "cluster_id_2": 2, "cosine_distance": 0.3},
+            {"cluster_id_1": 1, "cluster_id_2": 3, "cosine_distance": 0.35},
             {"cluster_id_1": 2, "cluster_id_2": 3, "cosine_distance": 0.4},
         ]
         maintenance.repo.get_clusters_for_association.return_value = [
@@ -119,15 +120,38 @@ class TestAutoAssociateClusters:
 
         result = maintenance.auto_associate_clusters(threshold=0.55)
 
-        # Should be ONE group of 3, not two groups
+        # Full clique → one group of 3
         assert result["groups_found"] == 1
         assert result["persons_created"] == 1
         assert result["clusters_linked"] == 3
 
-        # link_clusters_to_person should be called with all 3 cluster IDs
         args = maintenance.repo.link_clusters_to_person.call_args
         linked_ids = sorted(args[0][0])
         assert linked_ids == [1, 2, 3]
+
+    def test_complete_linkage_prevents_chaining(self, maintenance):
+        """A~B, B~C but NOT A~C → two groups, not one (no single-linkage chaining)."""
+        maintenance.repo.find_similar_cluster_pairs.return_value = [
+            {"cluster_id_1": 1, "cluster_id_2": 2, "cosine_distance": 0.3},
+            {"cluster_id_1": 2, "cluster_id_2": 3, "cosine_distance": 0.4},
+            # No (1,3) pair — they're too far apart
+        ]
+        maintenance.repo.get_clusters_for_association.return_value = [
+            _make_cluster(1),
+            _make_cluster(2),
+            _make_cluster(3),
+        ]
+        maintenance.repo.link_clusters_to_person.return_value = 2
+
+        result = maintenance.auto_associate_clusters(threshold=0.55)
+
+        # Without A~C, complete-linkage keeps them separate:
+        # {1,2} is a group, but 3 can't join because 1~3 is missing.
+        # 3 could form {2,3} but 2 is already in {1,2} and merging
+        # would require 1~3. So: one group {1,2}, cluster 3 left out.
+        assert result["groups_found"] == 1
+        assert result["persons_created"] == 1
+        assert result["clusters_linked"] == 2
 
     def test_dry_run_makes_no_changes(self, maintenance):
         """Groups found but no mutations in dry_run mode."""

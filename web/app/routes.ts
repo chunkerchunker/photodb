@@ -86,4 +86,5 @@ export default [
   route("api/person/:id/rename", "routes/api.person.$id.rename.tsx"),
   route("api/person/:id/hide", "routes/api.person.$id.hide.tsx"),
   route("api/person/:id/representative", "routes/api.person.$id.representative.tsx"),
+  route("api/person/:id/delete", "routes/api.person.$id.delete.tsx"),
 ] satisfies RouteConfig;

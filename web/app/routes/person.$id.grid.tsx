@@ -1,7 +1,8 @@
-import { EyeOff, Pencil, Star, Unlink, User, Users } from "lucide-react";
+import { EyeOff, Pencil, Star, Trash2, Unlink, User, Users } from "lucide-react";
 import { useEffect, useState } from "react";
-import { Link, useFetcher, useRevalidator } from "react-router";
+import { Link, useFetcher, useNavigate, useRevalidator } from "react-router";
 import { Breadcrumb } from "~/components/breadcrumb";
+import { DeletePersonDialog } from "~/components/delete-person-dialog";
 import { Layout } from "~/components/layout";
 import { RenamePersonDialog } from "~/components/rename-person-dialog";
 import { SecondaryControls } from "~/components/secondary-controls";
@@ -64,7 +65,9 @@ export default function PersonDetailView({ loaderData }: Route.ComponentProps) {
 
   // Dialog state
   const [renameDialogOpen, setRenameDialogOpen] = useState(false);
+  const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
   const [pendingUnlinkClusterId, setPendingUnlinkClusterId] = useState<string | null>(null);
+  const navigate = useNavigate();
 
   const hideFetcher = useFetcher();
   const unlinkFetcher = useFetcher();
@@ -180,6 +183,10 @@ export default function PersonDetailView({ loaderData }: Route.ComponentProps) {
                 Unhide All ({hiddenClusters.length})
               </Button>
             )}
+            <Button variant="outline" size="sm" onClick={() => setDeleteDialogOpen(true)} disabled={isSubmitting}>
+              <Trash2 className="h-4 w-4 mr-1" />
+              Delete Person
+            </Button>
           </SecondaryControls>
         </div>
 
@@ -294,6 +301,16 @@ export default function PersonDetailView({ loaderData }: Route.ComponentProps) {
           currentFirstName={person.first_name || ""}
           currentLastName={person.last_name || ""}
           onSuccess={handleRenameSuccess}
+        />
+
+        {/* Delete Person Dialog */}
+        <DeletePersonDialog
+          open={deleteDialogOpen}
+          onOpenChange={setDeleteDialogOpen}
+          personId={person.id.toString()}
+          personName={person.person_name || `Person ${person.id}`}
+          clusterCount={clusters.length}
+          onSuccess={() => navigate("/people")}
         />
       </div>
     </Layout>

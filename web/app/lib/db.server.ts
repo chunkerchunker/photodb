@@ -957,6 +957,45 @@ export async function unlinkClusterFromPerson(collectionId: number, clusterId: s
 }
 
 /**
+ * Delete a person aggregation by clearing person_id on all associated clusters
+ * and removing the person's representative detection.
+ */
+export async function deletePersonAggregation(collectionId: number, personId: string) {
+  const client = await pool.connect();
+  try {
+    await client.query("BEGIN");
+
+    // Clear person_id from all clusters belonging to this person
+    const unlinkResult = await client.query(
+      `UPDATE cluster
+       SET person_id = NULL, updated_at = NOW()
+       WHERE person_id = $1 AND collection_id = $2`,
+      [personId, collectionId],
+    );
+
+    // Clear the person's representative detection
+    await client.query(
+      `UPDATE person
+       SET representative_detection_id = NULL, updated_at = NOW()
+       WHERE id = $1 AND collection_id = $2`,
+      [personId, collectionId],
+    );
+
+    await client.query("COMMIT");
+    return {
+      success: true,
+      message: `Unlinked ${unlinkResult.rowCount} cluster(s) from person`,
+      unlinkedCount: unlinkResult.rowCount,
+    };
+  } catch (error) {
+    await client.query("ROLLBACK");
+    throw error;
+  } finally {
+    client.release();
+  }
+}
+
+/**
  * Set a person's representative detection from a cluster.
  * Uses the cluster's representative_detection_id.
  */

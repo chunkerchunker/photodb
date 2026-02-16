@@ -1,6 +1,7 @@
-import { EyeOff, Pencil, Users } from "lucide-react";
+import { EyeOff, Pencil, Trash2, Users } from "lucide-react";
 import { useMemo, useState } from "react";
-import { useFetcher, useLocation } from "react-router";
+import { useFetcher, useLocation, useNavigate } from "react-router";
+import { DeletePersonDialog } from "~/components/delete-person-dialog";
 import { Header } from "~/components/header";
 import { PhotoWall, type WallTile } from "~/components/photo-wall";
 import { RenamePersonDialog } from "~/components/rename-person-dialog";
@@ -42,6 +43,8 @@ export default function PersonWallView({ loaderData }: Route.ComponentProps) {
   const { person, clusters } = loaderData;
   const location = useLocation();
   const [renameDialogOpen, setRenameDialogOpen] = useState(false);
+  const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
+  const navigate = useNavigate();
   const hideFetcher = useFetcher();
 
   const visibleClusters = clusters.filter((c) => !c.hidden);
@@ -157,6 +160,16 @@ export default function PersonWallView({ loaderData }: Route.ComponentProps) {
             </button>
           </>
         )}
+        <ControlsDivider variant="wall" />
+        <button
+          type="button"
+          onClick={() => setDeleteDialogOpen(true)}
+          disabled={isSubmitting}
+          className="flex items-center gap-1.5 hover:text-white transition-colors disabled:opacity-50"
+        >
+          <Trash2 className="h-4 w-4" />
+          <span>Delete Person</span>
+        </button>
       </SecondaryControls>
       <RenamePersonDialog
         open={renameDialogOpen}
@@ -167,6 +180,14 @@ export default function PersonWallView({ loaderData }: Route.ComponentProps) {
         onSuccess={() => {
           window.location.reload();
         }}
+      />
+      <DeletePersonDialog
+        open={deleteDialogOpen}
+        onOpenChange={setDeleteDialogOpen}
+        personId={person.id.toString()}
+        personName={person.person_name || `Person ${person.id}`}
+        clusterCount={clusters.length}
+        onSuccess={() => navigate("/people")}
       />
     </>
   );

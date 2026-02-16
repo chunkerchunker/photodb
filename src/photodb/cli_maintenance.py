@@ -30,11 +30,16 @@ logger = logging.getLogger(__name__)
 
 
 @contextmanager
-def maintenance_context() -> Generator[MaintenanceUtilities, None, None]:
+def maintenance_context(
+    collection_id: int | None = None,
+) -> Generator[MaintenanceUtilities, None, None]:
     """
     Context manager for maintenance operations.
 
     Handles database connection pool setup and teardown automatically.
+
+    Args:
+        collection_id: Optional collection ID to scope aggregate operations.
 
     Yields:
         MaintenanceUtilities instance with active connection pool
@@ -42,7 +47,7 @@ def maintenance_context() -> Generator[MaintenanceUtilities, None, None]:
     database_url = os.getenv("DATABASE_URL", "postgresql://localhost/photodb")
     pool = ConnectionPool(connection_string=database_url)
     try:
-        yield MaintenanceUtilities(pool)
+        yield MaintenanceUtilities(pool, collection_id=collection_id)
     finally:
         pool.close_all()
 
@@ -50,6 +55,7 @@ def maintenance_context() -> Generator[MaintenanceUtilities, None, None]:
 def run_maintenance_command(
     operation: Callable[[MaintenanceUtilities], int],
     error_message: str,
+    collection_id: int | None = None,
 ) -> int:
     """
     Execute a maintenance operation with standard error handling.
@@ -57,12 +63,13 @@ def run_maintenance_command(
     Args:
         operation: Function that takes MaintenanceUtilities and returns exit code
         error_message: Message to log on failure
+        collection_id: Optional collection ID to scope aggregate operations
 
     Returns:
         Exit code (0 for success, 1 for failure)
     """
     try:
-        with maintenance_context() as maintenance:
+        with maintenance_context(collection_id=collection_id) as maintenance:
             return operation(maintenance)
     except Exception as e:
         logger.error(f"{error_message}: {e}")
@@ -99,7 +106,7 @@ def run_daily(args):
 
         return 0
 
-    return run_maintenance_command(operation, "Daily maintenance failed")
+    return run_maintenance_command(operation, "Daily maintenance failed", args.collection_id)
 
 
 def run_weekly(args):
@@ -127,7 +134,7 @@ def run_weekly(args):
 
         return 0
 
-    return run_maintenance_command(operation, "Weekly maintenance failed")
+    return run_maintenance_command(operation, "Weekly maintenance failed", args.collection_id)
 
 
 def recompute_centroids(args):
@@ -139,7 +146,7 @@ def recompute_centroids(args):
         print(f"Recomputed centroids for {count} clusters")
         return 0
 
-    return run_maintenance_command(operation, "Failed to recompute centroids")
+    return run_maintenance_command(operation, "Failed to recompute centroids", args.collection_id)
 
 
 def update_medoids(args):
@@ -151,7 +158,7 @@ def update_medoids(args):
         print(f"Updated medoids for {count} clusters")
         return 0
 
-    return run_maintenance_command(operation, "Failed to update medoids")
+    return run_maintenance_command(operation, "Failed to update medoids", args.collection_id)
 
 
 def cleanup_empty(args):
@@ -163,7 +170,7 @@ def cleanup_empty(args):
         print(f"Removed {count} empty clusters")
         return 0
 
-    return run_maintenance_command(operation, "Failed to cleanup clusters")
+    return run_maintenance_command(operation, "Failed to cleanup clusters", args.collection_id)
 
 
 def update_stats(args):
@@ -175,7 +182,7 @@ def update_stats(args):
         print(f"Updated statistics for {count} clusters")
         return 0
 
-    return run_maintenance_command(operation, "Failed to update statistics")
+    return run_maintenance_command(operation, "Failed to update statistics", args.collection_id)
 
 
 def revert_singletons(args):
@@ -187,7 +194,7 @@ def revert_singletons(args):
         print(f"Reverted {count} singleton clusters to unassigned pool")
         return 0
 
-    return run_maintenance_command(operation, "Failed to revert singletons")
+    return run_maintenance_command(operation, "Failed to revert singletons", args.collection_id)
 
 
 def cluster_unassigned(args):
@@ -199,7 +206,9 @@ def cluster_unassigned(args):
         print(f"Created {count} clusters from unassigned pool")
         return 0
 
-    return run_maintenance_command(operation, "Failed to cluster unassigned pool")
+    return run_maintenance_command(
+        operation, "Failed to cluster unassigned pool", args.collection_id
+    )
 
 
 def calculate_epsilons(args):
@@ -214,7 +223,7 @@ def calculate_epsilons(args):
         print(f"Calculated epsilon for {count} clusters")
         return 0
 
-    return run_maintenance_command(operation, "Failed to calculate epsilons")
+    return run_maintenance_command(operation, "Failed to calculate epsilons", args.collection_id)
 
 
 def health_check(args):
@@ -267,7 +276,7 @@ def health_check(args):
 
         return 0 if not issues else 1
 
-    return run_maintenance_command(operation, "Health check failed")
+    return run_maintenance_command(operation, "Health check failed", args.collection_id)
 
 
 def check_staleness(args):
@@ -295,7 +304,7 @@ def check_staleness(args):
 
         return 1 if result["is_stale"] else 0
 
-    return run_maintenance_command(operation, "Staleness check failed")
+    return run_maintenance_command(operation, "Staleness check failed", args.collection_id)
 
 
 def main():
@@ -325,6 +334,12 @@ Examples:
     )
 
     parser.add_argument("-v", "--verbose", action="store_true", help="Enable verbose logging")
+    parser.add_argument(
+        "--collection-id",
+        type=int,
+        default=None,
+        help="Collection ID to scope operations (default: COLLECTION_ID env var or 1)",
+    )
 
     subparsers = parser.add_subparsers(dest="command", help="Maintenance command to run")
 

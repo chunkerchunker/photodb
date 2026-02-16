@@ -27,11 +27,19 @@ logger = logging.getLogger(__name__)
 
 
 class MaintenanceUtilities:
-    """Utilities for periodic maintenance tasks."""
+    """Utilities for periodic maintenance tasks.
 
-    def __init__(self, connection_pool: ConnectionPool):
+    Args:
+        connection_pool: Database connection pool.
+        collection_id: Optional collection ID to scope aggregate operations
+            (cluster_unassigned_pool, cleanup_unassigned_pool). Per-cluster
+            operations are inherently scoped by the cluster's own collection_id.
+            Defaults to COLLECTION_ID env var or 1.
+    """
+
+    def __init__(self, connection_pool: ConnectionPool, collection_id: int | None = None):
         self.pool = connection_pool
-        self.repo = PhotoRepository(connection_pool)
+        self.repo = PhotoRepository(connection_pool, collection_id=collection_id)
 
     def recompute_all_centroids(self) -> int:
         """
@@ -388,10 +396,11 @@ class MaintenanceUtilities:
                     SELECT pd.id, fe.embedding
                     FROM person_detection pd
                     JOIN face_embedding fe ON pd.id = fe.person_detection_id
-                    WHERE pd.cluster_status = 'unassigned'
+                    WHERE pd.collection_id = %s
+                      AND pd.cluster_status = 'unassigned'
                       AND pd.unassigned_since < NOW() - INTERVAL '%s days'
                 """,
-                    (max_age_days,),
+                    (self.repo.collection_id, max_age_days),
                 )
 
                 old_faces = cursor.fetchall()
@@ -454,12 +463,18 @@ class MaintenanceUtilities:
                     """SELECT pd.id, fe.embedding
                        FROM person_detection pd
                        JOIN face_embedding fe ON pd.id = fe.person_detection_id
-                       WHERE pd.cluster_id IS NULL
+                       WHERE pd.collection_id = %s
+                         AND pd.cluster_id IS NULL
                          AND pd.cluster_status = 'unassigned'
                          AND pd.face_confidence >= %s
                          AND pd.face_bbox_width >= %s
                          AND pd.face_bbox_height >= %s""",
-                    (MIN_FACE_CONFIDENCE, MIN_FACE_SIZE_PX, MIN_FACE_SIZE_PX),
+                    (
+                        self.repo.collection_id,
+                        MIN_FACE_CONFIDENCE,
+                        MIN_FACE_SIZE_PX,
+                        MIN_FACE_SIZE_PX,
+                    ),
                 )
                 rows = cursor.fetchall()
 

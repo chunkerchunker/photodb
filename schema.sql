@@ -116,10 +116,8 @@ CREATE TABLE IF NOT EXISTS processing_status(
 CREATE INDEX IF NOT EXISTS idx_photo_collection_id ON photo(collection_id, id);
 
 -- Album indexes
-CREATE INDEX IF NOT EXISTS idx_album_collection_id ON album(collection_id);
 CREATE INDEX IF NOT EXISTS idx_album_collection_name ON album(collection_id, name);
 CREATE INDEX IF NOT EXISTS idx_photo_album_album_id ON photo_album(album_id);
-CREATE INDEX IF NOT EXISTS idx_photo_album_photo_id ON photo_album(photo_id);
 
 -- Collection member indexes
 CREATE INDEX IF NOT EXISTS idx_collection_member_person_id ON collection_member(person_id);
@@ -429,10 +427,8 @@ CREATE TABLE IF NOT EXISTS cluster_cannot_link(
 );
 
 -- Indexes for constraint lookups
-CREATE INDEX IF NOT EXISTS idx_cannot_link_detection1 ON cannot_link(detection_id_1);
 CREATE INDEX IF NOT EXISTS idx_cannot_link_detection2 ON cannot_link(detection_id_2);
 CREATE INDEX IF NOT EXISTS idx_cannot_link_collection ON cannot_link(collection_id);
-CREATE INDEX IF NOT EXISTS idx_cluster_cannot_link_c1 ON cluster_cannot_link(cluster_id_1);
 CREATE INDEX IF NOT EXISTS idx_cluster_cannot_link_c2 ON cluster_cannot_link(cluster_id_2);
 CREATE INDEX IF NOT EXISTS idx_cluster_cannot_link_collection ON cluster_cannot_link(collection_id);
 CREATE INDEX IF NOT EXISTS idx_cluster_verified ON "cluster"(verified) WHERE verified = true;
@@ -570,7 +566,6 @@ CREATE TABLE IF NOT EXISTS photo_tag (
     UNIQUE(photo_id, prompt_id)
 );
 
-CREATE INDEX IF NOT EXISTS idx_photo_tag_photo ON photo_tag(photo_id);
 CREATE INDEX IF NOT EXISTS idx_photo_tag_prompt ON photo_tag(prompt_id);
 CREATE INDEX IF NOT EXISTS idx_photo_tag_confidence ON photo_tag(confidence DESC);
 CREATE INDEX IF NOT EXISTS idx_photo_tag_high_confidence
@@ -591,7 +586,6 @@ CREATE TABLE IF NOT EXISTS detection_tag (
     UNIQUE(detection_id, prompt_id)
 );
 
-CREATE INDEX IF NOT EXISTS idx_detection_tag_detection ON detection_tag(detection_id);
 CREATE INDEX IF NOT EXISTS idx_detection_tag_prompt ON detection_tag(prompt_id);
 CREATE INDEX IF NOT EXISTS idx_detection_tag_confidence ON detection_tag(confidence DESC);
 

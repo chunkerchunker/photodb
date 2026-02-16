@@ -497,15 +497,11 @@ export default function ClustersView({ loaderData }: Route.ComponentProps) {
                             <EyeOff className="h-4 w-4 mr-2" />
                             Hide{isPerson ? " All" : ""}
                           </ContextMenuItem>
-                          {!isPerson && (
-                            <>
-                              <ContextMenuSeparator />
-                              <ContextMenuItem onClick={() => handleLink(item)}>
-                                <Link2 className="h-4 w-4 mr-2" />
-                                Same Person...
-                              </ContextMenuItem>
-                            </>
-                          )}
+                          <ContextMenuSeparator />
+                          <ContextMenuItem onClick={() => handleLink(item)}>
+                            <Link2 className="h-4 w-4 mr-2" />
+                            Same Person...
+                          </ContextMenuItem>
                         </ContextMenuContent>
                       </ContextMenu>
                     );
@@ -621,12 +617,12 @@ export default function ClustersView({ loaderData }: Route.ComponentProps) {
           />
         )}
 
-        {/* Context Menu Link Dialog - only for clusters, not persons */}
-        {contextItem && contextItem.item_type === "cluster" && (
+        {/* Context Menu Link Dialog */}
+        {contextItem && (
           <ClusterLinkDialog
             open={linkDialogOpen}
             onOpenChange={setLinkDialogOpen}
-            sourceClusterId={contextItem.id.toString()}
+            sourceClusterId={contextItem.primary_cluster_id.toString()}
             sourceClusterName={contextItem.person_name || `Cluster #${contextItem.id}`}
             onLinkComplete={handleLinkComplete}
           />

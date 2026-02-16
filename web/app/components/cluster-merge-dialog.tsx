@@ -54,7 +54,7 @@ interface ClusterLinkDialogProps {
   sourceClusterId: string;
   sourceClusterName: string;
   excludeClusterId?: string;
-  onLinkComplete?: () => void;
+  onLinkComplete?: (personId?: number) => void;
 }
 
 /**
@@ -97,7 +97,7 @@ export function ClusterLinkDialog({
   useEffect(() => {
     if (linkFetcher.data?.success) {
       onOpenChange(false);
-      onLinkComplete?.();
+      onLinkComplete?.(linkFetcher.data.personId);
     }
   }, [linkFetcher.data, onOpenChange, onLinkComplete]);
 

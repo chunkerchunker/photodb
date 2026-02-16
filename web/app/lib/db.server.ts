@@ -1746,7 +1746,7 @@ export async function assignClusterToPerson(collectionId: number, sourceClusterI
     }
 
     await client.query("COMMIT");
-    return { success: true, message: `Linked to "${targetPerson.person_name}"` };
+    return { success: true, message: `Linked to "${targetPerson.person_name}"`, personId: targetPerson.id };
   } catch (error) {
     await client.query("ROLLBACK");
     console.error("Failed to assign cluster to person:", error);

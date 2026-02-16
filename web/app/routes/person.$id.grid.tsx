@@ -1,7 +1,8 @@
-import { EyeOff, Pencil, Star, Trash2, Unlink, User, Users } from "lucide-react";
+import { EyeOff, Link2, Pencil, Star, Trash2, Unlink, User, Users } from "lucide-react";
 import { useEffect, useState } from "react";
 import { Link, useFetcher, useNavigate, useRevalidator } from "react-router";
 import { Breadcrumb } from "~/components/breadcrumb";
+import { ClusterLinkDialog } from "~/components/cluster-merge-dialog";
 import { DeletePersonDialog } from "~/components/delete-person-dialog";
 import { Layout } from "~/components/layout";
 import { RenamePersonDialog } from "~/components/rename-person-dialog";
@@ -66,6 +67,7 @@ export default function PersonDetailView({ loaderData }: Route.ComponentProps) {
   // Dialog state
   const [renameDialogOpen, setRenameDialogOpen] = useState(false);
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
+  const [linkDialogOpen, setLinkDialogOpen] = useState(false);
   const [pendingUnlinkClusterId, setPendingUnlinkClusterId] = useState<string | null>(null);
   const navigate = useNavigate();
 
@@ -181,6 +183,12 @@ export default function PersonDetailView({ loaderData }: Route.ComponentProps) {
             {hiddenClusters.length > 0 && (
               <Button variant="outline" size="sm" onClick={handleUnhideAll} disabled={isSubmitting}>
                 Unhide All ({hiddenClusters.length})
+              </Button>
+            )}
+            {clusters.length > 0 && (
+              <Button variant="outline" size="sm" onClick={() => setLinkDialogOpen(true)} disabled={isSubmitting}>
+                <Link2 className="h-4 w-4 mr-1" />
+                Same Person...
               </Button>
             )}
             <Button variant="outline" size="sm" onClick={() => setDeleteDialogOpen(true)} disabled={isSubmitting}>
@@ -302,6 +310,23 @@ export default function PersonDetailView({ loaderData }: Route.ComponentProps) {
           currentLastName={person.last_name || ""}
           onSuccess={handleRenameSuccess}
         />
+
+        {/* Link Person Dialog */}
+        {clusters.length > 0 && (
+          <ClusterLinkDialog
+            open={linkDialogOpen}
+            onOpenChange={setLinkDialogOpen}
+            sourceClusterId={clusters[0].id.toString()}
+            sourceClusterName={person.person_name || `Person ${person.id}`}
+            onLinkComplete={(personId) => {
+              if (personId && personId !== person.id) {
+                navigate(`/person/${personId}`, { replace: true });
+              } else {
+                revalidator.revalidate();
+              }
+            }}
+          />
+        )}
 
         {/* Delete Person Dialog */}
         <DeletePersonDialog

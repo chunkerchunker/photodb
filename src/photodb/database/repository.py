@@ -541,6 +541,134 @@ class PhotoRepository:
 
                 return [Person(**dict(row)) for row in rows]  # type: ignore[arg-type]
 
+    def find_similar_cluster_pairs(
+        self, threshold: float, collection_id: Optional[int] = None
+    ) -> List[Dict[str, Any]]:
+        """Find pairs of clusters whose centroids are within a cosine distance threshold.
+
+        Uses pgvector's <=> operator for in-database cosine distance computation.
+        Excludes hidden clusters, clusters without centroids, and pairs blocked by
+        cannot-link constraints.
+
+        Args:
+            threshold: Maximum cosine distance between centroids (0=identical, 2=opposite)
+            collection_id: Collection to search in (defaults to self.collection_id)
+
+        Returns:
+            List of dicts with cluster_id_1, cluster_id_2, cosine_distance
+        """
+        collection_id = self._resolve_collection_id(collection_id)
+        with self.pool.get_connection() as conn:
+            with conn.cursor(row_factory=dict_row) as cursor:
+                cursor.execute(
+                    """
+                    SELECT c1.id AS cluster_id_1, c2.id AS cluster_id_2,
+                           c1.centroid <=> c2.centroid AS cosine_distance
+                    FROM cluster c1
+                    JOIN cluster c2 ON c1.id < c2.id AND c1.collection_id = c2.collection_id
+                    WHERE c1.collection_id = %s
+                      AND c1.centroid IS NOT NULL AND c2.centroid IS NOT NULL
+                      AND NOT c1.hidden AND NOT c2.hidden
+                      AND c1.centroid <=> c2.centroid < %s
+                      AND NOT EXISTS (
+                          SELECT 1 FROM cluster_cannot_link ccl
+                          WHERE ccl.cluster_id_1 = LEAST(c1.id, c2.id)
+                            AND ccl.cluster_id_2 = GREATEST(c1.id, c2.id)
+                      )
+                    ORDER BY c1.centroid <=> c2.centroid
+                    """,
+                    (collection_id, threshold),
+                )
+                return [dict(row) for row in cursor.fetchall()]
+
+    def get_clusters_for_association(
+        self, collection_id: Optional[int] = None
+    ) -> List[Dict[str, Any]]:
+        """Get cluster metadata needed for person auto-association.
+
+        Args:
+            collection_id: Collection to query (defaults to self.collection_id)
+
+        Returns:
+            List of dicts with id, person_id, verified, face_count,
+            representative_detection_id
+        """
+        collection_id = self._resolve_collection_id(collection_id)
+        with self.pool.get_connection() as conn:
+            with conn.cursor(row_factory=dict_row) as cursor:
+                cursor.execute(
+                    """
+                    SELECT id, person_id, verified, face_count, representative_detection_id
+                    FROM cluster
+                    WHERE collection_id = %s
+                      AND NOT hidden
+                      AND centroid IS NOT NULL
+                    """,
+                    (collection_id,),
+                )
+                return [dict(row) for row in cursor.fetchall()]
+
+    def link_clusters_to_person(
+        self,
+        cluster_ids: List[int],
+        person_id: int,
+        collection_id: Optional[int] = None,
+    ) -> int:
+        """Link multiple clusters to a person.
+
+        Args:
+            cluster_ids: List of cluster IDs to link
+            person_id: Person ID to link to
+            collection_id: Collection scope (defaults to self.collection_id)
+
+        Returns:
+            Number of clusters updated
+        """
+        collection_id = self._resolve_collection_id(collection_id)
+        with self.pool.transaction() as conn:
+            with conn.cursor() as cursor:
+                cursor.execute(
+                    """
+                    UPDATE cluster SET person_id = %s, updated_at = NOW()
+                    WHERE id = ANY(%s) AND collection_id = %s
+                    """,
+                    (person_id, cluster_ids, collection_id),
+                )
+                return cursor.rowcount
+
+    def merge_persons(
+        self,
+        keep_person_id: int,
+        remove_person_id: int,
+        collection_id: Optional[int] = None,
+    ) -> int:
+        """Merge two person records by moving clusters from remove to keep, then deleting remove.
+
+        Args:
+            keep_person_id: Person ID to keep
+            remove_person_id: Person ID to remove (clusters moved to keep)
+            collection_id: Collection scope (defaults to self.collection_id)
+
+        Returns:
+            Number of clusters moved
+        """
+        collection_id = self._resolve_collection_id(collection_id)
+        with self.pool.transaction() as conn:
+            with conn.cursor() as cursor:
+                cursor.execute(
+                    """
+                    UPDATE cluster SET person_id = %s, updated_at = NOW()
+                    WHERE person_id = %s AND collection_id = %s
+                    """,
+                    (keep_person_id, remove_person_id, collection_id),
+                )
+                moved = cursor.rowcount
+                cursor.execute(
+                    "DELETE FROM person WHERE id = %s AND collection_id = %s",
+                    (remove_person_id, collection_id),
+                )
+                return moved
+
     def get_photos_by_directory(self, directory: Optional[str] = None) -> List[Photo]:
         """Get all photos, optionally filtered by directory path.
 

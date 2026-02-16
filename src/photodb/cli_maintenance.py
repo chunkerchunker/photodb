@@ -387,8 +387,10 @@ Examples:
 """,
     )
 
-    parser.add_argument("-v", "--verbose", action="store_true", help="Enable verbose logging")
-    parser.add_argument(
+    # Shared parent parser so --collection-id and -v work after the subcommand name
+    common = argparse.ArgumentParser(add_help=False)
+    common.add_argument("-v", "--verbose", action="store_true", help="Enable verbose logging")
+    common.add_argument(
         "--collection-id",
         type=int,
         default=None,
@@ -398,12 +400,16 @@ Examples:
     subparsers = parser.add_subparsers(dest="command", help="Maintenance command to run")
 
     # Daily maintenance
-    daily_parser = subparsers.add_parser("daily", help="Run all daily maintenance tasks")
+    daily_parser = subparsers.add_parser(
+        "daily", parents=[common], help="Run all daily maintenance tasks"
+    )
     daily_parser.add_argument("--json", action="store_true", help="Output results as JSON")
     daily_parser.set_defaults(func=run_daily)
 
     # Weekly maintenance
-    weekly_parser = subparsers.add_parser("weekly", help="Run all weekly maintenance tasks")
+    weekly_parser = subparsers.add_parser(
+        "weekly", parents=[common], help="Run all weekly maintenance tasks"
+    )
     weekly_parser.add_argument("--json", action="store_true", help="Output results as JSON")
     weekly_parser.add_argument(
         "--cluster-unassigned",
@@ -420,26 +426,35 @@ Examples:
 
     # Individual tasks
     centroids_parser = subparsers.add_parser(
-        "recompute-centroids", help="Recompute all cluster centroids"
+        "recompute-centroids", parents=[common], help="Recompute all cluster centroids"
     )
     centroids_parser.set_defaults(func=recompute_centroids)
 
-    medoids_parser = subparsers.add_parser("update-medoids", help="Update medoids for all clusters")
+    medoids_parser = subparsers.add_parser(
+        "update-medoids", parents=[common], help="Update medoids for all clusters"
+    )
     medoids_parser.set_defaults(func=update_medoids)
 
-    cleanup_parser = subparsers.add_parser("cleanup-empty", help="Remove empty clusters")
+    cleanup_parser = subparsers.add_parser(
+        "cleanup-empty", parents=[common], help="Remove empty clusters"
+    )
     cleanup_parser.set_defaults(func=cleanup_empty)
 
-    stats_parser = subparsers.add_parser("update-stats", help="Update cluster statistics")
+    stats_parser = subparsers.add_parser(
+        "update-stats", parents=[common], help="Update cluster statistics"
+    )
     stats_parser.set_defaults(func=update_stats)
 
     revert_parser = subparsers.add_parser(
-        "revert-singletons", help="Revert maintenance-created singleton clusters to unassigned pool"
+        "revert-singletons",
+        parents=[common],
+        help="Revert maintenance-created singleton clusters to unassigned pool",
     )
     revert_parser.set_defaults(func=revert_singletons)
 
     cluster_unassigned_parser = subparsers.add_parser(
         "cluster-unassigned",
+        parents=[common],
         help="Run HDBSCAN clustering on the unassigned pool to find new clusters",
     )
     cluster_unassigned_parser.add_argument(
@@ -451,7 +466,9 @@ Examples:
     cluster_unassigned_parser.set_defaults(func=cluster_unassigned)
 
     calculate_epsilons_parser = subparsers.add_parser(
-        "calculate-epsilons", help="Calculate epsilon for clusters with NULL epsilon but 3+ faces"
+        "calculate-epsilons",
+        parents=[common],
+        help="Calculate epsilon for clusters with NULL epsilon but 3+ faces",
     )
     calculate_epsilons_parser.add_argument(
         "--min-faces", type=int, default=3, help="Minimum faces required in cluster (default: 3)"
@@ -467,6 +484,7 @@ Examples:
     # Auto-associate clusters to persons
     auto_assoc_parser = subparsers.add_parser(
         "auto-associate",
+        parents=[common],
         help="Auto-associate clusters to persons based on centroid similarity",
     )
     auto_assoc_parser.add_argument(
@@ -482,13 +500,15 @@ Examples:
     auto_assoc_parser.set_defaults(func=auto_associate)
 
     # Health check
-    health_parser = subparsers.add_parser("health", help="Check clustering system health")
+    health_parser = subparsers.add_parser(
+        "health", parents=[common], help="Check clustering system health"
+    )
     health_parser.add_argument("--json", action="store_true", help="Output results as JSON")
     health_parser.set_defaults(func=health_check)
 
     # Staleness check
     staleness_parser = subparsers.add_parser(
-        "check-staleness", help="Check if HDBSCAN bootstrap needs re-running"
+        "check-staleness", parents=[common], help="Check if HDBSCAN bootstrap needs re-running"
     )
     staleness_parser.add_argument(
         "--threshold",

@@ -57,7 +57,7 @@ def mock_pool():
 @pytest.fixture
 def maintenance(mock_pool):
     """Create a MaintenanceUtilities instance with mocked pool and repo."""
-    m = MaintenanceUtilities(mock_pool)
+    m = MaintenanceUtilities(mock_pool, collection_id=1)
     m.repo = MagicMock()
     return m
 

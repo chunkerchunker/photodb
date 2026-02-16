@@ -283,26 +283,38 @@ def check_staleness(args):
     """Check if HDBSCAN bootstrap needs re-running."""
     logger.info("Checking HDBSCAN staleness...")
 
+    def _print_staleness(result: dict) -> None:
+        cid = result.get("collection_id")
+        prefix = f"  [collection {cid}] " if cid is not None else "  "
+        if result["active_run_id"] is not None:
+            print(f"{prefix}Run {result['active_run_id']}: "
+                  f"{result['bootstrap_embedding_count']} -> {result['current_embedding_count']} "
+                  f"embeddings ({result['growth_ratio']:.2f}x) "
+                  f"{'STALE' if result['is_stale'] else 'CURRENT'}")
+        else:
+            print(f"{prefix}No active HDBSCAN run. {result['recommendation']}")
+
     def operation(maintenance: MaintenanceUtilities) -> int:
         result = maintenance.check_hdbscan_staleness(threshold=args.threshold)
 
-        print("\nHDBSCAN Staleness Check:")
-        if result["active_run_id"] is not None:
-            print(f"  - Active run ID: {result['active_run_id']}")
-            print(f"  - Bootstrap embedding count: {result['bootstrap_embedding_count']}")
-            print(f"  - Current embedding count: {result['current_embedding_count']}")
-            print(f"  - Growth ratio: {result['growth_ratio']:.2f}x")
-            print(f"  - Status: {'STALE' if result['is_stale'] else 'CURRENT'}")
-        else:
-            print("  - No active HDBSCAN run found")
+        # Normalize to list for uniform handling
+        results = result if isinstance(result, list) else [result]
 
-        print(f"\n{result['recommendation']}")
+        print("\nHDBSCAN Staleness Check:")
+        for r in results:
+            _print_staleness(r)
+
+        any_stale = any(r["is_stale"] for r in results)
+        if any_stale:
+            print("\nRecommendation: Re-run bootstrap for stale collections.")
+        else:
+            print("\nAll collections current. No action needed.")
 
         if args.json:
             print("\nJSON output:")
             print(json.dumps(result, indent=2))
 
-        return 1 if result["is_stale"] else 0
+        return 1 if any_stale else 0
 
     return run_maintenance_command(operation, "Staleness check failed", args.collection_id)
 

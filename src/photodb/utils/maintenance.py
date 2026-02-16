@@ -31,15 +31,29 @@ class MaintenanceUtilities:
 
     Args:
         connection_pool: Database connection pool.
-        collection_id: Optional collection ID to scope aggregate operations
-            (cluster_unassigned_pool, cleanup_unassigned_pool). Per-cluster
-            operations are inherently scoped by the cluster's own collection_id.
-            Defaults to COLLECTION_ID env var or 1.
+        collection_id: Optional collection ID to scope aggregate operations.
+            None (default) = operate on all collections.
+            Per-cluster operations are inherently scoped by the cluster's own
+            collection_id regardless of this setting.
     """
 
     def __init__(self, connection_pool: ConnectionPool, collection_id: int | None = None):
         self.pool = connection_pool
+        self.collection_id = collection_id
         self.repo = PhotoRepository(connection_pool, collection_id=collection_id)
+
+    def _get_collection_ids(self) -> list[int]:
+        """Get collection IDs to operate on.
+
+        Returns [self.collection_id] if set, otherwise all distinct collection IDs
+        from person_detection.
+        """
+        if self.collection_id is not None:
+            return [self.collection_id]
+        with self.pool.get_connection() as conn:
+            with conn.cursor() as cursor:
+                cursor.execute("SELECT DISTINCT collection_id FROM person_detection ORDER BY 1")
+                return [row[0] for row in cursor.fetchall()]
 
     def recompute_all_centroids(self) -> int:
         """
@@ -391,17 +405,29 @@ class MaintenanceUtilities:
 
         with self.pool.get_connection() as conn:
             with conn.cursor() as cursor:
-                cursor.execute(
-                    """
-                    SELECT pd.id, fe.embedding
-                    FROM person_detection pd
-                    JOIN face_embedding fe ON pd.id = fe.person_detection_id
-                    WHERE pd.collection_id = %s
-                      AND pd.cluster_status = 'unassigned'
-                      AND pd.unassigned_since < NOW() - INTERVAL '%s days'
-                """,
-                    (self.repo.collection_id, max_age_days),
-                )
+                if self.collection_id is not None:
+                    cursor.execute(
+                        """
+                        SELECT pd.id, fe.embedding
+                        FROM person_detection pd
+                        JOIN face_embedding fe ON pd.id = fe.person_detection_id
+                        WHERE pd.collection_id = %s
+                          AND pd.cluster_status = 'unassigned'
+                          AND pd.unassigned_since < NOW() - INTERVAL '%s days'
+                    """,
+                        (self.collection_id, max_age_days),
+                    )
+                else:
+                    cursor.execute(
+                        """
+                        SELECT pd.id, fe.embedding
+                        FROM person_detection pd
+                        JOIN face_embedding fe ON pd.id = fe.person_detection_id
+                        WHERE pd.cluster_status = 'unassigned'
+                          AND pd.unassigned_since < NOW() - INTERVAL '%s days'
+                    """,
+                        (max_age_days,),
+                    )
 
                 old_faces = cursor.fetchall()
 
@@ -445,18 +471,26 @@ class MaintenanceUtilities:
         """
         Run HDBSCAN clustering on the unassigned pool to find new clusters.
 
-        This finds faces in the unassigned pool that can form new clusters
-        based on density-based clustering.
+        Iterates per-collection to avoid mixing embeddings across collections.
 
         Args:
             min_cluster_size: Minimum faces to form a cluster (default 3)
 
         Returns:
-            Number of new clusters created
+            Number of new clusters created (across all collections)
         """
-        logger.info("Clustering unassigned pool with HDBSCAN")
+        total = 0
+        for cid in self._get_collection_ids():
+            total += self._cluster_unassigned_for_collection(cid, min_cluster_size)
+        return total
 
-        # Get all unassigned detections with embeddings (filtered by size/confidence)
+    def _cluster_unassigned_for_collection(
+        self, collection_id: int, min_cluster_size: int = 3
+    ) -> int:
+        """Run HDBSCAN on unassigned detections for a single collection."""
+        logger.info(f"Clustering unassigned pool for collection {collection_id} with HDBSCAN")
+
+        # Get unassigned detections with embeddings (filtered by size/confidence)
         with self.pool.get_connection() as conn:
             with conn.cursor() as cursor:
                 cursor.execute(
@@ -469,12 +503,7 @@ class MaintenanceUtilities:
                          AND pd.face_confidence >= %s
                          AND pd.face_bbox_width >= %s
                          AND pd.face_bbox_height >= %s""",
-                    (
-                        self.repo.collection_id,
-                        MIN_FACE_CONFIDENCE,
-                        MIN_FACE_SIZE_PX,
-                        MIN_FACE_SIZE_PX,
-                    ),
+                    (collection_id, MIN_FACE_CONFIDENCE, MIN_FACE_SIZE_PX, MIN_FACE_SIZE_PX),
                 )
                 rows = cursor.fetchall()
 
@@ -736,7 +765,12 @@ class MaintenanceUtilities:
         )
         updated_count = 0
 
-        clusters = self.repo.get_clusters_without_epsilon(min_faces=min_faces)
+        # get_clusters_without_epsilon is collection-scoped; iterate all when needed
+        clusters = []
+        for cid in self._get_collection_ids():
+            clusters.extend(
+                self.repo.get_clusters_without_epsilon(min_faces=min_faces, collection_id=cid)
+            )
         logger.info(f"Found {len(clusters)} clusters without epsilon")
 
         for cluster in clusters:
@@ -806,18 +840,21 @@ class MaintenanceUtilities:
         logger.info(f"Daily maintenance completed: {results}")
         return results
 
-    def check_hdbscan_staleness(self, threshold: float = 1.25) -> Dict[str, Any]:
+    def check_hdbscan_staleness(
+        self, threshold: float = 1.25
+    ) -> Dict[str, Any] | List[Dict[str, Any]]:
         """Check if the active HDBSCAN run is stale.
 
-        A stale HDBSCAN run is one where the number of embeddings has grown
-        significantly since the bootstrap clustering was performed, indicating
-        that re-running bootstrap would likely find better clusters.
+        When collection_id is set, returns a single result dict.
+        When collection_id is None (all collections), returns a list of
+        per-collection result dicts.
 
         Args:
             threshold: Growth ratio threshold for staleness (default: 1.25 = 25% growth)
 
         Returns:
-            Dict with:
+            Single dict or list of dicts, each with:
+                collection_id: int
                 is_stale: bool - True if bootstrap should be re-run
                 active_run_id: Optional[int] - ID of active run if it exists
                 bootstrap_embedding_count: int - Number of embeddings at bootstrap time
@@ -825,11 +862,20 @@ class MaintenanceUtilities:
                 growth_ratio: float - Ratio of current/bootstrap embeddings
                 recommendation: str - Human-readable recommendation
         """
-        # Get active HDBSCAN run
-        active_run = self.repo.get_active_hdbscan_run()
+        collection_ids = self._get_collection_ids()
+        if self.collection_id is not None:
+            return self._check_staleness_for_collection(collection_ids[0], threshold)
+        return [self._check_staleness_for_collection(cid, threshold) for cid in collection_ids]
+
+    def _check_staleness_for_collection(
+        self, collection_id: int, threshold: float
+    ) -> Dict[str, Any]:
+        """Check staleness for a single collection."""
+        active_run = self.repo.get_active_hdbscan_run(collection_id=collection_id)
 
         if active_run is None:
             return {
+                "collection_id": collection_id,
                 "is_stale": True,
                 "active_run_id": None,
                 "bootstrap_embedding_count": 0,
@@ -838,20 +884,18 @@ class MaintenanceUtilities:
                 "recommendation": "No HDBSCAN run found. Run bootstrap.",
             }
 
-        # Get current embedding count (COUNT query, not full fetch)
-        current_count = self.repo.get_embedding_count_for_collection()
+        current_count = self.repo.get_embedding_count_for_collection(
+            collection_id=collection_id
+        )
         bootstrap_count = active_run["embedding_count"]
 
-        # Calculate growth ratio
         if bootstrap_count > 0:
             growth_ratio = current_count / bootstrap_count
         else:
             growth_ratio = float("inf") if current_count > 0 else 0.0
 
-        # Determine staleness
         is_stale = growth_ratio >= threshold
 
-        # Generate recommendation
         if is_stale:
             pct_growth = (growth_ratio - 1.0) * 100
             recommendation = (
@@ -862,6 +906,7 @@ class MaintenanceUtilities:
             recommendation = "HDBSCAN run is current. No action needed."
 
         return {
+            "collection_id": collection_id,
             "is_stale": is_stale,
             "active_run_id": active_run["id"],
             "bootstrap_embedding_count": bootstrap_count,

@@ -10,8 +10,9 @@
 -- CLEARED:
 --   - person_detection clustering fields (cluster_id, cluster_status, cluster_confidence, unassigned_since)
 --   - cluster table (all clusters deleted)
---   - cannot_link, cluster_cannot_link constraints
---   - face_match_candidate records
+--   - cannot_link constraints
+--   - face_match_candidate records (cascaded from cluster delete)
+--   - cluster_cannot_link constraints (cascaded from cluster delete)
 --   - processing_status for 'clustering' stage
 
 BEGIN;
@@ -55,32 +56,25 @@ SET cluster_id = NULL,
     is_core = false;
 
 -- ============================================================================
--- 3. Clear face match candidates
+-- 3. Clear cannot_link constraints (no FK to cluster, must delete explicitly)
 -- ============================================================================
 
-DELETE FROM face_match_candidate;
-
--- ============================================================================
--- 4. Clear constraint tables
--- ============================================================================
-
-DELETE FROM cluster_cannot_link;
 DELETE FROM cannot_link;
 
 -- ============================================================================
--- 5. Clear clusters
+-- 4. Clear clusters (cascades to face_match_candidate and cluster_cannot_link)
 -- ============================================================================
 
 DELETE FROM cluster;
 
 -- ============================================================================
--- 6. Reset clustering processing status
+-- 5. Reset clustering processing status
 -- ============================================================================
 
 DELETE FROM processing_status WHERE stage = 'clustering';
 
 -- ============================================================================
--- 7. Reset cluster ID sequence
+-- 6. Reset cluster ID sequence
 -- ============================================================================
 
 -- Find the sequence name and reset it
@@ -96,7 +90,7 @@ BEGIN
 END $$;
 
 -- ============================================================================
--- 8. Show final state
+-- 7. Show final state
 -- ============================================================================
 
 DO $$

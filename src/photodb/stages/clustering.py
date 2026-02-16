@@ -525,10 +525,12 @@ class ClusteringStage(BaseStage):
         if centroid_norm > 0:
             centroid = centroid / centroid_norm
 
-        # Calculate distance from each detection to centroid
-        distances = [np.linalg.norm(e - centroid) for e in embeddings]
+        # Cosine distance from each detection to centroid (matching the metric
+        # used by find_similar_unassigned_detections in PostgreSQL: <=> operator).
+        # For unit vectors: cosine_distance = 1 - dot(a, b)
+        distances = [float(1.0 - np.dot(e, centroid)) for e in embeddings]
 
-        # Filter to only include detections within threshold of centroid (option 2)
+        # Filter to only include detections within threshold of centroid
         # This prevents "chaining" where A→B→C are linked but A and C are dissimilar
         filtered_detections = [
             (did, emb, dist)
@@ -553,7 +555,7 @@ class ClusteringStage(BaseStage):
             centroid = centroid / centroid_norm
 
         # Recalculate distances and find medoid
-        distances = [np.linalg.norm(e - centroid) for e in filtered_embeddings]
+        distances = [float(1.0 - np.dot(e, centroid)) for e in filtered_embeddings]
         medoid_idx = int(np.argmin(distances))
         medoid_detection_id = filtered_ids[medoid_idx]
 

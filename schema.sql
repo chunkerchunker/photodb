@@ -308,9 +308,11 @@ CREATE INDEX IF NOT EXISTS idx_person_detection_cluster_id ON person_detection(c
 
 CREATE INDEX IF NOT EXISTS idx_person_detection_unassigned ON person_detection(unassigned_since) WHERE cluster_id IS NULL;
 
--- Composite index for unassigned detection pool queries (clustering seed selection)
+-- Composite index for unassigned detection pool queries (find_similar_unassigned_detections)
+-- collection_id leads for equality lookup, then range columns, INCLUDE id for join
 CREATE INDEX IF NOT EXISTS idx_person_detection_unassigned_pool
-ON person_detection(face_confidence DESC, face_bbox_width, face_bbox_height)
+ON person_detection(collection_id, face_confidence, face_bbox_width, face_bbox_height)
+INCLUDE (id)
 WHERE cluster_id IS NULL AND cluster_status = 'unassigned';
 
 CREATE INDEX IF NOT EXISTS idx_person_detection_gender ON person_detection(gender);

@@ -181,7 +181,3 @@ After migration, users run `migrate_to_hdbscan.py` (or a new `--re-bootstrap` fl
 | `scripts/migrate_to_hdbscan.py` | Update to use new bootstrap flow |
 | `docs/DESIGN.md` | Update clustering section |
 | `CLAUDE.md` | Update clustering configuration docs |
-
-## Future Work
-
-- **FISHDBC**: Investigate [FISHDBC](https://arxiv.org/abs/1910.07283) (Flexible, Incremental, Scalable, Hierarchical Density-Based Clustering) as a replacement for the batch HDBSCAN + incremental fallback architecture. FISHDBC supports true incremental updates to the density hierarchy, which would eliminate the bootstrap/incremental split entirely. Available at [github.com/matteodellamico/flexible-clustering](https://github.com/matteodellamico/flexible-clustering). Requires evaluation for: face embedding compatibility, scale performance, and Apple Silicon acceleration.

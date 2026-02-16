@@ -321,11 +321,6 @@ new_centroid = (old_centroid * face_count + embedding) / (face_count + 1)
 
 All embeddings and centroids are L2-normalized to unit vectors for cosine similarity.
 
-**Future Work**:
-
-- **FISHDBC**: True incremental hierarchical clustering without periodic re-bootstrapping
-- Currently, HDBSCAN bootstrap must be rerun periodically to maintain cluster quality
-
 **Output**: Hierarchical cluster assignments + condensed tree persistence + lambda/persistence metadata
 
 ### Stage R1: Enrich

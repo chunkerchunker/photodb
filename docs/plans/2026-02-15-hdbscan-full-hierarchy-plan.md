@@ -15,6 +15,7 @@
 ### Task 1: Database Migration
 
 **Files:**
+
 - Create: `migrations/011_hdbscan_hierarchy.sql`
 
 **Step 1: Write the migration**
@@ -100,6 +101,7 @@ git commit -m "feat(db): add migration for full HDBSCAN hierarchy support"
 ### Task 2: Update `hdbscan_config.py` — Clusterer Factory & Lambda-to-Epsilon
 
 **Files:**
+
 - Modify: `src/photodb/utils/hdbscan_config.py`
 - Create: `tests/test_hdbscan_config.py`
 
@@ -220,6 +222,7 @@ git commit -m "feat(clustering): add lambda-to-epsilon conversion and condensed 
 ### Task 3: Repository Methods for `hdbscan_run`
 
 **Files:**
+
 - Modify: `src/photodb/database/repository.py`
 - Create: `tests/test_hdbscan_repository.py`
 
@@ -252,12 +255,14 @@ Expected: FAIL — methods don't exist.
 **Step 3: Implement repository methods**
 
 Add the four methods to `PhotoRepository`. Follow existing patterns:
+
 - Use `self.pool.transaction()` for writes
 - Use `self.pool.get_connection()` for reads
 - Use `dict_row` cursor factory for reads
 - Use `_resolve_collection_id()` for collection_id parameter
 
 For `create_hdbscan_run`, the deactivation + insert should be in a single transaction:
+
 ```python
 with self.pool.transaction() as conn:
     with conn.cursor() as cursor:
@@ -301,6 +306,7 @@ git commit -m "feat(db): add repository methods for hdbscan_run CRUD and hierarc
 ### Task 4: Update Bootstrap — Return Full Clusterer
 
 **Files:**
+
 - Modify: `src/photodb/stages/clustering.py` (methods: `_run_hdbscan_cpu`, `_run_hdbscan_metal`, `_run_hdbscan_bootstrap`)
 
 **Step 1: Write failing test**
@@ -413,6 +419,7 @@ Expected: FAIL — `_run_hdbscan_cpu` returns tuple, `_run_hdbscan_bootstrap` re
 **`_run_hdbscan_metal`** (line 774-833): After getting labels from the sparse graph clusterer, fit a second CPU clusterer with `prediction_data=True` on the raw embeddings. Return the CPU clusterer. The Metal path is only for speed on the initial k-NN; the serialized clusterer needs to support `approximate_predict`.
 
 Implementation approach for Metal:
+
 1. Run existing Metal k-NN + sparse HDBSCAN to get labels quickly
 2. Fit a CPU clusterer with `prediction_data=True` on raw embeddings
 3. Return the CPU clusterer (which has consistent labels due to same data)
@@ -420,6 +427,7 @@ Implementation approach for Metal:
 Note: If you find that `prediction_data=True` works with precomputed matrices in testing, use that instead. Test this empirically.
 
 **`_run_hdbscan_bootstrap`** (line 694-763):
+
 - Change return type to `Tuple[Dict[int, Dict], Any]` (results dict + clusterer)
 - After getting clusterer from `_run_hdbscan_cpu`/`_run_hdbscan_metal`, extract labels/probabilities/outlier_scores from the clusterer object
 - Add `outlier_score` to the per-detection results dict
@@ -444,6 +452,7 @@ git commit -m "feat(clustering): return full HDBSCAN clusterer from bootstrap me
 ### Task 5: Update Bootstrap — Extract & Persist Hierarchy
 
 **Files:**
+
 - Modify: `src/photodb/stages/clustering.py` (methods: `run_bootstrap`, `_assign_bootstrap_clusters`)
 
 **Step 1: Write failing test**
@@ -482,6 +491,7 @@ Expected: FAIL
 **Step 3: Implement hierarchy extraction**
 
 Update `run_bootstrap()`:
+
 1. Receive `(results, clusterer)` from `_run_hdbscan_bootstrap()`
 2. Pass `clusterer` to `_assign_bootstrap_clusters(results, clusterer)`
 
@@ -520,6 +530,7 @@ git commit -m "feat(clustering): extract and persist full HDBSCAN hierarchy duri
 ### Task 6: Two-Tier Incremental Assignment
 
 **Files:**
+
 - Modify: `src/photodb/stages/clustering.py` (methods: `__init__`, `_cluster_single_detection`, new `_try_approximate_predict`)
 
 **Step 1: Write failing test**
@@ -563,6 +574,7 @@ Expected: FAIL
 **Step 3: Implement two-tier assignment**
 
 Add to `__init__`:
+
 ```python
 self._cached_clusterer = None
 self._cached_label_map = None
@@ -570,6 +582,7 @@ self._cached_hdbscan_run_id = None
 ```
 
 Add new method `_try_approximate_predict(self, embedding) -> Optional[Tuple[int, float]]`:
+
 1. Load active hdbscan_run if not cached (or if run_id changed)
 2. Deserialize clusterer from `clusterer_state` bytes via `pickle.loads()`
 3. Cache clusterer and label_to_cluster_id map
@@ -579,6 +592,7 @@ Add new method `_try_approximate_predict(self, embedding) -> Optional[Tuple[int,
 7. If label == -1: return None
 
 Update `_cluster_single_detection`:
+
 1. **First**, try `_try_approximate_predict(embedding)`
 2. If it returns a cluster_id:
    - Filter by cannot-link constraints
@@ -604,6 +618,7 @@ git commit -m "feat(clustering): two-tier incremental assignment with approximat
 ### Task 7: Update Maintenance Pool Clustering
 
 **Files:**
+
 - Modify: `src/photodb/utils/maintenance.py` (method: `cluster_unassigned_pool`, ~line 434-602)
 
 **Step 1: Write failing test**
@@ -663,6 +678,7 @@ git commit -m "feat(maintenance): extract lambda/outlier values in pool clusteri
 ### Task 8: Add Staleness Check Maintenance Command
 
 **Files:**
+
 - Modify: `src/photodb/utils/maintenance.py`
 - Modify: `src/photodb/cli_maintenance.py`
 
@@ -685,6 +701,7 @@ def check_hdbscan_staleness(self, threshold: float = 1.25) -> Dict[str, Any]:
 ```
 
 Logic:
+
 1. Get active hdbscan_run via `repo.get_active_hdbscan_run()`
 2. If none: return `is_stale=True, recommendation="No HDBSCAN run found. Run bootstrap."`
 3. Get current embedding count via `repo.get_all_embeddings_for_collection()` (just count)
@@ -716,11 +733,13 @@ git commit -m "feat(maintenance): add HDBSCAN staleness check command"
 ### Task 9: Update Migration Script
 
 **Files:**
+
 - Modify: `scripts/migrate_to_hdbscan.py`
 
 **Step 1: Update the script**
 
 The script should now show additional information in its summary:
+
 - Number of clusters with lambda_birth set
 - Active hdbscan_run ID and embedding count
 - Whether condensed tree and clusterer state were persisted
@@ -755,6 +774,7 @@ git commit -m "feat(scripts): update migration script for full hierarchy reporti
 ### Task 10: Clean Up Old Epsilon Calculation
 
 **Files:**
+
 - Modify: `src/photodb/utils/hdbscan_config.py`
 - Modify: `src/photodb/stages/clustering.py`
 
@@ -782,22 +802,24 @@ git commit -m "refactor(clustering): remove percentile-based epsilon calculation
 ### Task 11: Update Documentation
 
 **Files:**
+
 - Modify: `docs/DESIGN.md`
 - Modify: `CLAUDE.md`
 
 **Step 1: Update DESIGN.md**
 
 Update the Stage 5: Clustering section to reflect:
+
 - Two-tier incremental assignment (approximate_predict + epsilon-ball fallback)
 - Lambda-derived epsilon instead of percentile
 - Condensed tree and clusterer persistence
 - `hdbscan_run` table in schema docs
 - New columns on cluster and person_detection
-- FISHDBC future work note
 
 **Step 2: Update CLAUDE.md**
 
 Update the Clustering Stage Configuration section:
+
 - Remove `EPSILON_PERCENTILE` (no longer used)
 - Document new behavior: epsilon derived from lambda_birth
 - Add `hdbscan_run` persistence info

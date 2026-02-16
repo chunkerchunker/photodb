@@ -115,7 +115,10 @@ def run_weekly(args):
     logger.info("Running weekly maintenance tasks...")
 
     def operation(maintenance: MaintenanceUtilities) -> int:
-        results = maintenance.run_weekly_maintenance(cluster_unassigned=args.cluster_unassigned)
+        results = maintenance.run_weekly_maintenance(
+            cluster_unassigned=args.cluster_unassigned,
+            auto_associate=args.auto_associate,
+        )
 
         print("\nWeekly maintenance completed:")
         print(f"  - Empty clusters removed: {results.get('empty_clusters_removed', 0)}")
@@ -124,6 +127,12 @@ def run_weekly(args):
         print(f"  - Constraint violations: {results.get('constraint_violations', 0)}")
         print(f"  - Centroids recomputed: {results.get('centroids_recomputed', 0)}")
         print(f"  - Medoids updated: {results.get('medoids_updated', 0)}")
+        assoc = results.get("auto_association", {})
+        if assoc:
+            print(f"  - Auto-association: {assoc.get('groups_found', 0)} groups found, "
+                  f"{assoc.get('persons_created', 0)} persons created, "
+                  f"{assoc.get('persons_merged', 0)} merged, "
+                  f"{assoc.get('clusters_linked', 0)} clusters linked")
         if "unassigned_clusters_created" in results:
             print(
                 f"  - Unassigned clusters created: {results.get('unassigned_clusters_created', 0)}"
@@ -225,6 +234,36 @@ def calculate_epsilons(args):
         return 0
 
     return run_maintenance_command(operation, "Failed to calculate epsilons", args.collection_id)
+
+
+def auto_associate(args):
+    """Auto-associate clusters to persons based on centroid similarity."""
+    logger.info("Running auto-association...")
+
+    from . import config as defaults
+
+    threshold = args.threshold if args.threshold is not None else defaults.PERSON_ASSOCIATION_THRESHOLD
+
+    def operation(maintenance: MaintenanceUtilities) -> int:
+        result = maintenance.auto_associate_clusters(
+            threshold=threshold,
+            dry_run=args.dry_run,
+        )
+
+        prefix = "[DRY RUN] " if args.dry_run else ""
+        print(f"\n{prefix}Auto-association completed:")
+        print(f"  - Groups found: {result['groups_found']}")
+        print(f"  - Persons created: {result['persons_created']}")
+        print(f"  - Persons merged: {result['persons_merged']}")
+        print(f"  - Clusters linked: {result['clusters_linked']}")
+
+        if args.json:
+            print("\nJSON output:")
+            print(json.dumps(result, indent=2))
+
+        return 0
+
+    return run_maintenance_command(operation, "Auto-association failed", args.collection_id)
 
 
 def health_check(args):
@@ -371,7 +410,13 @@ Examples:
         action="store_true",
         help="Run HDBSCAN on unassigned pool to find new clusters",
     )
-    weekly_parser.set_defaults(func=run_weekly)
+    weekly_parser.add_argument(
+        "--no-auto-associate",
+        action="store_false",
+        dest="auto_associate",
+        help="Skip auto-association of clusters to persons",
+    )
+    weekly_parser.set_defaults(func=run_weekly, auto_associate=True)
 
     # Individual tasks
     centroids_parser = subparsers.add_parser(
@@ -418,6 +463,23 @@ Examples:
         help="Percentile of distances to centroid for epsilon (default: 90.0)",
     )
     calculate_epsilons_parser.set_defaults(func=calculate_epsilons)
+
+    # Auto-associate clusters to persons
+    auto_assoc_parser = subparsers.add_parser(
+        "auto-associate",
+        help="Auto-associate clusters to persons based on centroid similarity",
+    )
+    auto_assoc_parser.add_argument(
+        "--threshold",
+        type=float,
+        default=None,
+        help="Cosine distance threshold (default: PERSON_ASSOCIATION_THRESHOLD from config)",
+    )
+    auto_assoc_parser.add_argument(
+        "--dry-run", action="store_true", help="Show groups without making changes"
+    )
+    auto_assoc_parser.add_argument("--json", action="store_true", help="Output results as JSON")
+    auto_assoc_parser.set_defaults(func=auto_associate)
 
     # Health check
     health_parser = subparsers.add_parser("health", help="Check clustering system health")

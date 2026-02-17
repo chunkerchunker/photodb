@@ -10,7 +10,7 @@ Includes support for constrained clustering:
 """
 
 import logging
-from typing import Dict, Any, List
+from typing import Dict, Any, List, Optional
 import numpy as np
 
 from .. import config as defaults
@@ -922,9 +922,21 @@ class MaintenanceUtilities:
         # Filter out empty groups (from merges)
         final_groups = [g for g in groups if len(g) >= 2]
 
+        # Fetch person constraints for all clusters in groups
+        all_cluster_ids = [c for g in final_groups for c in g]
+        must_links = self.repo.get_must_links_for_clusters(all_cluster_ids, collection_id)
+        cannot_links = self.repo.get_cannot_links_for_clusters(all_cluster_ids, collection_id)
+
         for group in final_groups:
             results["groups_found"] += 1
             group_list = sorted(group)
+
+            # Apply constraint filtering
+            group_list = self._apply_person_constraints(
+                group_list, cluster_map, must_links, cannot_links
+            )
+            if len(group_list) < 2:
+                continue
 
             if dry_run:
                 person_ids = {
@@ -938,9 +950,87 @@ class MaintenanceUtilities:
                 )
                 continue
 
-            self._link_group_to_person(group_list, cluster_map, collection_id, results)
+            self._link_group_to_person(
+                group_list, cluster_map, collection_id, results, must_links
+            )
 
         return results
+
+    @staticmethod
+    def _apply_person_constraints(
+        group: List[int],
+        cluster_map: Dict[int, Dict[str, Any]],
+        must_links: Dict[int, int],
+        cannot_links: Dict[int, set[int]],
+    ) -> List[int]:
+        """Filter a group of clusters based on must-link/cannot-link constraints.
+
+        - If must-links in a group point to different persons, keep only the largest
+          must-link faction (by count), removing the rest.
+        - If a cluster has a cannot-link to the group's candidate person, remove it.
+        """
+        # Determine the candidate person(s) from must-links and existing person_ids
+        person_clusters: Dict[int, List[int]] = {}  # person_id -> cluster_ids pointing to it
+        for cid in group:
+            # Must-link takes priority over existing person_id
+            pid = must_links.get(cid)
+            if pid is None:
+                info = cluster_map.get(cid)
+                if info:
+                    pid = info.get("person_id")
+            if pid is not None:
+                person_clusters.setdefault(pid, []).append(cid)
+
+        # Check for conflicting must-links
+        must_link_persons: Dict[int, List[int]] = {}
+        for cid in group:
+            if cid in must_links:
+                pid = must_links[cid]
+                must_link_persons.setdefault(pid, []).append(cid)
+
+        if len(must_link_persons) > 1:
+            # Conflicting must-links — keep only clusters compatible with the dominant must-link person
+            dominant_pid = max(must_link_persons, key=lambda p: len(must_link_persons[p]))
+            allowed = set()
+            for cid in group:
+                if cid in must_links:
+                    if must_links[cid] == dominant_pid:
+                        allowed.add(cid)
+                else:
+                    # Non-must-linked clusters can stay if they don't conflict
+                    allowed.add(cid)
+            group = sorted(allowed)
+            logger.info(
+                f"Conflicting must-links in group: keeping person {dominant_pid}, "
+                f"removed clusters with must-links to other persons"
+            )
+
+        # Determine the group's candidate person
+        candidate_pid = None
+        if must_link_persons:
+            # Use the (remaining) must-link person
+            candidate_pid = next(iter(must_link_persons)) if len(must_link_persons) == 1 else max(
+                must_link_persons, key=lambda p: len(must_link_persons[p])
+            )
+        elif person_clusters:
+            # Use the most common existing person
+            candidate_pid = max(person_clusters, key=lambda p: len(person_clusters[p]))
+
+        # Remove clusters that have cannot-links to the candidate person
+        if candidate_pid is not None:
+            filtered = []
+            for cid in group:
+                forbidden = cannot_links.get(cid, set())
+                if candidate_pid in forbidden:
+                    logger.info(
+                        f"Cannot-link: removing cluster {cid} from group "
+                        f"(forbidden person {candidate_pid})"
+                    )
+                else:
+                    filtered.append(cid)
+            group = filtered
+
+        return group
 
     def _link_group_to_person(
         self,
@@ -948,8 +1038,11 @@ class MaintenanceUtilities:
         cluster_map: Dict[int, Dict[str, Any]],
         collection_id: int,
         results: Dict[str, int],
+        must_links: Optional[Dict[int, int]] = None,
     ) -> None:
         """Link a group of clusters to a single person, creating or merging as needed."""
+        must_links = must_links or {}
+
         # Collect existing person_ids from the group
         person_ids: Dict[int, List[int]] = {}  # person_id -> [cluster_ids]
         unlinked: List[int] = []
@@ -962,6 +1055,19 @@ class MaintenanceUtilities:
                 person_ids.setdefault(pid, []).append(cid)
             else:
                 unlinked.append(cid)
+
+        # Check if must-links specify a person not yet in person_ids
+        # (e.g., cluster was unlinked but must-link still points to person)
+        must_link_target = None
+        for cid in group:
+            if cid in must_links:
+                must_link_target = must_links[cid]
+                break
+
+        if must_link_target is not None and must_link_target not in person_ids:
+            # Must-link points to a person not represented in current cluster assignments.
+            # Use that person as the target.
+            person_ids.setdefault(must_link_target, [])
 
         if not person_ids:
             # No cluster has a person — create a new one
@@ -985,13 +1091,16 @@ class MaintenanceUtilities:
 
         else:
             # Multiple person_ids — merge into the best one
-            # Priority: verified clusters > most clusters > highest person ID
+            # Priority: must-link target > verified clusters > most clusters > highest person ID
+            must_link_person_ids = {must_links[c] for c in group if c in must_links}
+
             def _person_priority(pid: int) -> tuple:
+                has_must_link = pid in must_link_person_ids
                 clusters_for_pid = person_ids[pid]
                 has_verified = any(
                     cluster_map.get(c, {}).get("verified", False) for c in clusters_for_pid
                 )
-                return (has_verified, len(clusters_for_pid), pid)
+                return (has_must_link, has_verified, len(clusters_for_pid), pid)
 
             sorted_pids = sorted(person_ids.keys(), key=_person_priority, reverse=True)
             keep_pid = sorted_pids[0]

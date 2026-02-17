@@ -236,7 +236,7 @@ export async function handleLogin(request: Request) {
   });
 }
 
-export async function handleLogout(request: Request) {
+export async function handleLogout(_request: Request) {
   throw redirect("/login", {
     headers: {
       "Set-Cookie": buildClearCookie(),

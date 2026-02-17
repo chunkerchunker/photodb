@@ -175,7 +175,8 @@ function FaceOverlay({
         const isHovered = hoveredFaceId === face.id;
 
         return (
-          <div
+          <button
+            type="button"
             key={face.id}
             className={cn(
               "absolute border-2 transition-all duration-200 pointer-events-auto cursor-pointer",
@@ -202,7 +203,7 @@ function FaceOverlay({
               <div>Face {index + 1}</div>
               {face.person_name && <div>{face.person_name}</div>}
             </div>
-          </div>
+          </button>
         );
       })}
     </div>
@@ -355,14 +356,10 @@ export default function PhotoDetail({ loaderData }: Route.ComponentProps) {
     <Layout>
       {/* Fullscreen zoom overlay */}
       {isZoomed && (
-        <div
+        <button
+          type="button"
           className="fixed inset-0 z-50 bg-black/95 flex items-center justify-center"
           onClick={() => setIsZoomed(false)}
-          onKeyDown={(e) => {
-            if (e.key === "Enter" || e.key === " ") setIsZoomed(false);
-          }}
-          role="button"
-          tabIndex={0}
         >
           <button
             type="button"
@@ -381,6 +378,12 @@ export default function PhotoDetail({ loaderData }: Route.ComponentProps) {
                 onClick={(e) => {
                   e.stopPropagation();
                   setIsZoomed(false);
+                }}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter" || e.key === " ") {
+                    e.stopPropagation();
+                    setIsZoomed(false);
+                  }
                 }}
               />
               {/* Face Overlay for zoomed view */}
@@ -415,7 +418,7 @@ export default function PhotoDetail({ loaderData }: Route.ComponentProps) {
                 )}
             </div>
           </div>
-        </div>
+        </button>
       )}
 
       <div className="space-y-6">
@@ -425,14 +428,10 @@ export default function PhotoDetail({ loaderData }: Route.ComponentProps) {
           {/* Image Column */}
           <div className="lg:col-span-3 flex flex-col">
             <div className="flex items-start gap-2">
-              <div
+              <button
+                type="button"
                 className="relative inline-block cursor-zoom-in"
                 onClick={() => setIsZoomed(true)}
-                onKeyDown={(e) => {
-                  if (e.key === "Enter" || e.key === " ") setIsZoomed(true);
-                }}
-                role="button"
-                tabIndex={0}
               >
                 <img
                   ref={imageMeasureRef}
@@ -474,7 +473,7 @@ export default function PhotoDetail({ loaderData }: Route.ComponentProps) {
                       }}
                     />
                   )}
-              </div>
+              </button>
 
               {/* Face toggle button */}
               {photo.face_count > 0 && (

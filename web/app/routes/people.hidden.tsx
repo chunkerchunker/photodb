@@ -91,7 +91,7 @@ export default function HiddenPeopleView({ loaderData }: Route.ComponentProps) {
     if (scrollFetcher.data?.people && scrollFetcher.data.people.length > 0) {
       setPeople((prev) => {
         const existingIds = new Set(prev.map((p) => p.id));
-        const newPeople = scrollFetcher.data!.people.filter((p) => !existingIds.has(p.id));
+        const newPeople = scrollFetcher.data?.people.filter((p) => !existingIds.has(p.id)) ?? [];
         return [...prev, ...newPeople];
       });
       setPage(scrollFetcher.data.page);

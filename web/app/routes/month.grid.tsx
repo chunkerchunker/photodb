@@ -1,6 +1,6 @@
 import { Box, Loader2 } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
-import { data, Link, useFetcher } from "react-router";
+import { Link, useFetcher } from "react-router";
 import { Breadcrumb } from "~/components/breadcrumb";
 import { Layout } from "~/components/layout";
 import { Card, CardContent } from "~/components/ui/card";
@@ -130,7 +130,7 @@ export default function MonthView({ loaderData }: Route.ComponentProps) {
     if (fetcher.data?.photos && fetcher.data.photos.length > 0) {
       setPhotos((prev) => {
         const existingIds = new Set(prev.map((p) => p.id));
-        const newPhotos = fetcher.data!.photos.filter((p) => !existingIds.has(p.id));
+        const newPhotos = fetcher.data?.photos.filter((p) => !existingIds.has(p.id)) ?? [];
         return [...prev, ...newPhotos];
       });
       setPage(fetcher.data.page);

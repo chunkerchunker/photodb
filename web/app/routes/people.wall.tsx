@@ -126,7 +126,7 @@ export default function PeopleWallView({ loaderData }: Route.ComponentProps) {
           <WithoutImagesToggle
             showWithoutImages={showWithoutImages}
             onToggle={(show) => {
-              document.cookie = `showWithoutImages=${show}; Path=/; SameSite=Lax`;
+              cookieStore.set({ name: "showWithoutImages", value: String(show), path: "/", sameSite: "lax" });
               revalidator.revalidate();
             }}
             withoutImagesCount={withoutImagesCount}
@@ -148,7 +148,7 @@ export default function PeopleWallView({ loaderData }: Route.ComponentProps) {
         <WithoutImagesToggle
           showWithoutImages={showWithoutImages}
           onToggle={(show) => {
-            document.cookie = `showWithoutImages=${show}; Path=/; SameSite=Lax`;
+            cookieStore.set({ name: "showWithoutImages", value: String(show), path: "/", sameSite: "lax" });
             revalidator.revalidate();
           }}
           withoutImagesCount={withoutImagesCount}

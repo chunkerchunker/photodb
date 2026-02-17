@@ -162,27 +162,33 @@ const SimilarFaceCard = memo(function SimilarFaceCard({
                   cardRect &&
                   (() => {
                     const thumbSize = 112;
+                    const bboxW = face.face_bbox_width ?? 0;
+                    const bboxH = face.face_bbox_height ?? 0;
+                    const bboxX = face.face_bbox_x ?? 0;
+                    const bboxY = face.face_bbox_y ?? 0;
+                    const medW = face.med_width ?? 0;
+                    const medH = face.med_height ?? 0;
 
                     // Detection runs on medium image, so bbox is in medium coords
                     // Face crop has dimensions bbox_width x bbox_height (medium pixels)
                     // Scale to match object-cover on the thumbnail
-                    const faceScale = Math.max(thumbSize / face.face_bbox_width!, thumbSize / face.face_bbox_height!);
+                    const faceScale = Math.max(thumbSize / bboxW, thumbSize / bboxH);
 
                     // Scaled face dimensions (matches thumbnail's object-cover)
-                    const scaledFaceW = face.face_bbox_width! * faceScale;
-                    const scaledFaceH = face.face_bbox_height! * faceScale;
+                    const scaledFaceW = bboxW * faceScale;
+                    const scaledFaceH = bboxH * faceScale;
 
                     // Centering offset (matches object-cover centering)
                     const centerOffsetX = (thumbSize - scaledFaceW) / 2;
                     const centerOffsetY = (thumbSize - scaledFaceH) / 2;
 
                     // Medium image dimensions after scaling
-                    const scaledW = face.med_width! * faceScale;
-                    const scaledH = face.med_height! * faceScale;
+                    const scaledW = medW * faceScale;
+                    const scaledH = medH * faceScale;
 
                     // Position relative to card's screen position
-                    const imgLeft = cardRect.left + (-face.face_bbox_x! * faceScale + centerOffsetX);
-                    const imgTop = cardRect.top + (-face.face_bbox_y! * faceScale + centerOffsetY);
+                    const imgLeft = cardRect.left + (-bboxX * faceScale + centerOffsetX);
+                    const imgTop = cardRect.top + (-bboxY * faceScale + centerOffsetY);
 
                     return (
                       <div className="fixed inset-0 overflow-hidden pointer-events-none z-50">

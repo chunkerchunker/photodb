@@ -298,7 +298,7 @@ interface ThreeWallProps {
   rootData: ReturnType<typeof useRootData>;
 }
 
-function ThreeWall({ photos, year, month, totalPhotos, monthName, rootData }: ThreeWallProps) {
+function ThreeWall({ photos, year, month, totalPhotos: _totalPhotos, monthName, rootData }: ThreeWallProps) {
   const navigate = useNavigate();
 
   const containerRef = useRef<HTMLDivElement>(null);

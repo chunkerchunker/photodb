@@ -27,8 +27,8 @@ export function useViewToggle() {
     wallPath = pathname;
   } else {
     // Default fallback - append /grid or /wall
-    gridPath = pathname + "/grid";
-    wallPath = pathname + "/wall";
+    gridPath = `${pathname}/grid`;
+    wallPath = `${pathname}/wall`;
   }
 
   return {

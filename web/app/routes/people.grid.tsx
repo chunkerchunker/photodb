@@ -134,7 +134,7 @@ export default function PeopleView({ loaderData }: Route.ComponentProps) {
     if (fetcher.data && fetcher.data.people.length > 0) {
       setPeople((prev) => {
         const existingIds = new Set(prev.map((p) => p.id));
-        const newPeople = fetcher.data!.people.filter((p) => !existingIds.has(p.id));
+        const newPeople = fetcher.data?.people.filter((p) => !existingIds.has(p.id)) ?? [];
         return [...prev, ...newPeople];
       });
       setPage(fetcher.data.page);
@@ -220,7 +220,7 @@ export default function PeopleView({ loaderData }: Route.ComponentProps) {
             <WithoutImagesToggle
               showWithoutImages={showWithoutImages}
               onToggle={(show) => {
-                document.cookie = `showWithoutImages=${show}; Path=/; SameSite=Lax`;
+                cookieStore.set({ name: "showWithoutImages", value: String(show), path: "/", sameSite: "lax" });
                 // Reset to page 1 and reload
                 setPeople([]);
                 setPage(1);
@@ -249,118 +249,119 @@ export default function PeopleView({ loaderData }: Route.ComponentProps) {
         />
 
         {people.length > 0 ? (
-          <>
-            {searchQuery && filteredPeople.length === 0 ? (
-              <div className="text-center py-12">
-                <Search className="h-12 w-12 text-gray-300 mx-auto mb-4" />
-                <div className="text-gray-500">No people match "{searchQuery}"</div>
-                <button
-                  type="button"
-                  onClick={() => setSearchQuery("")}
-                  className="mt-2 text-sm text-blue-600 hover:underline"
-                >
-                  Clear search
-                </button>
-              </div>
-            ) : (
-              <>
-                <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-6 gap-4">
-                  {filteredPeople.map((person) => (
-                    <ContextMenu key={person.id}>
-                      <ContextMenuTrigger asChild>
-                        <div
-                          role="button"
-                          tabIndex={0}
-                          draggable
-                          onDragStart={(e) => drag.handleDragStart(e, person)}
-                          onDragEnd={drag.handleDragEnd}
-                          onDragOver={(e) => drag.handleDragOver(e, person)}
-                          onDragLeave={drag.handleDragLeave}
-                          onDrop={(e) => drag.handleDrop(e, person)}
-                          className={`transition-all ${drag.isDragging(person) ? "opacity-50" : ""}`}
-                        >
-                          <Link to={`/person/${person.id}`} draggable={false}>
-                            <Card
-                              className={`hover:shadow-lg transition-all h-full ${
-                                drag.isDropTarget(person) ? "ring-2 ring-blue-500 ring-offset-2 bg-blue-50" : ""
-                              }`}
-                            >
-                              <CardContent className="p-4">
-                                <div className="text-center space-y-3">
-                                  {person.detection_id ? (
-                                    <div className="w-32 h-32 mx-auto bg-gray-100 rounded-lg border overflow-hidden">
-                                      <img
-                                        src={`/api/face/${person.detection_id}`}
-                                        alt={person.person_name || `Person ${person.id}`}
-                                        className="w-full h-full object-cover"
-                                        loading="lazy"
-                                      />
-                                    </div>
-                                  ) : (
-                                    <div className="w-full h-32 bg-gray-200 rounded-lg flex items-center justify-center">
-                                      <User className="h-8 w-8 text-gray-400" />
-                                    </div>
-                                  )}
+          searchQuery && filteredPeople.length === 0 ? (
+            <div className="text-center py-12">
+              <Search className="h-12 w-12 text-gray-300 mx-auto mb-4" />
+              <div className="text-gray-500">No people match "{searchQuery}"</div>
+              <button
+                type="button"
+                onClick={() => setSearchQuery("")}
+                className="mt-2 text-sm text-blue-600 hover:underline"
+              >
+                Clear search
+              </button>
+            </div>
+          ) : (
+            <>
+              <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-6 gap-4">
+                {filteredPeople.map((person) => (
+                  <ContextMenu key={person.id}>
+                    <ContextMenuTrigger asChild>
+                      <button
+                        type="button"
+                        draggable
+                        onDragStart={(e) => drag.handleDragStart(e, person)}
+                        onDragEnd={drag.handleDragEnd}
+                        onDragOver={(e) => drag.handleDragOver(e, person)}
+                        onDragLeave={drag.handleDragLeave}
+                        onDrop={(e) => drag.handleDrop(e, person)}
+                        className={`transition-all text-left ${drag.isDragging(person) ? "opacity-50" : ""}`}
+                      >
+                        <Link to={`/person/${person.id}`} draggable={false}>
+                          <Card
+                            className={`hover:shadow-lg transition-all h-full ${
+                              drag.isDropTarget(person) ? "ring-2 ring-blue-500 ring-offset-2 bg-blue-50" : ""
+                            }`}
+                          >
+                            <CardContent className="p-4">
+                              <div className="text-center space-y-3">
+                                {person.detection_id ? (
+                                  <div className="w-32 h-32 mx-auto bg-gray-100 rounded-lg border overflow-hidden">
+                                    <img
+                                      src={`/api/face/${person.detection_id}`}
+                                      alt={person.person_name || `Person ${person.id}`}
+                                      className="w-full h-full object-cover"
+                                      loading="lazy"
+                                    />
+                                  </div>
+                                ) : (
+                                  <div className="w-full h-32 bg-gray-200 rounded-lg flex items-center justify-center">
+                                    <User className="h-8 w-8 text-gray-400" />
+                                  </div>
+                                )}
 
-                                  <div className="space-y-1">
-                                    <div
-                                      className={`font-semibold truncate ${
-                                        person.auto_created
-                                          ? "text-gray-400"
-                                          : person.person_name
-                                            ? "text-gray-900"
-                                            : "text-blue-600"
-                                      }`}
-                                      title={person.auto_created ? "Auto-grouped" : person.person_name || `Person #${person.id}`}
-                                    >
-                                      {person.auto_created ? (
-                                        <Sparkles className="h-4 w-4 mx-auto text-gray-400" />
-                                      ) : (
-                                        person.person_name || `Person #${person.id}`
-                                      )}
-                                    </div>
-                                    <div className="text-sm text-gray-600">
-                                      {person.total_face_count} photo{person.total_face_count !== 1 ? "s" : ""}
-                                      {person.cluster_count > 1 && (
-                                        <span className="text-gray-400"> · {person.cluster_count} clusters</span>
-                                      )}
-                                    </div>
+                                <div className="space-y-1">
+                                  <div
+                                    className={`font-semibold truncate ${
+                                      person.auto_created
+                                        ? "text-gray-400"
+                                        : person.person_name
+                                          ? "text-gray-900"
+                                          : "text-blue-600"
+                                    }`}
+                                    title={
+                                      person.auto_created
+                                        ? "Auto-grouped"
+                                        : person.person_name || `Person #${person.id}`
+                                    }
+                                  >
+                                    {person.auto_created ? (
+                                      <Sparkles className="h-4 w-4 mx-auto text-gray-400" />
+                                    ) : (
+                                      person.person_name || `Person #${person.id}`
+                                    )}
+                                  </div>
+                                  <div className="text-sm text-gray-600">
+                                    {person.total_face_count} photo{person.total_face_count !== 1 ? "s" : ""}
+                                    {person.cluster_count > 1 && (
+                                      <span className="text-gray-400"> · {person.cluster_count} clusters</span>
+                                    )}
                                   </div>
                                 </div>
-                              </CardContent>
-                            </Card>
-                          </Link>
-                        </div>
-                      </ContextMenuTrigger>
-                      <ContextMenuContent>
-                        <ContextMenuItem onClick={() => handleRename(person)}>
-                          <Pencil className="h-4 w-4 mr-2" />
-                          Rename
-                        </ContextMenuItem>
-                        <ContextMenuItem onClick={() => handleHide(person)}>
-                          <EyeOff className="h-4 w-4 mr-2" />
-                          Hide
-                        </ContextMenuItem>
-                      </ContextMenuContent>
-                    </ContextMenu>
-                  ))}
-                </div>
+                              </div>
+                            </CardContent>
+                          </Card>
+                        </Link>
+                      </button>
+                    </ContextMenuTrigger>
+                    <ContextMenuContent>
+                      <ContextMenuItem onClick={() => handleRename(person)}>
+                        <Pencil className="h-4 w-4 mr-2" />
+                        Rename
+                      </ContextMenuItem>
+                      <ContextMenuItem onClick={() => handleHide(person)}>
+                        <EyeOff className="h-4 w-4 mr-2" />
+                        Hide
+                      </ContextMenuItem>
+                    </ContextMenuContent>
+                  </ContextMenu>
+                ))}
+              </div>
 
-                {/* Infinite scroll trigger */}
-                <div ref={loadMoreRef} className="flex justify-center py-8">
-                  {isLoading && (
-                    <div className="flex items-center space-x-2 text-gray-500">
-                      <Loader2 className="h-5 w-5 animate-spin" />
-                      <span>Loading more people...</span>
-                    </div>
-                  )}
-                  {!hasMore && people.length > 0 && !searchQuery && (
-                    <span className="text-gray-400 text-sm">All people loaded</span>
-                  )}
-                </div>
-              </>
-            )}
-          </>
+              {/* Infinite scroll trigger */}
+              <div ref={loadMoreRef} className="flex justify-center py-8">
+                {isLoading && (
+                  <div className="flex items-center space-x-2 text-gray-500">
+                    <Loader2 className="h-5 w-5 animate-spin" />
+                    <span>Loading more people...</span>
+                  </div>
+                )}
+                {!hasMore && people.length > 0 && !searchQuery && (
+                  <span className="text-gray-400 text-sm">All people loaded</span>
+                )}
+              </div>
+            </>
+          )
         ) : withoutImagesCount > 0 ? (
           <div className="text-center py-12">
             <User className="h-16 w-16 text-gray-400 mx-auto mb-4" />

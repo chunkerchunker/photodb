@@ -59,7 +59,7 @@ export default function AlbumsGridView({ loaderData }: Route.ComponentProps) {
     if (fetcher.data?.albums && fetcher.data.albums.length > 0) {
       setAlbums((prev) => {
         const existingIds = new Set(prev.map((a) => a.id));
-        const newAlbums = fetcher.data!.albums.filter((a) => !existingIds.has(a.id));
+        const newAlbums = fetcher.data?.albums.filter((a) => !existingIds.has(a.id)) ?? [];
         return [...prev, ...newAlbums];
       });
       setPage(fetcher.data.page);

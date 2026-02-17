@@ -125,7 +125,7 @@ export default function ClustersView({ loaderData }: Route.ComponentProps) {
     if (fetcher.data && fetcher.data.items.length > 0) {
       setItems((prev) => {
         const existingKeys = new Set(prev.map((item) => `${item.item_type}:${item.id}`));
-        const newItems = fetcher.data!.items.filter((item) => !existingKeys.has(`${item.item_type}:${item.id}`));
+        const newItems = fetcher.data?.items.filter((item) => !existingKeys.has(`${item.item_type}:${item.id}`)) ?? [];
         return [...prev, ...newItems];
       });
       setPage(fetcher.data.page);
@@ -272,157 +272,152 @@ export default function ClustersView({ loaderData }: Route.ComponentProps) {
         />
 
         {items.length > 0 ? (
-          <>
-            {searchQuery && filteredItems.length === 0 ? (
-              <div className="text-center py-12">
-                <Search className="h-12 w-12 text-gray-300 mx-auto mb-4" />
-                <div className="text-gray-500">No results match "{searchQuery}"</div>
-                <button
-                  type="button"
-                  onClick={() => setSearchQuery("")}
-                  className="mt-2 text-sm text-blue-600 hover:underline"
-                >
-                  Clear search
-                </button>
-              </div>
-            ) : (
-              <>
-                <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-6 gap-4">
-                  {filteredItems.map((item) => {
-                    const itemKey = getItemKey(item);
-                    const isSelected = selectedItemKeys.has(itemKey);
-                    const isPerson = item.item_type === "person";
-                    const linkTo = isPerson ? `/person/${item.id}` : `/cluster/${item.id}`;
+          searchQuery && filteredItems.length === 0 ? (
+            <div className="text-center py-12">
+              <Search className="h-12 w-12 text-gray-300 mx-auto mb-4" />
+              <div className="text-gray-500">No results match "{searchQuery}"</div>
+              <button
+                type="button"
+                onClick={() => setSearchQuery("")}
+                className="mt-2 text-sm text-blue-600 hover:underline"
+              >
+                Clear search
+              </button>
+            </div>
+          ) : (
+            <>
+              <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-6 gap-4">
+                {filteredItems.map((item) => {
+                  const itemKey = getItemKey(item);
+                  const isSelected = selectedItemKeys.has(itemKey);
+                  const isPerson = item.item_type === "person";
+                  const linkTo = isPerson ? `/person/${item.id}` : `/cluster/${item.id}`;
 
-                    return (
-                      <ContextMenu key={itemKey}>
-                        <ContextMenuTrigger asChild>
-                          <div
-                            role="button"
-                            tabIndex={0}
-                            draggable
-                            onClick={(e) => toggleItemSelection(item, e)}
-                            onKeyDown={(e) => {
-                              if (e.key === "Enter" || e.key === " ") {
-                                e.preventDefault();
-                                toggleItemSelection(item, e as unknown as React.MouseEvent);
-                              }
+                  return (
+                    <ContextMenu key={itemKey}>
+                      <ContextMenuTrigger asChild>
+                        <button
+                          type="button"
+                          draggable
+                          onClick={(e) => toggleItemSelection(item, e)}
+                          onKeyDown={(e) => {
+                            if (e.key === "Enter" || e.key === " ") {
+                              e.preventDefault();
+                              toggleItemSelection(item, e as unknown as React.MouseEvent);
+                            }
+                          }}
+                          onDragStart={(e) => drag.handleDragStart(e, item)}
+                          onDragEnd={drag.handleDragEnd}
+                          onDragOver={(e) => drag.handleDragOver(e, item)}
+                          onDragLeave={drag.handleDragLeave}
+                          onDrop={(e) => drag.handleDrop(e, item)}
+                          className={`transition-all text-left ${drag.isDragging(item) ? "opacity-50" : ""}`}
+                        >
+                          <Link
+                            to={linkTo}
+                            draggable={false}
+                            onClick={(e) => {
+                              if (e.shiftKey) e.preventDefault();
                             }}
-                            onDragStart={(e) => drag.handleDragStart(e, item)}
-                            onDragEnd={drag.handleDragEnd}
-                            onDragOver={(e) => drag.handleDragOver(e, item)}
-                            onDragLeave={drag.handleDragLeave}
-                            onDrop={(e) => drag.handleDrop(e, item)}
-                            className={`transition-all ${drag.isDragging(item) ? "opacity-50" : ""}`}
                           >
-                            <Link
-                              to={linkTo}
-                              draggable={false}
-                              onClick={(e) => {
-                                if (e.shiftKey) e.preventDefault();
-                              }}
+                            <Card
+                              className={`hover:shadow-lg transition-all h-full ${
+                                isSelected
+                                  ? "ring-2 ring-amber-500 ring-offset-2 bg-amber-50"
+                                  : drag.isDropTarget(item)
+                                    ? "ring-2 ring-blue-500 ring-offset-2 bg-blue-50"
+                                    : ""
+                              }`}
                             >
-                              <Card
-                                className={`hover:shadow-lg transition-all h-full ${
-                                  isSelected
-                                    ? "ring-2 ring-amber-500 ring-offset-2 bg-amber-50"
-                                    : drag.isDropTarget(item)
-                                      ? "ring-2 ring-blue-500 ring-offset-2 bg-blue-50"
-                                      : ""
-                                }`}
-                              >
-                                <CardContent className="p-4">
-                                  <div className="text-center space-y-3">
-                                    {item.detection_id ? (
-                                      <div className="w-32 h-32 mx-auto bg-gray-100 rounded-lg border overflow-hidden">
-                                        <img
-                                          src={`/api/face/${item.detection_id}`}
-                                          alt={
-                                            isPerson ? item.person_name || `Person ${item.id}` : `Cluster ${item.id}`
-                                          }
-                                          className="w-full h-full object-cover"
-                                          loading="lazy"
-                                        />
-                                      </div>
-                                    ) : (
-                                      <div className="w-full h-32 bg-gray-200 rounded-lg flex items-center justify-center">
-                                        {isPerson ? (
-                                          <User className="h-8 w-8 text-gray-400" />
-                                        ) : (
-                                          <Users className="h-8 w-8 text-gray-400" />
-                                        )}
-                                      </div>
-                                    )}
+                              <CardContent className="p-4">
+                                <div className="text-center space-y-3">
+                                  {item.detection_id ? (
+                                    <div className="w-32 h-32 mx-auto bg-gray-100 rounded-lg border overflow-hidden">
+                                      <img
+                                        src={`/api/face/${item.detection_id}`}
+                                        alt={isPerson ? item.person_name || `Person ${item.id}` : `Cluster ${item.id}`}
+                                        className="w-full h-full object-cover"
+                                        loading="lazy"
+                                      />
+                                    </div>
+                                  ) : (
+                                    <div className="w-full h-32 bg-gray-200 rounded-lg flex items-center justify-center">
+                                      {isPerson ? (
+                                        <User className="h-8 w-8 text-gray-400" />
+                                      ) : (
+                                        <Users className="h-8 w-8 text-gray-400" />
+                                      )}
+                                    </div>
+                                  )}
 
-                                    <div className="space-y-1">
-                                      <div
-                                        className={`font-semibold truncate ${
-                                          isPerson && item.auto_created
-                                            ? "text-gray-400"
-                                            : item.person_name
-                                              ? "text-gray-900"
-                                              : "text-blue-600"
-                                        }`}
-                                        title={
-                                          isPerson && item.auto_created
-                                            ? "Auto-grouped"
-                                            : item.person_name || `Cluster #${item.id}`
-                                        }
-                                      >
-                                        {isPerson && item.auto_created ? (
-                                          <Sparkles className="h-4 w-4 mx-auto text-gray-400" />
-                                        ) : (
-                                          item.person_name || `Cluster #${item.id}`
-                                        )}
-                                      </div>
-                                      <div className="text-sm text-gray-600">
-                                        {item.face_count} photo{item.face_count !== 1 ? "s" : ""}
-                                        {isPerson && item.cluster_count > 1 && (
-                                          <span className="text-gray-400"> · {item.cluster_count} clusters</span>
-                                        )}
-                                      </div>
+                                  <div className="space-y-1">
+                                    <div
+                                      className={`font-semibold truncate ${
+                                        isPerson && item.auto_created
+                                          ? "text-gray-400"
+                                          : item.person_name
+                                            ? "text-gray-900"
+                                            : "text-blue-600"
+                                      }`}
+                                      title={
+                                        isPerson && item.auto_created
+                                          ? "Auto-grouped"
+                                          : item.person_name || `Cluster #${item.id}`
+                                      }
+                                    >
+                                      {isPerson && item.auto_created ? (
+                                        <Sparkles className="h-4 w-4 mx-auto text-gray-400" />
+                                      ) : (
+                                        item.person_name || `Cluster #${item.id}`
+                                      )}
+                                    </div>
+                                    <div className="text-sm text-gray-600">
+                                      {item.face_count} photo{item.face_count !== 1 ? "s" : ""}
+                                      {isPerson && item.cluster_count > 1 && (
+                                        <span className="text-gray-400"> · {item.cluster_count} clusters</span>
+                                      )}
                                     </div>
                                   </div>
-                                </CardContent>
-                              </Card>
-                            </Link>
-                          </div>
-                        </ContextMenuTrigger>
-                        <ContextMenuContent>
-                          <ContextMenuItem onClick={() => handleRename(item)}>
-                            <Pencil className="h-4 w-4 mr-2" />
-                            Rename
-                          </ContextMenuItem>
-                          <ContextMenuItem onClick={() => handleHide(item)}>
-                            <EyeOff className="h-4 w-4 mr-2" />
-                            Hide{isPerson ? " All" : ""}
-                          </ContextMenuItem>
-                          <ContextMenuSeparator />
-                          <ContextMenuItem onClick={() => handleLink(item)}>
-                            <Link2 className="h-4 w-4 mr-2" />
-                            Same Person...
-                          </ContextMenuItem>
-                        </ContextMenuContent>
-                      </ContextMenu>
-                    );
-                  })}
-                </div>
+                                </div>
+                              </CardContent>
+                            </Card>
+                          </Link>
+                        </button>
+                      </ContextMenuTrigger>
+                      <ContextMenuContent>
+                        <ContextMenuItem onClick={() => handleRename(item)}>
+                          <Pencil className="h-4 w-4 mr-2" />
+                          Rename
+                        </ContextMenuItem>
+                        <ContextMenuItem onClick={() => handleHide(item)}>
+                          <EyeOff className="h-4 w-4 mr-2" />
+                          Hide{isPerson ? " All" : ""}
+                        </ContextMenuItem>
+                        <ContextMenuSeparator />
+                        <ContextMenuItem onClick={() => handleLink(item)}>
+                          <Link2 className="h-4 w-4 mr-2" />
+                          Same Person...
+                        </ContextMenuItem>
+                      </ContextMenuContent>
+                    </ContextMenu>
+                  );
+                })}
+              </div>
 
-                {/* Infinite scroll trigger */}
-                <div ref={loadMoreRef} className="flex justify-center py-8">
-                  {isLoading && (
-                    <div className="flex items-center space-x-2 text-gray-500">
-                      <Loader2 className="h-5 w-5 animate-spin" />
-                      <span>Loading more...</span>
-                    </div>
-                  )}
-                  {!hasMore && items.length > 0 && !searchQuery && (
-                    <span className="text-gray-400 text-sm">All items loaded</span>
-                  )}
-                </div>
-              </>
-            )}
-          </>
+              {/* Infinite scroll trigger */}
+              <div ref={loadMoreRef} className="flex justify-center py-8">
+                {isLoading && (
+                  <div className="flex items-center space-x-2 text-gray-500">
+                    <Loader2 className="h-5 w-5 animate-spin" />
+                    <span>Loading more...</span>
+                  </div>
+                )}
+                {!hasMore && items.length > 0 && !searchQuery && (
+                  <span className="text-gray-400 text-sm">All items loaded</span>
+                )}
+              </div>
+            </>
+          )
         ) : (
           <div className="text-center py-12">
             <Users className="h-16 w-16 text-gray-400 mx-auto mb-4" />

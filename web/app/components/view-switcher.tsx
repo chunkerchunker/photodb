@@ -45,7 +45,7 @@ export function ViewSwitcher({ modes, variant = "dark" }: ViewSwitcherProps): Re
 
         if (mode.isActive || !mode.to) {
           return (
-            <div key={mode.key} aria-label={mode.label}>
+            <div key={mode.key} title={mode.label}>
               {content}
             </div>
           );

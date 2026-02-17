@@ -52,8 +52,8 @@ export function Header({ viewAction, breadcrumbs = [], homeTo = "/", user, isAdm
               <img src="/family-tree-2.svg" alt="Storyteller" className="size-10 mt-1 mr-1" />
               <span>Storyteller</span>
             </Link>
-            {breadcrumbs.map((crumb, index) => (
-              <div key={index} className="flex items-center text-3xl font-[family-name:--font-display] text-white">
+            {breadcrumbs.map((crumb) => (
+              <div key={crumb.to ?? String(crumb.label)} className="flex items-center text-3xl font-[family-name:--font-display] text-white">
                 <span className="mx-2 opacity-50">/</span>
                 {crumb.to ? (
                   <Link to={crumb.to} className="hover:text-white/80 transition-colors">

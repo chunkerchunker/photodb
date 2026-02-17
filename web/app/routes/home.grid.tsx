@@ -1,4 +1,4 @@
-import { data, Link } from "react-router";
+import { Link } from "react-router";
 import { Layout } from "~/components/layout";
 import { Card, CardContent } from "~/components/ui/card";
 import { requireCollectionId } from "~/lib/auth.server";

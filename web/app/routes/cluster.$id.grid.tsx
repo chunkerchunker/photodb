@@ -287,14 +287,15 @@ const FaceCard = memo(function FaceCard({
                   />
                 </Link>
                 {/* Zoom icon */}
-                <div
+                <button
+                  type="button"
                   className="absolute top-1 right-1 z-10 w-5 h-5 bg-black/50 text-white rounded flex items-center justify-center cursor-zoom-in opacity-0 group-hover:opacity-100 transition-opacity duration-200"
                   onMouseEnter={() => onZoomEnter(face.id)}
                   onMouseLeave={onZoomLeave}
                   onClick={(e) => e.stopPropagation()}
                 >
                   <ZoomIn className="h-3 w-3" />
-                </div>
+                </button>
               </div>
               {/* Preview overlay - shows full image with face aligned over card */}
               {isPreviewVisible &&
@@ -424,7 +425,7 @@ export default function ClusterDetailView({ loaderData }: Route.ComponentProps) 
     if (scrollFetcher.data?.faces && scrollFetcher.data.faces.length > 0) {
       setFaces((prev) => {
         const existingIds = new Set(prev.map((f) => f.id));
-        const newFaces = scrollFetcher.data!.faces.filter((f) => !existingIds.has(f.id));
+        const newFaces = scrollFetcher.data?.faces.filter((f) => !existingIds.has(f.id)) ?? [];
         return [...prev, ...newFaces];
       });
       setPage(scrollFetcher.data.page);
@@ -663,63 +664,63 @@ export default function ClusterDetailView({ loaderData }: Route.ComponentProps) 
                     <Pencil className="h-4 w-4" />
                   </Button>
                 </DialogTrigger>
-              <DialogContent className="max-w-sm">
-                <DialogHeader>
-                  <DialogTitle>{cluster.person_name ? "Edit Name" : "Set Name"}</DialogTitle>
-                  <DialogDescription>Enter a name for this person.</DialogDescription>
-                </DialogHeader>
-                <div className="space-y-4">
-                  <div className="grid grid-cols-2 gap-3">
-                    <div className="space-y-1">
-                      <label htmlFor="personFirstName" className="text-sm font-medium text-gray-700">
-                        First Name
-                      </label>
-                      <Input
-                        id="personFirstName"
-                        name="personFirstName"
-                        placeholder="First name"
-                        value={editFirstName}
-                        onChange={(e) => setEditFirstName(e.target.value)}
-                        autoComplete="off"
-                        data-form-type="other"
-                        data-1p-ignore
-                        data-lpignore="true"
-                        autoFocus
-                      />
+                <DialogContent className="max-w-sm">
+                  <DialogHeader>
+                    <DialogTitle>{cluster.person_name ? "Edit Name" : "Set Name"}</DialogTitle>
+                    <DialogDescription>Enter a name for this person.</DialogDescription>
+                  </DialogHeader>
+                  <div className="space-y-4">
+                    <div className="grid grid-cols-2 gap-3">
+                      <div className="space-y-1">
+                        <label htmlFor="personFirstName" className="text-sm font-medium text-gray-700">
+                          First Name
+                        </label>
+                        <Input
+                          id="personFirstName"
+                          name="personFirstName"
+                          placeholder="First name"
+                          value={editFirstName}
+                          onChange={(e) => setEditFirstName(e.target.value)}
+                          autoComplete="off"
+                          data-form-type="other"
+                          data-1p-ignore
+                          data-lpignore="true"
+                          autoFocus
+                        />
+                      </div>
+                      <div className="space-y-1">
+                        <label htmlFor="personLastName" className="text-sm font-medium text-gray-700">
+                          Last Name
+                        </label>
+                        <Input
+                          id="personLastName"
+                          name="personLastName"
+                          placeholder="Last name"
+                          value={editLastName}
+                          onChange={(e) => setEditLastName(e.target.value)}
+                          onKeyDown={(e) => {
+                            if (e.key === "Enter") {
+                              handleSaveName();
+                            }
+                          }}
+                          autoComplete="off"
+                          data-form-type="other"
+                          data-1p-ignore
+                          data-lpignore="true"
+                        />
+                      </div>
                     </div>
-                    <div className="space-y-1">
-                      <label htmlFor="personLastName" className="text-sm font-medium text-gray-700">
-                        Last Name
-                      </label>
-                      <Input
-                        id="personLastName"
-                        name="personLastName"
-                        placeholder="Last name"
-                        value={editLastName}
-                        onChange={(e) => setEditLastName(e.target.value)}
-                        onKeyDown={(e) => {
-                          if (e.key === "Enter") {
-                            handleSaveName();
-                          }
-                        }}
-                        autoComplete="off"
-                        data-form-type="other"
-                        data-1p-ignore
-                        data-lpignore="true"
-                      />
+                    <div className="flex justify-end space-x-2">
+                      <Button variant="outline" onClick={() => setNameModalOpen(false)}>
+                        Cancel
+                      </Button>
+                      <Button onClick={handleSaveName} disabled={!editFirstName.trim()}>
+                        Save
+                      </Button>
                     </div>
                   </div>
-                  <div className="flex justify-end space-x-2">
-                    <Button variant="outline" onClick={() => setNameModalOpen(false)}>
-                      Cancel
-                    </Button>
-                    <Button onClick={handleSaveName} disabled={!editFirstName.trim()}>
-                      Save
-                    </Button>
-                  </div>
-                </div>
-              </DialogContent>
-            </Dialog>
+                </DialogContent>
+              </Dialog>
             )}
           </div>
           <div className="flex items-center space-x-4">
@@ -734,7 +735,11 @@ export default function ClusterDetailView({ loaderData }: Route.ComponentProps) 
                   disabled={selectedFaces.length !== 1 || isSubmitting}
                   onClick={() =>
                     fetcher.submit(
-                      { intent: "set-person-representative", faceId: selectedFaces[0].toString(), personId: cluster.person_id!.toString() },
+                      {
+                        intent: "set-person-representative",
+                        faceId: selectedFaces[0].toString(),
+                        personId: cluster.person_id?.toString(),
+                      },
                       { method: "post" },
                     )
                   }

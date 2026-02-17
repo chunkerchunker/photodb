@@ -11,7 +11,14 @@ import { Badge } from "~/components/ui/badge";
 import { Button } from "~/components/ui/button";
 import { Card, CardContent } from "~/components/ui/card";
 import { ContextMenu, ContextMenuContent, ContextMenuItem, ContextMenuTrigger } from "~/components/ui/context-menu";
-import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "~/components/ui/dialog";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "~/components/ui/dialog";
 import { requireCollectionId } from "~/lib/auth.server";
 import { dataWithViewMode } from "~/lib/cookies.server";
 import { deletePersonRow, getClustersByPerson, getPersonById, unlinkClusterFromPerson } from "~/lib/db.server";
@@ -87,7 +94,10 @@ export default function PersonDetailView({ loaderData }: Route.ComponentProps) {
   const revalidator = useRevalidator();
 
   const isSubmitting =
-    hideFetcher.state !== "idle" || unlinkFetcher.state !== "idle" || representativeFetcher.state !== "idle" || deletePersonFetcher.state !== "idle";
+    hideFetcher.state !== "idle" ||
+    unlinkFetcher.state !== "idle" ||
+    representativeFetcher.state !== "idle" ||
+    deletePersonFetcher.state !== "idle";
 
   // Reset clusters when loader data changes
   useEffect(() => {
@@ -175,11 +185,12 @@ export default function PersonDetailView({ loaderData }: Route.ComponentProps) {
             <div>
               <div className="flex items-center gap-3">
                 {person.auto_created ? (
-                <h1 className="text-3xl italic text-gray-400">Unnamed</h1>
-              ) : (
-                <h1 className="text-3xl font-bold text-gray-900">{person.person_name || `Person ${person.id}`}</h1>
-              )}
+                  <h1 className="text-3xl italic text-gray-400">Unnamed</h1>
+                ) : (
+                  <h1 className="text-3xl font-bold text-gray-900">{person.person_name || `Person ${person.id}`}</h1>
+                )}
                 <button
+                  type="button"
                   onClick={() => setRenameDialogOpen(true)}
                   disabled={isSubmitting}
                   className="text-gray-400 hover:text-gray-600 disabled:opacity-50"
@@ -218,7 +229,12 @@ export default function PersonDetailView({ loaderData }: Route.ComponentProps) {
                 Remove All Clusters
               </Button>
             ) : (
-              <Button variant="outline" size="sm" onClick={() => setDeletePersonDialogOpen(true)} disabled={isSubmitting}>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => setDeletePersonDialogOpen(true)}
+                disabled={isSubmitting}
+              >
                 <Trash2 className="h-4 w-4 mr-1" />
                 Delete Person
               </Button>
@@ -372,11 +388,17 @@ export default function PersonDetailView({ loaderData }: Route.ComponentProps) {
             <DialogHeader>
               <DialogTitle>Delete Person</DialogTitle>
               <DialogDescription>
-                Permanently delete <span className="font-medium text-gray-700">{person.person_name || `Person ${person.id}`}</span>? This cannot be undone.
+                Permanently delete{" "}
+                <span className="font-medium text-gray-700">{person.person_name || `Person ${person.id}`}</span>? This
+                cannot be undone.
               </DialogDescription>
             </DialogHeader>
             <DialogFooter>
-              <Button variant="outline" onClick={() => setDeletePersonDialogOpen(false)} disabled={deletePersonFetcher.state !== "idle"}>
+              <Button
+                variant="outline"
+                onClick={() => setDeletePersonDialogOpen(false)}
+                disabled={deletePersonFetcher.state !== "idle"}
+              >
                 Cancel
               </Button>
               <Button

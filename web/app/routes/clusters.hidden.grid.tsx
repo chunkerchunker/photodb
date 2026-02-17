@@ -101,7 +101,7 @@ export default function HiddenClustersView({ loaderData }: Route.ComponentProps)
     if (scrollFetcher.data?.clusters && scrollFetcher.data.clusters.length > 0) {
       setClusters((prev) => {
         const existingIds = new Set(prev.map((c) => c.id));
-        const newClusters = scrollFetcher.data!.clusters.filter((c) => !existingIds.has(c.id));
+        const newClusters = scrollFetcher.data?.clusters.filter((c) => !existingIds.has(c.id)) ?? [];
         return [...prev, ...newClusters];
       });
       setPage(scrollFetcher.data.page);

@@ -39,7 +39,7 @@ export async function loader({ request, params }: Route.LoaderArgs) {
 
 export default function AlbumWallView({ loaderData }: Route.ComponentProps) {
   const rootData = useRootData();
-  const { album, photos, totalPhotos } = loaderData;
+  const { album, photos, totalPhotos: _totalPhotos } = loaderData;
   const location = useLocation();
 
   const tiles: WallTile[] = useMemo(

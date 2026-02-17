@@ -43,7 +43,7 @@ export async function loader({ request, params }: Route.LoaderArgs) {
 
 export default function ClusterWallView({ loaderData }: Route.ComponentProps) {
   const rootData = useRootData();
-  const { cluster, faces, totalFaces } = loaderData;
+  const { cluster, faces, totalFaces: _totalFaces } = loaderData;
   const location = useLocation();
 
   // Convert faces to wall tiles

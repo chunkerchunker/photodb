@@ -94,6 +94,7 @@ export default function PersonWallView({ loaderData }: Route.ComponentProps) {
             <span className="inline-flex items-center gap-2.5">
               {displayName}
               <button
+                type="button"
                 onClick={(e) => {
                   e.preventDefault();
                   setRenameDialogOpen(true);

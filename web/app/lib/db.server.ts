@@ -1580,13 +1580,13 @@ export async function previewClusterLink(collectionId: number, sourceClusterId: 
       clusterId: sourceClusterId,
       personId: sourceInfo.person_id,
       personName: sourceInfo.person_name || null,
-      personClusterCount: parseInt(sourceInfo.person_cluster_count) || 0,
+      personClusterCount: parseInt(sourceInfo.person_cluster_count, 10) || 0,
     },
     target: {
       clusterId: targetClusterId,
       personId: targetInfo.person_id,
       personName: targetInfo.person_name || null,
-      personClusterCount: parseInt(targetInfo.person_cluster_count) || 0,
+      personClusterCount: parseInt(targetInfo.person_cluster_count, 10) || 0,
     },
     willMergePersons,
     // If merging persons, source person will be deleted and all their clusters moved to target person

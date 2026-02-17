@@ -93,7 +93,9 @@ class TestAgeGenderStageUnit:
             stage = AgeGenderStage(mock_repository, config)
             photo = Photo(
                 id=1,
+                collection_id=1,
                 orig_path="/path/to/photo.jpg",
+                full_path=None,
                 med_path=None,  # No medium path
                 width=640,
                 height=480,
@@ -121,7 +123,9 @@ class TestAgeGenderStageUnit:
             stage = AgeGenderStage(mock_repository, config)
             photo = Photo(
                 id=1,
+                collection_id=1,
                 orig_path="/path/to/photo.jpg",
+                full_path=None,
                 med_path="nonexistent.jpg",  # File doesn't exist
                 width=640,
                 height=480,
@@ -151,7 +155,9 @@ class TestAgeGenderStageUnit:
             stage = AgeGenderStage(mock_repository, config)
             photo = Photo(
                 id=1,
+                collection_id=1,
                 orig_path="/path/to/photo.jpg",
+                full_path=None,
                 med_path=sample_image.name,
                 width=640,
                 height=480,
@@ -175,6 +181,7 @@ class TestAgeGenderStageUnit:
         detection = PersonDetection(
             id=10,
             photo_id=1,
+            collection_id=1,
             face_bbox_x=100,
             face_bbox_y=50,
             face_bbox_width=100,
@@ -209,7 +216,9 @@ class TestAgeGenderStageUnit:
             stage = AgeGenderStage(mock_repository, config)
             photo = Photo(
                 id=1,
+                collection_id=1,
                 orig_path="/path/to/photo.jpg",
+                full_path=None,
                 med_path=sample_image.name,
                 width=640,
                 height=480,
@@ -240,6 +249,7 @@ class TestAgeGenderStageUnit:
         detection = PersonDetection(
             id=10,
             photo_id=1,
+            collection_id=1,
             face_bbox_x=100,
             face_bbox_y=50,
             face_bbox_width=80,
@@ -259,7 +269,9 @@ class TestAgeGenderStageUnit:
             stage = AgeGenderStage(mock_repository, config)
             photo = Photo(
                 id=1,
+                collection_id=1,
                 orig_path="/path/to/photo.jpg",
+                full_path=None,
                 med_path=sample_image.name,
                 width=640,
                 height=480,
@@ -286,6 +298,7 @@ class TestAgeGenderStageUnit:
         detection = PersonDetection(
             id=10,
             photo_id=1,
+            collection_id=1,
             body_bbox_x=50,
             body_bbox_y=20,
             body_bbox_width=250,
@@ -315,7 +328,9 @@ class TestAgeGenderStageUnit:
             stage = AgeGenderStage(mock_repository, config)
             photo = Photo(
                 id=1,
+                collection_id=1,
                 orig_path="/path/to/photo.jpg",
+                full_path=None,
                 med_path=sample_image.name,
                 width=640,
                 height=480,
@@ -342,6 +357,7 @@ class TestAgeGenderStageUnit:
             PersonDetection(
                 id=10,
                 photo_id=1,
+                collection_id=1,
                 face_bbox_x=100,
                 face_bbox_y=50,
                 face_bbox_width=80,
@@ -351,6 +367,7 @@ class TestAgeGenderStageUnit:
             PersonDetection(
                 id=11,
                 photo_id=1,
+                collection_id=1,
                 face_bbox_x=300,
                 face_bbox_y=50,
                 face_bbox_width=90,
@@ -388,7 +405,9 @@ class TestAgeGenderStageUnit:
             stage = AgeGenderStage(mock_repository, config)
             photo = Photo(
                 id=1,
+                collection_id=1,
                 orig_path="/path/to/photo.jpg",
+                full_path=None,
                 med_path=sample_image.name,
                 width=640,
                 height=480,
@@ -415,6 +434,7 @@ class TestAgeGenderStageUnit:
         detection = PersonDetection(
             id=10,
             photo_id=1,
+            collection_id=1,
             face_bbox_x=100,
             face_bbox_y=50,
             face_bbox_width=80,
@@ -444,7 +464,9 @@ class TestAgeGenderStageUnit:
             stage = AgeGenderStage(mock_repository, config)
             photo = Photo(
                 id=1,
+                collection_id=1,
                 orig_path="/path/to/photo.jpg",
+                full_path=None,
                 med_path=sample_image.name,
                 width=640,
                 height=480,
@@ -469,6 +491,7 @@ class TestAgeGenderStageUnit:
         detection = PersonDetection(
             id=10,
             photo_id=1,
+            collection_id=1,
             face_bbox_x=100,
             face_bbox_y=50,
             face_bbox_width=80,
@@ -488,7 +511,9 @@ class TestAgeGenderStageUnit:
             stage = AgeGenderStage(mock_repository, config)
             photo = Photo(
                 id=1,
+                collection_id=1,
                 orig_path="/path/to/photo.jpg",
+                full_path=None,
                 med_path=sample_image.name,
                 width=640,
                 height=480,
@@ -512,6 +537,7 @@ class TestAgeGenderStageUnit:
         detection = PersonDetection(
             id=10,
             photo_id=1,
+            collection_id=1,
             face_bbox_x=100,
             face_bbox_y=50,
             face_bbox_width=80,
@@ -531,7 +557,9 @@ class TestAgeGenderStageUnit:
             stage = AgeGenderStage(mock_repository, config)
             photo = Photo(
                 id=1,
+                collection_id=1,
                 orig_path="/path/to/photo.jpg",
+                full_path=None,
                 med_path=sample_image.name,
                 width=640,
                 height=480,
@@ -572,6 +600,7 @@ class TestAgeGenderStageUnit:
         detection = PersonDetection(
             id=10,
             photo_id=1,
+            collection_id=1,
             face_bbox_x=100,
             face_bbox_y=50,
             face_bbox_width=80,
@@ -599,7 +628,9 @@ class TestAgeGenderStageUnit:
             stage = AgeGenderStage(mock_repository, config)
             photo = Photo(
                 id=1,
+                collection_id=1,
                 orig_path="/path/to/photo.jpg",
+                full_path=None,
                 med_path=sample_image.name,
                 width=640,
                 height=480,
@@ -624,6 +655,7 @@ class TestAgeGenderStageUnit:
         detection = PersonDetection(
             id=10,
             photo_id=1,
+            collection_id=1,
             face_bbox_x=100,
             face_bbox_y=None,  # Missing
             face_bbox_width=None,  # Missing
@@ -652,7 +684,9 @@ class TestAgeGenderStageUnit:
             stage = AgeGenderStage(mock_repository, config)
             photo = Photo(
                 id=1,
+                collection_id=1,
                 orig_path="/path/to/photo.jpg",
+                full_path=None,
                 med_path=sample_image.name,
                 width=640,
                 height=480,

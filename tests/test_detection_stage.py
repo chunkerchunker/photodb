@@ -95,7 +95,9 @@ class TestDetectionStageUnit:
             stage = DetectionStage(mock_repository, config)
             photo = Photo(
                 id=1,
+                collection_id=1,
                 orig_path="/path/to/photo.jpg",
+                full_path=None,
                 med_path=None,  # No medium path
                 width=640,
                 height=480,
@@ -123,7 +125,9 @@ class TestDetectionStageUnit:
             stage = DetectionStage(mock_repository, config)
             photo = Photo(
                 id=1,
+                collection_id=1,
                 orig_path="/path/to/photo.jpg",
+                full_path=None,
                 med_path="nonexistent.jpg",  # File doesn't exist
                 width=640,
                 height=480,
@@ -146,6 +150,7 @@ class TestDetectionStageUnit:
         existing_detection = PersonDetection(
             id=100,
             photo_id=1,
+            collection_id=1,
             face_bbox_x=0.1,
             face_bbox_y=0.1,
             face_bbox_width=0.2,
@@ -164,7 +169,9 @@ class TestDetectionStageUnit:
             stage = DetectionStage(mock_repository, config)
             photo = Photo(
                 id=1,
+                collection_id=1,
                 orig_path="/path/to/photo.jpg",
+                full_path=None,
                 med_path=sample_image.name,
                 width=640,
                 height=480,
@@ -197,7 +204,9 @@ class TestDetectionStageUnit:
             stage = DetectionStage(mock_repository, config)
             photo = Photo(
                 id=1,
+                collection_id=1,
                 orig_path="/path/to/photo.jpg",
+                full_path=None,
                 med_path=sample_image.name,
                 width=640,
                 height=480,
@@ -240,7 +249,9 @@ class TestDetectionStageUnit:
             stage = DetectionStage(mock_repository, config)
             photo = Photo(
                 id=1,
+                collection_id=1,
                 orig_path="/path/to/photo.jpg",
+                full_path=None,
                 med_path=sample_image.name,
                 width=640,
                 height=480,
@@ -294,7 +305,9 @@ class TestDetectionStageUnit:
             stage = DetectionStage(mock_repository, config)
             photo = Photo(
                 id=1,
+                collection_id=1,
                 orig_path="/path/to/photo.jpg",
+                full_path=None,
                 med_path=sample_image.name,
                 width=640,
                 height=480,
@@ -353,7 +366,9 @@ class TestDetectionStageUnit:
             stage = DetectionStage(mock_repository, config)
             photo = Photo(
                 id=1,
+                collection_id=1,
                 orig_path="/path/to/photo.jpg",
+                full_path=None,
                 med_path=sample_image.name,
                 width=640,
                 height=480,
@@ -413,7 +428,9 @@ class TestDetectionStageUnit:
             stage = DetectionStage(mock_repository, config)
             photo = Photo(
                 id=1,
+                collection_id=1,
                 orig_path="/path/to/photo.jpg",
+                full_path=None,
                 med_path=sample_image.name,
                 width=640,
                 height=480,
@@ -456,7 +473,9 @@ class TestDetectionStageUnit:
             stage = DetectionStage(mock_repository, config)
             photo = Photo(
                 id=1,
+                collection_id=1,
                 orig_path="/path/to/photo.jpg",
+                full_path=None,
                 med_path=sample_image.name,
                 width=640,
                 height=480,
@@ -524,7 +543,9 @@ class TestDetectionStageUnit:
             stage = DetectionStage(mock_repository, config)
             photo = Photo(
                 id=1,
+                collection_id=1,
                 orig_path="/path/to/photo.jpg",
+                full_path=None,
                 med_path=sample_image.name,
                 width=640,
                 height=480,
@@ -561,7 +582,9 @@ class TestDetectionStageUnit:
             stage = DetectionStage(mock_repository, config)
             photo = Photo(
                 id=1,
+                collection_id=1,
                 orig_path="/path/to/photo.jpg",
+                full_path=None,
                 med_path=sample_image.name,
                 width=640,
                 height=480,
@@ -590,7 +613,9 @@ class TestDetectionStageUnit:
             stage = DetectionStage(mock_repository, config)
             photo = Photo(
                 id=1,
+                collection_id=1,
                 orig_path="/path/to/photo.jpg",
+                full_path=None,
                 med_path=sample_image.name,
                 width=640,
                 height=480,
@@ -633,7 +658,9 @@ class TestDetectionStageUnit:
             stage = DetectionStage(mock_repository, config)
             photo = Photo(
                 id=1,
+                collection_id=1,
                 orig_path="/path/to/photo.jpg",
+                full_path=None,
                 med_path=sample_image.name,
                 width=640,
                 height=480,
@@ -667,7 +694,9 @@ class TestDetectionStageUnit:
             stage = DetectionStage(mock_repository, config)
             photo = Photo(
                 id=1,
+                collection_id=1,
                 orig_path="/path/to/photo.jpg",
+                full_path=None,
                 med_path=sample_image.name,
                 width=640,
                 height=480,
@@ -680,10 +709,8 @@ class TestDetectionStageUnit:
             stage.process_photo(photo, Path("/path/to/photo.jpg"))
             mock_repository.delete_detections_for_photo.assert_not_called()
 
-    def test_respects_force_cpu_env_var(self, mock_repository, config, monkeypatch):
-        """Test that DETECTION_FORCE_CPU env var is respected."""
-        monkeypatch.setenv("DETECTION_FORCE_CPU", "true")
-
+    def test_respects_force_cpu_config(self, mock_repository, config):
+        """Test that DETECTION_FORCE_CPU config is respected."""
         mock_detector = MagicMock()
         mock_detector.detect.return_value = {
             "status": "no_detections",
@@ -692,13 +719,17 @@ class TestDetectionStageUnit:
         }
 
         with patch(
-            "src.photodb.stages.detection.PersonDetector",
-            return_value=mock_detector,
-        ) as mock_class:
-            from src.photodb.stages.detection import DetectionStage
+            "src.photodb.stages.detection.defaults"
+        ) as mock_defaults:
+            mock_defaults.DETECTION_FORCE_CPU = True
+            with patch(
+                "src.photodb.stages.detection.PersonDetector",
+                return_value=mock_detector,
+            ) as mock_class:
+                from src.photodb.stages.detection import DetectionStage
 
-            DetectionStage(mock_repository, config)
-            # PersonDetector should have been called with force_cpu=True
-            mock_class.assert_called_once()
-            call_kwargs = mock_class.call_args[1]
-            assert call_kwargs.get("force_cpu") is True
+                DetectionStage(mock_repository, config)
+                # PersonDetector should have been called with force_cpu=True
+                mock_class.assert_called_once()
+                call_kwargs = mock_class.call_args[1]
+                assert call_kwargs.get("force_cpu") is True

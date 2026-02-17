@@ -53,7 +53,9 @@ class TestSceneAnalysisStage:
 
         return Photo(
             id=1,
+            collection_id=1,
             orig_path="/path/to/test.jpg",
+            full_path=None,
             med_path=sample_image.name,
             width=640,
             height=480,
@@ -154,7 +156,9 @@ class TestSceneAnalysisStage:
                 stage = SceneAnalysisStage(mock_repository, config)
                 photo = Photo(
                     id=1,
+                    collection_id=1,
                     orig_path="/path/to/photo.jpg",
+                    full_path=None,
                     med_path=None,  # No medium path
                     width=640,
                     height=480,
@@ -186,7 +190,9 @@ class TestSceneAnalysisStage:
                 stage = SceneAnalysisStage(mock_repository, config)
                 photo = Photo(
                     id=1,
+                    collection_id=1,
                     orig_path="/path/to/photo.jpg",
+                    full_path=None,
                     med_path="nonexistent.jpg",  # File doesn't exist
                     width=640,
                     height=480,
@@ -356,6 +362,7 @@ class TestSceneAnalysisStage:
         face_detection = PersonDetection(
             id=1,
             photo_id=1,
+            collection_id=1,
             face_bbox_x=100,
             face_bbox_y=50,
             face_bbox_width=100,

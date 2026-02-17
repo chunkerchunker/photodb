@@ -67,6 +67,9 @@ override-dependencies = [
     "timm>=0.9.16",  # Override MiVOLO's pin - needed for FastViT (MobileCLIP-S2)
 ]
 
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+
 [dependency-groups]
 dev = [
     "pyright>=1.1.404",

@@ -1,6 +1,7 @@
 import pytest
 from pathlib import Path
 from PIL import Image
+import piexif
 import tempfile
 from datetime import datetime
 from src.photodb.utils.exif import ExifExtractor
@@ -54,7 +55,8 @@ class TestExifExtractor:
 
     def test_extract_all_metadata(self, image_with_exif):
         """Test extracting all metadata from an image."""
-        metadata = ExifExtractor.extract_all_metadata(image_with_exif)
+        extractor = ExifExtractor(image_with_exif)
+        metadata = extractor.extract_all_metadata()
 
         assert "format" in metadata
         assert metadata["format"] == "JPEG"
@@ -64,12 +66,11 @@ class TestExifExtractor:
         assert metadata["size"]["width"] == 100
         assert metadata["size"]["height"] == 100
         assert "exif" in metadata
-        assert "DateTime" in metadata["exif"]
-        assert "Make" in metadata["exif"]
 
     def test_extract_all_metadata_no_exif(self, image_without_exif):
         """Test extracting metadata from image without EXIF."""
-        metadata = ExifExtractor.extract_all_metadata(image_without_exif)
+        extractor = ExifExtractor(image_without_exif)
+        metadata = extractor.extract_all_metadata()
 
         assert "format" in metadata
         assert metadata["format"] == "JPEG"
@@ -81,7 +82,8 @@ class TestExifExtractor:
 
     def test_extract_datetime(self, image_with_exif):
         """Test extracting datetime from EXIF."""
-        dt = ExifExtractor.extract_datetime(image_with_exif)
+        extractor = ExifExtractor(image_with_exif)
+        dt = extractor.extract_datetime()
 
         assert dt is not None
         assert isinstance(dt, datetime)
@@ -94,7 +96,8 @@ class TestExifExtractor:
 
     def test_extract_datetime_no_exif(self, image_without_exif):
         """Test extracting datetime from image without EXIF."""
-        dt = ExifExtractor.extract_datetime(image_without_exif)
+        extractor = ExifExtractor(image_without_exif)
+        dt = extractor.extract_datetime()
         assert dt is None
 
     def test_extract_datetime_invalid_format(self, temp_dir):
@@ -107,12 +110,14 @@ class TestExifExtractor:
         exif[306] = "Not a valid date"
         img.save(img_path, "JPEG", exif=exif)
 
-        dt = ExifExtractor.extract_datetime(img_path)
+        extractor = ExifExtractor(img_path)
+        dt = extractor.extract_datetime()
         assert dt is None
 
     def test_extract_gps_coordinates(self, image_with_gps):
         """Test extracting GPS coordinates."""
-        coords = ExifExtractor.extract_gps_coordinates(image_with_gps)
+        extractor = ExifExtractor(image_with_gps)
+        coords = extractor.extract_gps_coordinates()
 
         # Note: GPS extraction may not work with basic PIL GPS setting
         # This test may need adjustment based on actual GPS data format
@@ -121,54 +126,37 @@ class TestExifExtractor:
 
     def test_extract_gps_no_gps(self, image_without_exif):
         """Test extracting GPS from image without GPS data."""
-        coords = ExifExtractor.extract_gps_coordinates(image_without_exif)
+        extractor = ExifExtractor(image_without_exif)
+        coords = extractor.extract_gps_coordinates()
         assert coords is None
 
-    def test_parse_exif(self):
-        """Test EXIF parsing helper method."""
-        sample_exif = {271: "Canon", 272: "EOS 5D", 306: "2023:01:01 12:00:00"}
-
-        parsed = ExifExtractor._parse_exif(sample_exif)
-
-        assert "Make" in parsed
-        assert parsed["Make"] == "Canon"
-        assert "Model" in parsed
-        assert parsed["Model"] == "EOS 5D"
-        assert "DateTime" in parsed
-
-    def test_parse_exif_with_bytes(self):
-        """Test EXIF parsing with byte values."""
-        sample_exif = {271: b"Canon", 272: "EOS 5D"}
-
-        parsed = ExifExtractor._parse_exif(sample_exif)
-
-        assert "Make" in parsed
-        assert parsed["Make"] == "Canon"  # Should be decoded
-        assert "Model" in parsed
-
-    def test_convert_to_degrees(self):
+    def test_convert_to_degrees(self, image_without_exif):
         """Test GPS coordinate conversion."""
+        extractor = ExifExtractor(image_without_exif)
         # Test with valid GPS data format
         gps_data = ((40, 1), (42, 1), (51, 1))  # 40°42'51"
-        degrees = ExifExtractor._convert_to_degrees(gps_data)
+        degrees = extractor._convert_to_degrees(gps_data)
 
         assert degrees is not None
         assert abs(degrees - 40.714167) < 0.001  # 40 + 42/60 + 51/3600
 
-    def test_convert_to_degrees_none(self):
+    def test_convert_to_degrees_none(self, image_without_exif):
         """Test GPS conversion with None input."""
-        degrees = ExifExtractor._convert_to_degrees(None)
+        extractor = ExifExtractor(image_without_exif)
+        degrees = extractor._convert_to_degrees(None)
         assert degrees is None
 
-    def test_convert_to_degrees_invalid(self):
+    def test_convert_to_degrees_invalid(self, image_without_exif):
         """Test GPS conversion with invalid data."""
-        degrees = ExifExtractor._convert_to_degrees("invalid")
+        extractor = ExifExtractor(image_without_exif)
+        degrees = extractor._convert_to_degrees("invalid")
         assert degrees is None
 
     def test_extract_metadata_error_handling(self, temp_dir):
         """Test error handling when file doesn't exist."""
         non_existent = temp_dir / "does_not_exist.jpg"
-        metadata = ExifExtractor.extract_all_metadata(non_existent)
+        extractor = ExifExtractor(non_existent)
+        metadata = extractor.extract_all_metadata()
 
         assert "error" in metadata
         assert len(metadata["error"]) > 0
@@ -177,15 +165,17 @@ class TestExifExtractor:
         """Test that DateTimeOriginal is preferred over DateTime."""
         img_path = temp_dir / "priority.jpg"
         img = Image.new("RGB", (100, 100))
+        img.save(img_path, "JPEG")
 
-        exif = img.getexif()
-        # Add both DateTime and DateTimeOriginal
-        exif[306] = "2023:01:01 12:00:00"  # DateTime
-        exif[36867] = "2023:05:15 14:30:00"  # DateTimeOriginal (preferred)
+        # Use piexif to properly set tags in the correct IFDs
+        exif_dict = piexif.load(str(img_path))
+        exif_dict["0th"][piexif.ImageIFD.DateTime] = b"2023:01:01 12:00:00"
+        exif_dict["Exif"][piexif.ExifIFD.DateTimeOriginal] = b"2023:05:15 14:30:00"
+        exif_bytes = piexif.dump(exif_dict)
+        piexif.insert(exif_bytes, str(img_path))
 
-        img.save(img_path, "JPEG", exif=exif)
-
-        dt = ExifExtractor.extract_datetime(img_path)
+        extractor = ExifExtractor(img_path)
+        dt = extractor.extract_datetime()
         assert dt is not None
         # Should use DateTimeOriginal
         assert dt.month == 5

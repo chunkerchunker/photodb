@@ -90,19 +90,23 @@ class TestPersonDetectorUnit:
                 assert detector.embedding_extractor is not None
 
     def test_detector_initialization_with_custom_confidence(
-        self, mock_yolo, mock_embedding_extractor, monkeypatch
+        self, mock_yolo, mock_embedding_extractor
     ):
-        """Test detector respects DETECTION_MIN_CONFIDENCE env var."""
-        monkeypatch.setenv("DETECTION_MIN_CONFIDENCE", "0.7")
+        """Test detector respects DETECTION_MIN_CONFIDENCE config value."""
         with patch("src.photodb.utils.person_detector.YOLO", return_value=mock_yolo):
             with patch(
                 "src.photodb.utils.person_detector.EmbeddingExtractor",
                 return_value=mock_embedding_extractor,
             ):
-                from src.photodb.utils.person_detector import PersonDetector
+                with patch("src.photodb.utils.person_detector.defaults") as mock_defaults:
+                    mock_defaults.DETECTION_MIN_CONFIDENCE = 0.7
+                    mock_defaults.DETECTION_MODEL_PATH = "models/yolov8x_person_face.pt"
+                    mock_defaults.DETECTION_FORCE_CPU = False
+                    mock_defaults.DETECTION_PREFER_COREML = False
+                    from src.photodb.utils.person_detector import PersonDetector
 
-                detector = PersonDetector(force_cpu=True)
-                assert detector.min_confidence == 0.7
+                    detector = PersonDetector(force_cpu=True)
+                    assert detector.min_confidence == 0.7
 
     def test_compute_containment_full_overlap(self, mock_detector):
         """Test containment computation when face is fully inside body."""

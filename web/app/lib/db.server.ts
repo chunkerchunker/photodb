@@ -1010,6 +1010,26 @@ export async function deletePersonRow(collectionId: number, personId: string) {
 }
 
 /**
+ * Set a person's representative detection directly from a detection ID.
+ */
+export async function setPersonRepresentativeDetection(
+  collectionId: number,
+  personId: string,
+  detectionId: number,
+) {
+  const result = await pool.query(
+    `UPDATE person
+     SET representative_detection_id = $1, updated_at = NOW()
+     WHERE id = $2 AND collection_id = $3`,
+    [detectionId, personId, collectionId],
+  );
+  return {
+    success: (result.rowCount ?? 0) > 0,
+    message: result.rowCount ? "Person representative updated" : "Person not found",
+  };
+}
+
+/**
  * Set a person's representative detection from a cluster.
  * Uses the cluster's representative_detection_id.
  */

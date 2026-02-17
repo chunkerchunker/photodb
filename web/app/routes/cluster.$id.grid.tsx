@@ -11,6 +11,7 @@ import {
   Star,
   Trash2,
   Unlink,
+  User,
   UserMinus,
   Users,
   XCircle,
@@ -48,6 +49,7 @@ import {
   setClusterHidden,
   setClusterPersonName,
   setClusterRepresentative,
+  setPersonRepresentativeDetection,
   unlinkClusterFromPerson,
 } from "~/lib/db.server";
 import { cn } from "~/lib/utils";
@@ -155,6 +157,15 @@ export async function action({ request, params }: Route.ActionArgs) {
 
     const result = await setClusterPersonName(collectionId, clusterId, firstName, lastName || undefined);
     return result;
+  }
+
+  if (intent === "set-person-representative") {
+    const faceId = parseInt(formData.get("faceId") as string, 10);
+    const personId = formData.get("personId") as string;
+    if (faceId && personId) {
+      return await setPersonRepresentativeDetection(collectionId, personId, faceId);
+    }
+    return { success: false, message: "Invalid face or person ID" };
   }
 
   if (intent === "unlink") {
@@ -633,18 +644,25 @@ export default function ClusterDetailView({ loaderData }: Route.ComponentProps) 
             ) : (
               <Users className="h-8 w-8 text-gray-700" />
             )}
-            <h1 className="text-3xl font-bold text-gray-900">{displayName}</h1>
+            {cluster.person_id ? (
+              <Link to={`/person/${cluster.person_id}`} className="text-3xl font-bold text-blue-600 hover:underline">
+                {displayName}
+              </Link>
+            ) : (
+              <h1 className="text-3xl font-bold text-gray-900">{displayName}</h1>
+            )}
             {cluster.person_name && (
               <Badge variant="secondary" className="text-sm">
                 #{cluster.id}
               </Badge>
             )}
-            <Dialog open={nameModalOpen} onOpenChange={setNameModalOpen}>
-              <DialogTrigger asChild>
-                <Button variant="ghost" size="sm" className="h-8 w-8 p-0">
-                  <Pencil className="h-4 w-4" />
-                </Button>
-              </DialogTrigger>
+            {!cluster.person_id && (
+              <Dialog open={nameModalOpen} onOpenChange={setNameModalOpen}>
+                <DialogTrigger asChild>
+                  <Button variant="ghost" size="sm" className="h-8 w-8 p-0">
+                    <Pencil className="h-4 w-4" />
+                  </Button>
+                </DialogTrigger>
               <DialogContent className="max-w-sm">
                 <DialogHeader>
                   <DialogTitle>{cluster.person_name ? "Edit Name" : "Set Name"}</DialogTitle>
@@ -702,21 +720,38 @@ export default function ClusterDetailView({ loaderData }: Route.ComponentProps) 
                 </div>
               </DialogContent>
             </Dialog>
+            )}
           </div>
           <div className="flex items-center space-x-4">
             <span className="text-gray-600">
               {totalFaces} face{totalFaces !== 1 ? "s" : ""}
             </span>
             {cluster.person_id ? (
-              <Button
-                variant="outline"
-                size="sm"
-                disabled={isSubmitting}
-                onClick={() => fetcher.submit({ intent: "unlink" }, { method: "post" })}
-              >
-                <Unlink className="h-4 w-4 mr-1" />
-                Unlink from Person
-              </Button>
+              <>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  disabled={selectedFaces.length !== 1 || isSubmitting}
+                  onClick={() =>
+                    fetcher.submit(
+                      { intent: "set-person-representative", faceId: selectedFaces[0].toString(), personId: cluster.person_id!.toString() },
+                      { method: "post" },
+                    )
+                  }
+                >
+                  <User className="h-4 w-4 mr-1" />
+                  Person Photo
+                </Button>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  disabled={isSubmitting}
+                  onClick={() => fetcher.submit({ intent: "unlink" }, { method: "post" })}
+                >
+                  <Unlink className="h-4 w-4 mr-1" />
+                  Unlink from Person
+                </Button>
+              </>
             ) : (
               <Dialog open={linkModalOpen} onOpenChange={setLinkModalOpen}>
                 <DialogTrigger asChild>

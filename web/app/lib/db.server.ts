@@ -942,18 +942,46 @@ export async function setPersonHidden(collectionId: number, personId: string, hi
  * Unlink a cluster from its person (set person_id to NULL).
  */
 export async function unlinkClusterFromPerson(collectionId: number, clusterId: string) {
-  const query = `
-    UPDATE cluster
-    SET person_id = NULL, updated_at = NOW()
-    WHERE id = $1 AND collection_id = $2
-    RETURNING id
-  `;
+  const client = await pool.connect();
+  try {
+    await client.query("BEGIN");
 
-  const result = await pool.query(query, [clusterId, collectionId]);
-  return {
-    success: result.rows.length > 0,
-    message: result.rows.length > 0 ? "Cluster unlinked from person" : "Cluster not found",
-  };
+    // Read current person_id before unlinking
+    const current = await client.query(
+      `SELECT person_id FROM cluster WHERE id = $1 AND collection_id = $2`,
+      [clusterId, collectionId],
+    );
+    if (current.rows.length === 0 || !current.rows[0].person_id) {
+      await client.query("ROLLBACK");
+      return { success: false, message: current.rows.length === 0 ? "Cluster not found" : "Cluster has no person" };
+    }
+    const personId = current.rows[0].person_id;
+
+    // Unlink cluster from person
+    await client.query(
+      `UPDATE cluster SET person_id = NULL, updated_at = NOW() WHERE id = $1 AND collection_id = $2`,
+      [clusterId, collectionId],
+    );
+
+    // Remove any must-link for this cluster
+    await client.query(`DELETE FROM cluster_person_must_link WHERE cluster_id = $1`, [clusterId]);
+
+    // Add cannot-link to prevent re-association
+    await client.query(
+      `INSERT INTO cluster_person_cannot_link (cluster_id, person_id, collection_id)
+       VALUES ($1, $2, $3)
+       ON CONFLICT (cluster_id, person_id) DO NOTHING`,
+      [clusterId, personId, collectionId],
+    );
+
+    await client.query("COMMIT");
+    return { success: true, message: "Cluster unlinked from person" };
+  } catch (error) {
+    await client.query("ROLLBACK");
+    throw error;
+  } finally {
+    client.release();
+  }
 }
 
 /**

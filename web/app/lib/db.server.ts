@@ -1001,6 +1001,12 @@ export async function deletePersonAggregation(collectionId: number, personId: st
       [personId, collectionId],
     );
 
+    // Remove must-link constraints for this person (cascade would handle it, but explicit is clearer)
+    await client.query(
+      `DELETE FROM cluster_person_must_link WHERE person_id = $1`,
+      [personId],
+    );
+
     // Clear the person's representative detection
     await client.query(
       `UPDATE person

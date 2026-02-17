@@ -1037,28 +1037,6 @@ class PhotoRepository:
                 )
                 return {row[0] for row in cursor.fetchall()}
 
-    def get_must_links_for_clusters(
-        self,
-        cluster_ids: List[int],
-        collection_id: Optional[int] = None,
-    ) -> Dict[int, int]:
-        """Get must-link constraints for clusters.
-
-        Returns:
-            Mapping of cluster_id -> person_id for clusters that have must-link constraints.
-        """
-        if not cluster_ids:
-            return {}
-        collection_id = self._resolve_collection_id(collection_id)
-        with self.pool.get_connection() as conn:
-            with conn.cursor() as cursor:
-                cursor.execute(
-                    """SELECT cluster_id, person_id FROM cluster_person_must_link
-                       WHERE cluster_id = ANY(%s) AND collection_id = %s""",
-                    (cluster_ids, collection_id),
-                )
-                return {row[0]: row[1] for row in cursor.fetchall()}
-
     def get_cannot_links_for_clusters(
         self,
         cluster_ids: List[int],
@@ -1086,15 +1064,10 @@ class PhotoRepository:
 
     @staticmethod
     def _migrate_person_constraints(cursor, keep_person_id: int, remove_person_id: int) -> None:
-        """Migrate must-link and cannot-link constraints from one person to another.
+        """Migrate cannot-link constraints from one person to another.
 
         Called within an existing transaction (cursor already has a connection).
         """
-        # Migrate must-links
-        cursor.execute(
-            "UPDATE cluster_person_must_link SET person_id = %s WHERE person_id = %s",
-            (keep_person_id, remove_person_id),
-        )
         # Migrate cannot-links (skip duplicates)
         cursor.execute(
             """UPDATE cluster_person_cannot_link SET person_id = %s

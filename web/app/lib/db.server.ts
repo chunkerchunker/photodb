@@ -966,9 +966,6 @@ export async function unlinkClusterFromPerson(collectionId: number, clusterId: s
       [clusterId, collectionId],
     );
 
-    // Remove any must-link for this cluster
-    await client.query(`DELETE FROM cluster_person_must_link WHERE cluster_id = $1`, [clusterId]);
-
     // Add cannot-link to prevent re-association
     await client.query(
       `INSERT INTO cluster_person_cannot_link (cluster_id, person_id, collection_id)
@@ -1002,12 +999,6 @@ export async function deletePersonAggregation(collectionId: number, personId: st
        SET person_id = NULL, updated_at = NOW()
        WHERE person_id = $1 AND collection_id = $2`,
       [personId, collectionId],
-    );
-
-    // Remove must-link constraints for this person (cascade would handle it, but explicit is clearer)
-    await client.query(
-      `DELETE FROM cluster_person_must_link WHERE person_id = $1`,
-      [personId],
     );
 
     // Clear the person's representative detection
@@ -1681,11 +1672,7 @@ export async function linkClustersToSamePerson(collectionId: number, sourceClust
         [personId, sourceCluster.person_id, collectionId],
       );
 
-      // Migrate constraints from deleted person to kept person
-      await client.query(
-        `UPDATE cluster_person_must_link SET person_id = $1 WHERE person_id = $2`,
-        [personId, sourceCluster.person_id],
-      );
+      // Migrate cannot-link constraints from deleted person to kept person
       await client.query(
         `UPDATE cluster_person_cannot_link SET person_id = $1
          WHERE person_id = $2
@@ -1751,22 +1738,11 @@ export async function linkClustersToSamePerson(collectionId: number, sourceClust
       ]);
     }
 
-    // Record must-links for both clusters
-    const clusterIds = [sourceClusterId, targetClusterId];
-    for (const cid of clusterIds) {
-      await client.query(
-        `INSERT INTO cluster_person_must_link (cluster_id, person_id, collection_id)
-         VALUES ($1, $2, $3)
-         ON CONFLICT (cluster_id) DO UPDATE SET person_id = EXCLUDED.person_id`,
-        [cid, personId, collectionId],
-      );
-    }
-
     // Remove any cannot-links between these clusters and their new person
     await client.query(
       `DELETE FROM cluster_person_cannot_link
-       WHERE cluster_id = ANY($1) AND person_id = $2`,
-      [clusterIds, personId],
+       WHERE cluster_id = ANY($1::int[]) AND person_id = $2`,
+      [[sourceClusterId, targetClusterId], personId],
     );
 
     await client.query("COMMIT");
@@ -1845,11 +1821,7 @@ export async function assignClusterToPerson(collectionId: number, sourceClusterI
         [targetPerson.id, sourcePersonId, collectionId],
       );
 
-      // Migrate constraints from deleted person to kept person
-      await client.query(
-        `UPDATE cluster_person_must_link SET person_id = $1 WHERE person_id = $2`,
-        [targetPerson.id, sourcePersonId],
-      );
+      // Migrate cannot-link constraints from deleted person to kept person
       await client.query(
         `UPDATE cluster_person_cannot_link SET person_id = $1
          WHERE person_id = $2
@@ -1872,14 +1844,6 @@ export async function assignClusterToPerson(collectionId: number, sourceClusterI
         collectionId,
       ]);
     }
-
-    // Record must-link for this cluster
-    await client.query(
-      `INSERT INTO cluster_person_must_link (cluster_id, person_id, collection_id)
-       VALUES ($1, $2, $3)
-       ON CONFLICT (cluster_id) DO UPDATE SET person_id = EXCLUDED.person_id`,
-      [sourceClusterId, targetPerson.id, collectionId],
-    );
 
     // Remove any cannot-link between this cluster and the target person
     await client.query(

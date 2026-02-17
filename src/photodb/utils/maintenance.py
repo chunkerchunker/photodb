@@ -1071,7 +1071,7 @@ class MaintenanceUtilities:
 
         if not person_ids:
             # No cluster has a person — create a new one
-            person = Person.create(collection_id=collection_id, first_name="Unknown")
+            person = Person.create(collection_id=collection_id, first_name="Unknown", auto_created=True)
             self.repo.create_person(person)
 
             linked = self.repo.link_clusters_to_person(group, person.id, collection_id)

@@ -234,6 +234,8 @@ CREATE TABLE IF NOT EXISTS person(
     age_gender_updated_at timestamptz,
     -- Hidden flag (for ignored people)
     hidden boolean DEFAULT false,
+    -- True when created automatically by auto_associate_clusters
+    auto_created boolean DEFAULT false,
     -- Representative face for display
     representative_detection_id bigint,
     created_at timestamp with time zone DEFAULT NOW(),

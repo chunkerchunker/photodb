@@ -482,6 +482,7 @@ export async function getClustersGroupedByPerson(collectionId: number, limit = 5
         SUM(c.face_count)::integer as face_count,
         COUNT(c.id)::integer as cluster_count,
         TRIM(CONCAT(per.first_name, ' ', COALESCE(per.last_name, ''))) as person_name,
+        COALESCE(per.auto_created, false) as auto_created,
         -- Get the largest cluster ID for drag-drop operations
         (SELECT c2.id FROM cluster c2
          WHERE c2.person_id = per.id
@@ -504,7 +505,7 @@ export async function getClustersGroupedByPerson(collectionId: number, limit = 5
       WHERE c.face_count > 0
         AND (c.hidden = false OR c.hidden IS NULL)
         AND c.collection_id = $1
-      GROUP BY per.id, per.first_name, per.last_name, per.representative_detection_id
+      GROUP BY per.id, per.first_name, per.last_name, per.representative_detection_id, per.auto_created
     ),
     unassigned_clusters AS (
       -- Individual clusters without a person
@@ -515,6 +516,7 @@ export async function getClustersGroupedByPerson(collectionId: number, limit = 5
         c.face_count::integer as face_count,
         1 as cluster_count,
         NULL as person_name,
+        false as auto_created,
         c.id as primary_cluster_id,
         c.representative_detection_id
       FROM cluster c
@@ -858,6 +860,7 @@ export async function getPersonById(collectionId: number, personId: string) {
       per.first_name,
       per.last_name,
       TRIM(CONCAT(per.first_name, ' ', COALESCE(per.last_name, ''))) as person_name,
+      COALESCE(per.auto_created, false) as auto_created,
       COALESCE(ps.total_face_count, 0)::integer as total_face_count,
       COALESCE(ps.cluster_count, 0)::integer as cluster_count,
       COALESCE(per.representative_detection_id, ps.fallback_representative_detection_id) as representative_detection_id,
@@ -896,7 +899,7 @@ export async function getClustersByPerson(collectionId: number, personId: string
 export async function setPersonName(collectionId: number, personId: string, firstName: string, lastName?: string) {
   const query = `
     UPDATE person
-    SET first_name = $1, last_name = $2, updated_at = NOW()
+    SET first_name = $1, last_name = $2, auto_created = false, updated_at = NOW()
     WHERE id = $3 AND collection_id = $4
     RETURNING id
   `;
@@ -1150,7 +1153,7 @@ export async function setClusterPersonName(
     if (existingPersonId) {
       // Update existing person's name
       await client.query(
-        "UPDATE person SET first_name = $1, last_name = $2, updated_at = NOW() WHERE id = $3 AND collection_id = $4",
+        "UPDATE person SET first_name = $1, last_name = $2, auto_created = false, updated_at = NOW() WHERE id = $3 AND collection_id = $4",
         [firstName, lastName || null, existingPersonId, collectionId],
       );
     } else {

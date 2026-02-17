@@ -249,6 +249,7 @@ class Person:
     birth_year_max: Optional[int] = None
     birth_year_source: Optional[str] = None  # 'exact', 'year', 'estimated', 'inferred'
     birth_date: Optional[date] = None  # Exact birth date if known
+    auto_created: bool = False  # True when created by auto_associate_clusters
 
     @classmethod
     def create(
@@ -268,6 +269,7 @@ class Person:
         birth_year_max: Optional[int] = None,
         birth_year_source: Optional[str] = None,
         birth_date: Optional[date] = None,
+        auto_created: bool = False,
     ) -> "Person":
         """Create a new person record."""
         now = datetime.now(timezone.utc)
@@ -290,6 +292,7 @@ class Person:
             birth_year_max=birth_year_max,
             birth_year_source=birth_year_source,
             birth_date=birth_date,
+            auto_created=auto_created,
         )
 
     @property

@@ -174,7 +174,11 @@ export default function PersonDetailView({ loaderData }: Route.ComponentProps) {
             )}
             <div>
               <div className="flex items-center gap-3">
+                {person.auto_created ? (
+                <h1 className="text-3xl italic text-gray-400">Unnamed</h1>
+              ) : (
                 <h1 className="text-3xl font-bold text-gray-900">{person.person_name || `Person ${person.id}`}</h1>
+              )}
                 <button
                   onClick={() => setRenameDialogOpen(true)}
                   disabled={isSubmitting}

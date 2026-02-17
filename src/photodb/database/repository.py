@@ -465,12 +465,14 @@ class PhotoRepository:
         with self.pool.transaction() as conn:
             with conn.cursor() as cursor:
                 cursor.execute(
-                    """INSERT INTO person (collection_id, first_name, last_name, created_at, updated_at)
-                       VALUES (%s, %s, %s, %s, %s) RETURNING id""",
+                    """INSERT INTO person (collection_id, first_name, last_name,
+                                          auto_created, created_at, updated_at)
+                       VALUES (%s, %s, %s, %s, %s, %s) RETURNING id""",
                     (
                         person.collection_id,
                         person.first_name,
                         person.last_name,
+                        person.auto_created,
                         person.created_at,
                         person.updated_at,
                     ),

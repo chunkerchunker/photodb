@@ -1,4 +1,4 @@
-import { AlertTriangle, EyeOff, Link2, Loader2, Pencil, Search, User, Users } from "lucide-react";
+import { AlertTriangle, EyeOff, Link2, Loader2, Pencil, Search, Sparkles, User, Users } from "lucide-react";
 import { useCallback, useEffect, useState } from "react";
 import { Link, useFetcher, useRevalidator } from "react-router";
 import { ClusterLinkDialog } from "~/components/cluster-merge-dialog";
@@ -469,11 +469,19 @@ export default function ClustersView({ loaderData }: Route.ComponentProps) {
                                     <div className="space-y-1">
                                       <div
                                         className={`font-semibold truncate ${
-                                          item.person_name ? "text-gray-900" : "text-blue-600"
+                                          isPerson && item.auto_created
+                                            ? "text-gray-400"
+                                            : item.person_name
+                                              ? "text-gray-900"
+                                              : "text-blue-600"
                                         }`}
-                                        title={item.person_name || `Cluster #${item.id}`}
+                                        title={isPerson && item.auto_created ? "Auto-grouped" : item.person_name || `Cluster #${item.id}`}
                                       >
-                                        {item.person_name || `Cluster #${item.id}`}
+                                        {isPerson && item.auto_created ? (
+                                          <Sparkles className="h-4 w-4 mx-auto text-gray-400" />
+                                        ) : (
+                                          item.person_name || `Cluster #${item.id}`
+                                        )}
                                       </div>
                                       <div className="text-sm text-gray-600">
                                         {item.face_count} photo{item.face_count !== 1 ? "s" : ""}

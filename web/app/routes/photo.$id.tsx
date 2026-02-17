@@ -428,11 +428,7 @@ export default function PhotoDetail({ loaderData }: Route.ComponentProps) {
           {/* Image Column */}
           <div className="lg:col-span-3 flex flex-col">
             <div className="flex items-start gap-2">
-              <button
-                type="button"
-                className="relative inline-block cursor-zoom-in"
-                onClick={() => setIsZoomed(true)}
-              >
+              <button type="button" className="relative inline-block cursor-zoom-in" onClick={() => setIsZoomed(true)}>
                 <img
                   ref={imageMeasureRef}
                   src={`/api/image/${photo.id}`}

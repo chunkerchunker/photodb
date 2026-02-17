@@ -663,6 +663,7 @@ class PhotoRepository:
                     (keep_person_id, remove_person_id, collection_id),
                 )
                 moved = cursor.rowcount
+                self._migrate_person_constraints(cursor, keep_person_id, remove_person_id)
                 cursor.execute(
                     "DELETE FROM person WHERE id = %s AND collection_id = %s",
                     (remove_person_id, collection_id),
@@ -1033,6 +1034,81 @@ class PhotoRepository:
                     (detection_id, detection_id, self.collection_id, cluster_ids),
                 )
                 return {row[0] for row in cursor.fetchall()}
+
+    def get_must_links_for_clusters(
+        self,
+        cluster_ids: List[int],
+        collection_id: Optional[int] = None,
+    ) -> Dict[int, int]:
+        """Get must-link constraints for clusters.
+
+        Returns:
+            Mapping of cluster_id -> person_id for clusters that have must-link constraints.
+        """
+        if not cluster_ids:
+            return {}
+        collection_id = self._resolve_collection_id(collection_id)
+        with self.pool.get_connection() as conn:
+            with conn.cursor() as cursor:
+                cursor.execute(
+                    """SELECT cluster_id, person_id FROM cluster_person_must_link
+                       WHERE cluster_id = ANY(%s) AND collection_id = %s""",
+                    (cluster_ids, collection_id),
+                )
+                return {row[0]: row[1] for row in cursor.fetchall()}
+
+    def get_cannot_links_for_clusters(
+        self,
+        cluster_ids: List[int],
+        collection_id: Optional[int] = None,
+    ) -> Dict[int, set[int]]:
+        """Get cannot-link constraints for clusters.
+
+        Returns:
+            Mapping of cluster_id -> set of forbidden person_ids.
+        """
+        if not cluster_ids:
+            return {}
+        collection_id = self._resolve_collection_id(collection_id)
+        result: Dict[int, set[int]] = {}
+        with self.pool.get_connection() as conn:
+            with conn.cursor() as cursor:
+                cursor.execute(
+                    """SELECT cluster_id, person_id FROM cluster_person_cannot_link
+                       WHERE cluster_id = ANY(%s) AND collection_id = %s""",
+                    (cluster_ids, collection_id),
+                )
+                for row in cursor.fetchall():
+                    result.setdefault(row[0], set()).add(row[1])
+        return result
+
+    @staticmethod
+    def _migrate_person_constraints(cursor, keep_person_id: int, remove_person_id: int) -> None:
+        """Migrate must-link and cannot-link constraints from one person to another.
+
+        Called within an existing transaction (cursor already has a connection).
+        """
+        # Migrate must-links
+        cursor.execute(
+            "UPDATE cluster_person_must_link SET person_id = %s WHERE person_id = %s",
+            (keep_person_id, remove_person_id),
+        )
+        # Migrate cannot-links (skip duplicates)
+        cursor.execute(
+            """UPDATE cluster_person_cannot_link SET person_id = %s
+               WHERE person_id = %s
+               AND NOT EXISTS (
+                   SELECT 1 FROM cluster_person_cannot_link c2
+                   WHERE c2.cluster_id = cluster_person_cannot_link.cluster_id
+                     AND c2.person_id = %s
+               )""",
+            (keep_person_id, remove_person_id, keep_person_id),
+        )
+        # Delete remaining orphaned cannot-links for the removed person
+        cursor.execute(
+            "DELETE FROM cluster_person_cannot_link WHERE person_id = %s",
+            (remove_person_id,),
+        )
 
     def update_detection_cluster(
         self,

@@ -1835,6 +1835,26 @@ export async function assignClusterToPerson(collectionId: number, sourceClusterI
          WHERE person_id = $2 AND collection_id = $3`,
         [targetPerson.id, sourcePersonId, collectionId],
       );
+
+      // Migrate constraints from deleted person to kept person
+      await client.query(
+        `UPDATE cluster_person_must_link SET person_id = $1 WHERE person_id = $2`,
+        [targetPerson.id, sourcePersonId],
+      );
+      await client.query(
+        `UPDATE cluster_person_cannot_link SET person_id = $1
+         WHERE person_id = $2
+         AND NOT EXISTS (
+           SELECT 1 FROM cluster_person_cannot_link c2
+           WHERE c2.cluster_id = cluster_person_cannot_link.cluster_id AND c2.person_id = $1
+         )`,
+        [targetPerson.id, sourcePersonId],
+      );
+      await client.query(
+        `DELETE FROM cluster_person_cannot_link WHERE person_id = $1`,
+        [sourcePersonId],
+      );
+
       await client.query(`DELETE FROM person WHERE id = $1 AND collection_id = $2`, [sourcePersonId, collectionId]);
     } else {
       await client.query(`UPDATE cluster SET person_id = $1, updated_at = NOW() WHERE id = $2 AND collection_id = $3`, [
@@ -1843,6 +1863,20 @@ export async function assignClusterToPerson(collectionId: number, sourceClusterI
         collectionId,
       ]);
     }
+
+    // Record must-link for this cluster
+    await client.query(
+      `INSERT INTO cluster_person_must_link (cluster_id, person_id, collection_id)
+       VALUES ($1, $2, $3)
+       ON CONFLICT (cluster_id) DO UPDATE SET person_id = EXCLUDED.person_id`,
+      [sourceClusterId, targetPerson.id, collectionId],
+    );
+
+    // Remove any cannot-link between this cluster and the target person
+    await client.query(
+      `DELETE FROM cluster_person_cannot_link WHERE cluster_id = $1 AND person_id = $2`,
+      [sourceClusterId, targetPerson.id],
+    );
 
     await client.query("COMMIT");
     return { success: true, message: `Linked to "${targetPerson.person_name}"`, personId: targetPerson.id };

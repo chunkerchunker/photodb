@@ -87,4 +87,6 @@ export default [
   route("api/person/:id/hide", "routes/api.person.$id.hide.tsx"),
   route("api/person/:id/representative", "routes/api.person.$id.representative.tsx"),
   route("api/person/:id/delete", "routes/api.person.$id.delete.tsx"),
+  route("api/person/merge-preview", "routes/api.person.merge-preview.tsx"),
+  route("api/person/merge", "routes/api.person.merge.tsx"),
 ] satisfies RouteConfig;

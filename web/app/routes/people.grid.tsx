@@ -2,12 +2,14 @@ import { EyeOff, Loader2, Pencil, Search, User } from "lucide-react";
 import { useCallback, useEffect, useState } from "react";
 import { Link, useFetcher, useNavigate, useRevalidator } from "react-router";
 import { Layout } from "~/components/layout";
+import { MergeConfirmationDialog } from "~/components/merge-confirmation-dialog";
 import { RenamePersonDialog } from "~/components/rename-person-dialog";
 import { SearchBox } from "~/components/search-box";
 import { ControlsCount, SecondaryControls, SortToggle, WithoutImagesToggle } from "~/components/secondary-controls";
 import { Button } from "~/components/ui/button";
 import { Card, CardContent } from "~/components/ui/card";
 import { ContextMenu, ContextMenuContent, ContextMenuItem, ContextMenuTrigger } from "~/components/ui/context-menu";
+import { useDragToMerge } from "~/hooks/use-drag-to-merge";
 import { useInfiniteScroll } from "~/hooks/use-infinite-scroll";
 import { requireCollectionId } from "~/lib/auth.server";
 import { dataWithPreferences, getShowWithoutImagesCookie } from "~/lib/cookies.server";
@@ -105,6 +107,17 @@ export default function PeopleView({ loaderData }: Route.ComponentProps) {
   const [pendingHidePersonId, setPendingHidePersonId] = useState<number | null>(null);
   const hideFetcher = useFetcher();
   const revalidator = useRevalidator();
+
+  // Drag-and-drop merge
+  const drag = useDragToMerge({
+    items: people,
+    getItemKey: (person) => `person:${person.id}`,
+    getMergeId: (person) => person.id,
+    getItemName: (person) => person.person_name || `Person #${person.id}`,
+    previewUrl: (src, tgt) => `/api/person/merge-preview?source=${src}&target=${tgt}`,
+    mergeAction: "/api/person/merge",
+    buildFormData: (src, tgt) => ({ sourcePersonId: src.toString(), targetPersonId: tgt.toString() }),
+  });
 
   const fetcher = useFetcher<typeof loader>();
 
@@ -255,9 +268,23 @@ export default function PeopleView({ loaderData }: Route.ComponentProps) {
                   {filteredPeople.map((person) => (
                     <ContextMenu key={person.id}>
                       <ContextMenuTrigger asChild>
-                        <div>
-                          <Link to={`/person/${person.id}`}>
-                            <Card className="hover:shadow-lg transition-all h-full">
+                        <div
+                          role="button"
+                          tabIndex={0}
+                          draggable
+                          onDragStart={(e) => drag.handleDragStart(e, person)}
+                          onDragEnd={drag.handleDragEnd}
+                          onDragOver={(e) => drag.handleDragOver(e, person)}
+                          onDragLeave={drag.handleDragLeave}
+                          onDrop={(e) => drag.handleDrop(e, person)}
+                          className={`transition-all ${drag.isDragging(person) ? "opacity-50" : ""}`}
+                        >
+                          <Link to={`/person/${person.id}`} draggable={false}>
+                            <Card
+                              className={`hover:shadow-lg transition-all h-full ${
+                                drag.isDropTarget(person) ? "ring-2 ring-blue-500 ring-offset-2 bg-blue-50" : ""
+                              }`}
+                            >
                               <CardContent className="p-4">
                                 <div className="text-center space-y-3">
                                   {person.detection_id ? (
@@ -339,6 +366,18 @@ export default function PeopleView({ loaderData }: Route.ComponentProps) {
             </div>
           </div>
         )}
+
+        {/* Drag-and-drop Merge Confirmation Dialog */}
+        <MergeConfirmationDialog
+          open={drag.pendingMerge !== null}
+          sourceName={drag.sourceName}
+          targetName={drag.targetName}
+          preview={drag.mergePreview}
+          isLoadingPreview={drag.isLoadingPreview}
+          isSubmitting={drag.isSubmitting}
+          onConfirm={drag.confirmMerge}
+          onCancel={drag.cancelMerge}
+        />
 
         {/* Rename Dialog */}
         {contextPerson && (

@@ -1,8 +1,9 @@
-import { AlertTriangle, EyeOff, Link2, Loader2, Pencil, Search, Sparkles, User, Users } from "lucide-react";
+import { EyeOff, Link2, Loader2, Pencil, Search, Sparkles, User, Users } from "lucide-react";
 import { useCallback, useEffect, useState } from "react";
 import { Link, useFetcher, useRevalidator } from "react-router";
 import { ClusterLinkDialog } from "~/components/cluster-merge-dialog";
 import { Layout } from "~/components/layout";
+import { MergeConfirmationDialog } from "~/components/merge-confirmation-dialog";
 import { RenamePersonDialog } from "~/components/rename-person-dialog";
 import { SearchBox } from "~/components/search-box";
 import { ControlsCount, SecondaryControls } from "~/components/secondary-controls";
@@ -15,14 +16,7 @@ import {
   ContextMenuSeparator,
   ContextMenuTrigger,
 } from "~/components/ui/context-menu";
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-} from "~/components/ui/dialog";
+import { useDragToMerge } from "~/hooks/use-drag-to-merge";
 import { useInfiniteScroll } from "~/hooks/use-infinite-scroll";
 import { requireCollectionId } from "~/lib/auth.server";
 import { dataWithViewMode } from "~/lib/cookies.server";
@@ -103,21 +97,21 @@ export default function ClustersView({ loaderData }: Route.ComponentProps) {
   const hideFetcher = useFetcher();
   const revalidator = useRevalidator();
 
-  // Drag and drop state - uses item key ("person:1" or "cluster:2") for visual state
-  // but cluster IDs for actual linking operations
-  const [draggingItemKey, setDraggingItemKey] = useState<string | null>(null);
-  const [dropTargetItemKey, setDropTargetItemKey] = useState<string | null>(null);
-  // pendingLink uses cluster IDs (primary_cluster_id for persons)
-  const [pendingLink, setPendingLink] = useState<{ sourceId: number; targetId: number } | null>(null);
-  const [linkPreview, setLinkPreview] = useState<{
-    willMergePersons: boolean;
-    source?: { personName: string | null; personClusterCount: number };
-    target?: { personName: string | null; personClusterCount: number };
-  } | null>(null);
-  const [isLoadingPreview, setIsLoadingPreview] = useState(false);
+  // Helper to get item key
+  const getItemKey = (item: Item) => `${item.item_type}:${item.id}`;
+
+  // Drag-and-drop merge
+  const drag = useDragToMerge({
+    items,
+    getItemKey,
+    getMergeId: (item) => item.primary_cluster_id,
+    getItemName: (item) => item.person_name || `Cluster #${item.id}`,
+    previewUrl: (src, tgt) => `/api/clusters/link-preview?source=${src}&target=${tgt}`,
+    mergeAction: "/api/clusters/merge",
+    buildFormData: (src, tgt) => ({ sourceClusterId: src.toString(), targetClusterId: tgt.toString() }),
+  });
 
   const fetcher = useFetcher<typeof loader>();
-  const linkFetcher = useFetcher();
 
   // Reset state when initial data changes (e.g., navigation)
   useEffect(() => {
@@ -152,110 +146,6 @@ export default function ClustersView({ loaderData }: Route.ComponentProps) {
   });
 
   const isLoading = fetcher.state === "loading";
-  const isLinking = linkFetcher.state !== "idle";
-
-  // Revalidate after drag-and-drop link completes
-  useEffect(() => {
-    if (linkFetcher.state === "idle" && linkFetcher.data?.success && pendingLink) {
-      setPendingLink(null);
-      setLinkPreview(null);
-      revalidator.revalidate();
-    }
-    // pendingLink intentionally omitted — including it causes stale linkFetcher.data
-    // to immediately clear the next pendingLink before the user can confirm
-    // biome-ignore lint/correctness/useExhaustiveDependencies: see above
-  }, [linkFetcher.state, linkFetcher.data, revalidator]);
-
-  // Helper to get item key
-  const getItemKey = (item: Item) => `${item.item_type}:${item.id}`;
-
-  // Drag handlers
-  const handleDragStart = (e: React.DragEvent, item: Item) => {
-    const itemKey = getItemKey(item);
-    setDraggingItemKey(itemKey);
-    e.dataTransfer.effectAllowed = "move";
-    // Store both item key and cluster ID for the drop handler
-    e.dataTransfer.setData("text/plain", `${itemKey}|${item.primary_cluster_id}`);
-  };
-
-  const handleDragEnd = () => {
-    setDraggingItemKey(null);
-    setDropTargetItemKey(null);
-  };
-
-  const handleDragOver = (e: React.DragEvent, item: Item) => {
-    e.preventDefault();
-    const itemKey = getItemKey(item);
-    if (draggingItemKey && draggingItemKey !== itemKey) {
-      e.dataTransfer.dropEffect = "move";
-      setDropTargetItemKey(itemKey);
-    }
-  };
-
-  const handleDragLeave = () => {
-    setDropTargetItemKey(null);
-  };
-
-  const handleDrop = (e: React.DragEvent, targetItem: Item) => {
-    e.preventDefault();
-    const targetItemKey = getItemKey(targetItem);
-
-    // Parse dataTransfer: "type:id|clusterId"
-    const data = e.dataTransfer.getData("text/plain");
-    const [sourceItemKey, sourceClusterIdStr] = data.split("|");
-    const sourceClusterId = parseInt(sourceClusterIdStr, 10);
-    const targetClusterId = targetItem.primary_cluster_id;
-
-    if (sourceItemKey && sourceItemKey !== targetItemKey && sourceClusterId && targetClusterId) {
-      setPendingLink({ sourceId: sourceClusterId, targetId: targetClusterId });
-      // Fetch preview to check if persons will be merged
-      setIsLoadingPreview(true);
-      setLinkPreview(null);
-      fetch(`/api/clusters/link-preview?source=${sourceClusterId}&target=${targetClusterId}`)
-        .then((res) => {
-          if (!res.ok) {
-            throw new Error(`Failed to fetch link preview: ${res.status}`);
-          }
-          return res.json();
-        })
-        .then((preview) => {
-          setLinkPreview(preview);
-        })
-        .catch((err) => {
-          console.error("Failed to fetch link preview:", err);
-        })
-        .finally(() => {
-          setIsLoadingPreview(false);
-        });
-    }
-    setDraggingItemKey(null);
-    setDropTargetItemKey(null);
-  };
-
-  const confirmLink = () => {
-    if (pendingLink) {
-      linkFetcher.submit(
-        {
-          sourceClusterId: pendingLink.sourceId.toString(),
-          targetClusterId: pendingLink.targetId.toString(),
-        },
-        { method: "post", action: "/api/clusters/merge" },
-      );
-    }
-  };
-
-  const cancelLink = () => {
-    setPendingLink(null);
-    setLinkPreview(null);
-  };
-
-  // Helper to get item display name from cluster ID
-  const getItemNameByClusterId = (clusterId: number) => {
-    // Find the item that has this cluster ID as its primary_cluster_id
-    const item = items.find((i) => i.primary_cluster_id === clusterId);
-    if (!item) return `Cluster #${clusterId}`;
-    return item.person_name || `Cluster #${clusterId}`;
-  };
 
   // Context menu handlers
   const handleRename = (item: Item) => {
@@ -400,8 +290,6 @@ export default function ClustersView({ loaderData }: Route.ComponentProps) {
                 <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-6 gap-4">
                   {filteredItems.map((item) => {
                     const itemKey = getItemKey(item);
-                    const isDragging = draggingItemKey === itemKey;
-                    const isDropTarget = dropTargetItemKey === itemKey;
                     const isSelected = selectedItemKeys.has(itemKey);
                     const isPerson = item.item_type === "person";
                     const linkTo = isPerson ? `/person/${item.id}` : `/cluster/${item.id}`;
@@ -420,12 +308,12 @@ export default function ClustersView({ loaderData }: Route.ComponentProps) {
                                 toggleItemSelection(item, e as unknown as React.MouseEvent);
                               }
                             }}
-                            onDragStart={(e) => handleDragStart(e, item)}
-                            onDragEnd={handleDragEnd}
-                            onDragOver={(e) => handleDragOver(e, item)}
-                            onDragLeave={handleDragLeave}
-                            onDrop={(e) => handleDrop(e, item)}
-                            className={`transition-all ${isDragging ? "opacity-50" : ""}`}
+                            onDragStart={(e) => drag.handleDragStart(e, item)}
+                            onDragEnd={drag.handleDragEnd}
+                            onDragOver={(e) => drag.handleDragOver(e, item)}
+                            onDragLeave={drag.handleDragLeave}
+                            onDrop={(e) => drag.handleDrop(e, item)}
+                            className={`transition-all ${drag.isDragging(item) ? "opacity-50" : ""}`}
                           >
                             <Link
                               to={linkTo}
@@ -438,7 +326,7 @@ export default function ClustersView({ loaderData }: Route.ComponentProps) {
                                 className={`hover:shadow-lg transition-all h-full ${
                                   isSelected
                                     ? "ring-2 ring-amber-500 ring-offset-2 bg-amber-50"
-                                    : isDropTarget
+                                    : drag.isDropTarget(item)
                                       ? "ring-2 ring-blue-500 ring-offset-2 bg-blue-50"
                                       : ""
                                 }`}
@@ -475,7 +363,11 @@ export default function ClustersView({ loaderData }: Route.ComponentProps) {
                                               ? "text-gray-900"
                                               : "text-blue-600"
                                         }`}
-                                        title={isPerson && item.auto_created ? "Auto-grouped" : item.person_name || `Cluster #${item.id}`}
+                                        title={
+                                          isPerson && item.auto_created
+                                            ? "Auto-grouped"
+                                            : item.person_name || `Cluster #${item.id}`
+                                        }
                                       >
                                         {isPerson && item.auto_created ? (
                                           <Sparkles className="h-4 w-4 mx-auto text-gray-400" />
@@ -542,69 +434,16 @@ export default function ClustersView({ loaderData }: Route.ComponentProps) {
         )}
 
         {/* Drag-and-drop Link Confirmation Dialog */}
-        <Dialog open={pendingLink !== null} onOpenChange={(open) => !open && cancelLink()}>
-          <DialogContent showCloseButton={false} className="max-w-md">
-            <DialogHeader>
-              <DialogTitle className="flex items-center gap-2">
-                <Link2 className="h-5 w-5" />
-                Link as Same Person
-              </DialogTitle>
-              <DialogDescription>
-                {pendingLink && (
-                  <>
-                    Link <strong>{getItemNameByClusterId(pendingLink.sourceId)}</strong> and{" "}
-                    <strong>{getItemNameByClusterId(pendingLink.targetId)}</strong> as the same person?
-                  </>
-                )}
-              </DialogDescription>
-            </DialogHeader>
-
-            {isLoadingPreview ? (
-              <div className="flex items-center justify-center py-4 text-gray-500">
-                <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-                Loading...
-              </div>
-            ) : linkPreview?.willMergePersons ? (
-              <div className="flex items-start gap-2 p-3 bg-amber-50 border border-amber-200 rounded-lg text-amber-800 text-sm">
-                <AlertTriangle className="h-5 w-5 mt-0.5 flex-shrink-0" />
-                <div>
-                  <strong>Person records will be merged.</strong>
-                  <br />"{linkPreview.source?.personName}" will be merged into "{linkPreview.target?.personName}
-                  ".
-                  {(linkPreview.source?.personClusterCount ?? 0) > 1 && (
-                    <>
-                      <br />
-                      All {linkPreview.source?.personClusterCount} clusters of "{linkPreview.source?.personName}" will
-                      be reassigned.
-                    </>
-                  )}
-                </div>
-              </div>
-            ) : (
-              <p className="text-sm text-gray-600">
-                Both clusters will be preserved and assigned to the same identity.
-              </p>
-            )}
-
-            <DialogFooter>
-              <Button variant="outline" onClick={cancelLink} disabled={isLinking}>
-                Cancel
-              </Button>
-              <Button onClick={confirmLink} disabled={isLinking || isLoadingPreview}>
-                {isLinking ? (
-                  <>
-                    <Loader2 className="h-4 w-4 mr-1 animate-spin" />
-                    {linkPreview?.willMergePersons ? "Merging..." : "Linking..."}
-                  </>
-                ) : linkPreview?.willMergePersons ? (
-                  "Merge Persons"
-                ) : (
-                  "Link"
-                )}
-              </Button>
-            </DialogFooter>
-          </DialogContent>
-        </Dialog>
+        <MergeConfirmationDialog
+          open={drag.pendingMerge !== null}
+          sourceName={drag.sourceName}
+          targetName={drag.targetName}
+          preview={drag.mergePreview}
+          isLoadingPreview={drag.isLoadingPreview}
+          isSubmitting={drag.isSubmitting}
+          onConfirm={drag.confirmMerge}
+          onCancel={drag.cancelMerge}
+        />
 
         {/* Rename Dialog */}
         {contextItem && (

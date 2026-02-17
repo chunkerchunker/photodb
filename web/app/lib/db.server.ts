@@ -950,10 +950,10 @@ export async function unlinkClusterFromPerson(collectionId: number, clusterId: s
     await client.query("BEGIN");
 
     // Read current person_id before unlinking
-    const current = await client.query(
-      `SELECT person_id FROM cluster WHERE id = $1 AND collection_id = $2`,
-      [clusterId, collectionId],
-    );
+    const current = await client.query(`SELECT person_id FROM cluster WHERE id = $1 AND collection_id = $2`, [
+      clusterId,
+      collectionId,
+    ]);
     if (current.rows.length === 0 || !current.rows[0].person_id) {
       await client.query("ROLLBACK");
       return { success: false, message: current.rows.length === 0 ? "Cluster not found" : "Cluster has no person" };
@@ -961,10 +961,10 @@ export async function unlinkClusterFromPerson(collectionId: number, clusterId: s
     const personId = current.rows[0].person_id;
 
     // Unlink cluster from person
-    await client.query(
-      `UPDATE cluster SET person_id = NULL, updated_at = NOW() WHERE id = $1 AND collection_id = $2`,
-      [clusterId, collectionId],
-    );
+    await client.query(`UPDATE cluster SET person_id = NULL, updated_at = NOW() WHERE id = $1 AND collection_id = $2`, [
+      clusterId,
+      collectionId,
+    ]);
 
     // Add cannot-link to prevent re-association
     await client.query(
@@ -1027,10 +1027,7 @@ export async function deletePersonAggregation(collectionId: number, personId: st
  * Delete a person row entirely (only when they have no clusters).
  */
 export async function deletePersonRow(collectionId: number, personId: string) {
-  const result = await pool.query(
-    `DELETE FROM person WHERE id = $1 AND collection_id = $2`,
-    [personId, collectionId],
-  );
+  const result = await pool.query(`DELETE FROM person WHERE id = $1 AND collection_id = $2`, [personId, collectionId]);
   return {
     success: (result.rowCount ?? 0) > 0,
     message: result.rowCount ? "Person deleted" : "Person not found",
@@ -1040,11 +1037,7 @@ export async function deletePersonRow(collectionId: number, personId: string) {
 /**
  * Set a person's representative detection directly from a detection ID.
  */
-export async function setPersonRepresentativeDetection(
-  collectionId: number,
-  personId: string,
-  detectionId: number,
-) {
+export async function setPersonRepresentativeDetection(collectionId: number, personId: string, detectionId: number) {
   const result = await pool.query(
     `UPDATE person
      SET representative_detection_id = $1, updated_at = NOW()
@@ -1682,10 +1675,7 @@ export async function linkClustersToSamePerson(collectionId: number, sourceClust
          )`,
         [personId, sourceCluster.person_id],
       );
-      await client.query(
-        `DELETE FROM cluster_person_cannot_link WHERE person_id = $1`,
-        [sourceCluster.person_id],
-      );
+      await client.query(`DELETE FROM cluster_person_cannot_link WHERE person_id = $1`, [sourceCluster.person_id]);
 
       // Delete the now-orphaned source person record
       await client.query(`DELETE FROM person WHERE id = $1 AND collection_id = $2`, [
@@ -1831,10 +1821,7 @@ export async function assignClusterToPerson(collectionId: number, sourceClusterI
          )`,
         [targetPerson.id, sourcePersonId],
       );
-      await client.query(
-        `DELETE FROM cluster_person_cannot_link WHERE person_id = $1`,
-        [sourcePersonId],
-      );
+      await client.query(`DELETE FROM cluster_person_cannot_link WHERE person_id = $1`, [sourcePersonId]);
 
       await client.query(`DELETE FROM person WHERE id = $1 AND collection_id = $2`, [sourcePersonId, collectionId]);
     } else {
@@ -1846,10 +1833,10 @@ export async function assignClusterToPerson(collectionId: number, sourceClusterI
     }
 
     // Remove any cannot-link between this cluster and the target person
-    await client.query(
-      `DELETE FROM cluster_person_cannot_link WHERE cluster_id = $1 AND person_id = $2`,
-      [sourceClusterId, targetPerson.id],
-    );
+    await client.query(`DELETE FROM cluster_person_cannot_link WHERE cluster_id = $1 AND person_id = $2`, [
+      sourceClusterId,
+      targetPerson.id,
+    ]);
 
     await client.query("COMMIT");
     return { success: true, message: `Linked to "${targetPerson.person_name}"`, personId: targetPerson.id };
@@ -1857,6 +1844,117 @@ export async function assignClusterToPerson(collectionId: number, sourceClusterI
     await client.query("ROLLBACK");
     console.error("Failed to assign cluster to person:", error);
     return { success: false, message: "Failed to assign cluster to person" };
+  } finally {
+    client.release();
+  }
+}
+
+/**
+ * Preview what will happen when merging two persons.
+ */
+export async function previewPersonMerge(collectionId: number, sourcePersonId: string, targetPersonId: string) {
+  const query = `
+    SELECT
+      per.id as person_id,
+      TRIM(CONCAT(per.first_name, ' ', COALESCE(per.last_name, ''))) as person_name,
+      (SELECT COUNT(*) FROM cluster c WHERE c.person_id = per.id
+        AND (c.hidden = false OR c.hidden IS NULL)) as cluster_count,
+      (SELECT COALESCE(SUM(c.face_count), 0) FROM cluster c WHERE c.person_id = per.id
+        AND (c.hidden = false OR c.hidden IS NULL)) as face_count
+    FROM person per
+    WHERE per.id = ANY($1) AND per.collection_id = $2
+  `;
+
+  const result = await pool.query(query, [[sourcePersonId, targetPersonId], collectionId]);
+
+  const sourceInfo = result.rows.find((r) => r.person_id.toString() === sourcePersonId);
+  const targetInfo = result.rows.find((r) => r.person_id.toString() === targetPersonId);
+
+  if (!sourceInfo || !targetInfo) {
+    return { found: false };
+  }
+
+  return {
+    found: true,
+    willMergePersons: true,
+    source: {
+      personName: sourceInfo.person_name || null,
+      personClusterCount: parseInt(sourceInfo.cluster_count, 10) || 0,
+      personFaceCount: parseInt(sourceInfo.face_count, 10) || 0,
+    },
+    target: {
+      personName: targetInfo.person_name || null,
+      personClusterCount: parseInt(targetInfo.cluster_count, 10) || 0,
+      personFaceCount: parseInt(targetInfo.face_count, 10) || 0,
+    },
+  };
+}
+
+/**
+ * Merge two persons by moving all clusters from source to target and deleting the source person.
+ */
+export async function mergePersons(collectionId: number, sourcePersonId: string, targetPersonId: string) {
+  if (sourcePersonId === targetPersonId) {
+    return { success: false, message: "Cannot merge a person with itself" };
+  }
+
+  const client = await pool.connect();
+  try {
+    await client.query("BEGIN");
+
+    // Verify both persons exist
+    const personsResult = await client.query(
+      `SELECT id, TRIM(CONCAT(first_name, ' ', COALESCE(last_name, ''))) as person_name
+       FROM person WHERE id = ANY($1) AND collection_id = $2`,
+      [[sourcePersonId, targetPersonId], collectionId],
+    );
+
+    const sourcePerson = personsResult.rows.find((r) => r.id.toString() === sourcePersonId);
+    const targetPerson = personsResult.rows.find((r) => r.id.toString() === targetPersonId);
+
+    if (!sourcePerson) {
+      await client.query("ROLLBACK");
+      return { success: false, message: "Source person not found" };
+    }
+    if (!targetPerson) {
+      await client.query("ROLLBACK");
+      return { success: false, message: "Target person not found" };
+    }
+
+    // Move all clusters from source person to target person
+    await client.query(
+      `UPDATE cluster SET person_id = $1, updated_at = NOW()
+       WHERE person_id = $2 AND collection_id = $3`,
+      [targetPerson.id, sourcePerson.id, collectionId],
+    );
+
+    // Migrate cannot-link constraints from source to target
+    await client.query(
+      `UPDATE cluster_person_cannot_link SET person_id = $1
+       WHERE person_id = $2
+       AND NOT EXISTS (
+         SELECT 1 FROM cluster_person_cannot_link c2
+         WHERE c2.cluster_id = cluster_person_cannot_link.cluster_id AND c2.person_id = $1
+       )`,
+      [targetPerson.id, sourcePerson.id],
+    );
+    await client.query(`DELETE FROM cluster_person_cannot_link WHERE person_id = $1`, [sourcePerson.id]);
+
+    // Delete source person
+    await client.query(`DELETE FROM person WHERE id = $1 AND collection_id = $2`, [sourcePerson.id, collectionId]);
+
+    await client.query("COMMIT");
+    return {
+      success: true,
+      message: `Merged "${sourcePerson.person_name}" into "${targetPerson.person_name}"`,
+      personId: targetPerson.id,
+      deletedPersonId: sourcePerson.id,
+      deletedPersonName: sourcePerson.person_name,
+    };
+  } catch (error) {
+    await client.query("ROLLBACK");
+    console.error("Failed to merge persons:", error);
+    return { success: false, message: "Failed to merge persons" };
   } finally {
     client.release();
   }

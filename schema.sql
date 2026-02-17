@@ -433,6 +433,7 @@ CREATE INDEX IF NOT EXISTS idx_cannot_link_detection2 ON cannot_link(detection_i
 CREATE INDEX IF NOT EXISTS idx_cannot_link_collection ON cannot_link(collection_id);
 CREATE INDEX IF NOT EXISTS idx_cluster_cannot_link_c2 ON cluster_cannot_link(cluster_id_2);
 CREATE INDEX IF NOT EXISTS idx_cluster_cannot_link_collection ON cluster_cannot_link(collection_id);
+CREATE INDEX IF NOT EXISTS idx_cluster_eligible ON cluster(collection_id, id) WHERE centroid IS NOT NULL AND NOT hidden;
 CREATE INDEX IF NOT EXISTS idx_cluster_verified ON "cluster"(verified) WHERE verified = true;
 
 -- Cluster-Person cannot-link (records when user explicitly removes cluster from person)

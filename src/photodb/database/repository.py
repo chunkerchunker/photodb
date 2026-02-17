@@ -564,18 +564,22 @@ class PhotoRepository:
             with conn.cursor(row_factory=dict_row) as cursor:
                 cursor.execute(
                     """
+                    WITH eligible AS (
+                        SELECT id, centroid
+                        FROM cluster
+                        WHERE collection_id = %s
+                          AND centroid IS NOT NULL
+                          AND NOT hidden
+                    )
                     SELECT c1.id AS cluster_id_1, c2.id AS cluster_id_2,
                            c1.centroid <=> c2.centroid AS cosine_distance
-                    FROM cluster c1
-                    JOIN cluster c2 ON c1.id < c2.id AND c1.collection_id = c2.collection_id
-                    WHERE c1.collection_id = %s
-                      AND c1.centroid IS NOT NULL AND c2.centroid IS NOT NULL
-                      AND NOT c1.hidden AND NOT c2.hidden
-                      AND c1.centroid <=> c2.centroid < %s
+                    FROM eligible c1
+                    JOIN eligible c2 ON c1.id < c2.id
+                    WHERE c1.centroid <=> c2.centroid < %s
                       AND NOT EXISTS (
                           SELECT 1 FROM cluster_cannot_link ccl
-                          WHERE ccl.cluster_id_1 = LEAST(c1.id, c2.id)
-                            AND ccl.cluster_id_2 = GREATEST(c1.id, c2.id)
+                          WHERE ccl.cluster_id_1 = c1.id
+                            AND ccl.cluster_id_2 = c2.id
                       )
                     ORDER BY c1.centroid <=> c2.centroid
                     """,

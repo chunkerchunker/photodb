@@ -128,13 +128,16 @@ class MobileCLIPAnalyzer:
         assert self._preprocess is not None and self._model is not None
 
         image = Image.open(image_path).convert("RGB")
-        image_tensor = self._preprocess(image).unsqueeze(0).to(self._device)  # type: ignore[union-attr]
+        try:
+            image_tensor = self._preprocess(image).unsqueeze(0).to(self._device)  # type: ignore[union-attr]
 
-        with torch.no_grad():
-            embedding = self._model.encode_image(image_tensor)
-            embedding = embedding / embedding.norm(dim=-1, keepdim=True)
+            with torch.no_grad():
+                embedding = self._model.encode_image(image_tensor)
+                embedding = embedding / embedding.norm(dim=-1, keepdim=True)
 
-        return embedding
+            return embedding
+        finally:
+            image.close()
 
     def encode_face(
         self,
@@ -179,14 +182,16 @@ class MobileCLIPAnalyzer:
             Normalized embedding tensor of shape (1, 512).
         """
         image = Image.open(image_path).convert("RGB")
+        try:
+            x1 = max(0, int(bbox["x1"]))
+            y1 = max(0, int(bbox["y1"]))
+            x2 = min(image.width, int(bbox["x2"]))
+            y2 = min(image.height, int(bbox["y2"]))
 
-        x1 = max(0, int(bbox["x1"]))
-        y1 = max(0, int(bbox["y1"]))
-        x2 = min(image.width, int(bbox["x2"]))
-        y2 = min(image.height, int(bbox["y2"]))
-
-        face_crop = image.crop((x1, y1, x2, y2))
-        return self.encode_face(face_crop)
+            face_crop = image.crop((x1, y1, x2, y2))
+            return self.encode_face(face_crop)
+        finally:
+            image.close()
 
     def encode_faces_batch(
         self,
@@ -210,23 +215,25 @@ class MobileCLIPAnalyzer:
         assert self._preprocess is not None and self._model is not None
 
         image = Image.open(image_path).convert("RGB")
+        try:
+            face_tensors = []
+            for bbox in bboxes:
+                x1 = max(0, int(bbox["x1"]))
+                y1 = max(0, int(bbox["y1"]))
+                x2 = min(image.width, int(bbox["x2"]))
+                y2 = min(image.height, int(bbox["y2"]))
+                face_crop = image.crop((x1, y1, x2, y2))
+                face_tensors.append(self._preprocess(face_crop))  # type: ignore[misc]
 
-        face_tensors = []
-        for bbox in bboxes:
-            x1 = max(0, int(bbox["x1"]))
-            y1 = max(0, int(bbox["y1"]))
-            x2 = min(image.width, int(bbox["x2"]))
-            y2 = min(image.height, int(bbox["y2"]))
-            face_crop = image.crop((x1, y1, x2, y2))
-            face_tensors.append(self._preprocess(face_crop))  # type: ignore[misc]
+            batch = torch.stack(face_tensors).to(self._device)
 
-        batch = torch.stack(face_tensors).to(self._device)
+            with torch.no_grad():
+                embeddings = self._model.encode_image(batch)
+                embeddings = embeddings / embeddings.norm(dim=-1, keepdim=True)
 
-        with torch.no_grad():
-            embeddings = self._model.encode_image(batch)
-            embeddings = embeddings / embeddings.norm(dim=-1, keepdim=True)
-
-        return embeddings
+            return embeddings
+        finally:
+            image.close()
 
     def encode_text(self, text: str) -> torch.Tensor:
         """

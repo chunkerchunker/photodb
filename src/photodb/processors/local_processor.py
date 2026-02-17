@@ -359,7 +359,7 @@ class LocalProcessor(BaseProcessor):
             last_progress_time = start_time
             completed_count = 0
             for future in as_completed(futures):
-                file_path = futures[future]
+                file_path = futures.pop(future)
                 try:
                     file_result = future.result()
                     result.processed += file_result.processed

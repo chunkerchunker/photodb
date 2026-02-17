@@ -13,6 +13,9 @@ import numpy as np
 import torch
 from PIL import Image
 
+if sys.platform == "darwin":
+    import objc
+
 from ultralytics import YOLO
 
 from .embedding_extractor import EmbeddingExtractor
@@ -156,6 +159,17 @@ class PersonDetector:
                 - image_dimensions: Dict with width and height
                 - error: Error message (only if status is 'error')
         """
+        # Wrap in autorelease pool on macOS to drain CoreML/ONNX Runtime ObjC objects
+        # (IOSurfaces, CIImages) after each call instead of accumulating in thread pools.
+        if sys.platform == "darwin":
+            with objc.autorelease_pool():
+                return self._detect_impl(image_path)
+        else:
+            return self._detect_impl(image_path)
+
+    def _detect_impl(self, image_path: str) -> Dict[str, Any]:
+        """Internal detect implementation."""
+        img = None
         try:
             # Load image
             img = Image.open(image_path)
@@ -257,6 +271,9 @@ class PersonDetector:
                 "image_dimensions": {"width": 0, "height": 0},
                 "error": str(e),
             }
+        finally:
+            if img is not None:
+                img.close()
 
     def _match_faces_to_bodies(
         self, faces: List[Dict[str, Any]], bodies: List[Dict[str, Any]]

@@ -12,6 +12,7 @@ from typing import Any, Dict
 if sys.platform != "darwin":
     raise ImportError("Apple Vision only available on macOS")
 
+import objc
 import Quartz
 import Vision
 from Foundation import NSURL  # type: ignore[attr-defined]
@@ -56,46 +57,50 @@ class AppleVisionClassifier:
         start_time = time.time()
 
         try:
-            # Load image using CoreImage
-            image_url = NSURL.fileURLWithPath_(image_path)
-            ci_image = Quartz.CIImage.imageWithContentsOfURL_(image_url)  # type: ignore[attr-defined]
+            # Wrap in autorelease pool to drain ObjC objects (CIImage, VNImageRequestHandler,
+            # IOSurface textures) after each call. Without this, autoreleased objects accumulate
+            # in long-lived ThreadPoolExecutor threads and are never freed.
+            with objc.autorelease_pool():
+                # Load image using CoreImage
+                image_url = NSURL.fileURLWithPath_(image_path)
+                ci_image = Quartz.CIImage.imageWithContentsOfURL_(image_url)  # type: ignore[attr-defined]
 
-            if ci_image is None:
-                return {
-                    "status": "error",
-                    "classifications": [],
-                    "error": f"Failed to load image: {image_path}",
-                    "processing_time_ms": int((time.time() - start_time) * 1000),
-                }
+                if ci_image is None:
+                    return {
+                        "status": "error",
+                        "classifications": [],
+                        "error": f"Failed to load image: {image_path}",
+                        "processing_time_ms": int((time.time() - start_time) * 1000),
+                    }
 
-            # Create Vision request handler and classification request
-            handler = Vision.VNImageRequestHandler.alloc().initWithCIImage_options_(ci_image, None)  # type: ignore[attr-defined]
-            request = Vision.VNClassifyImageRequest.alloc().init()  # type: ignore[attr-defined]
+                # Create Vision request handler and classification request
+                handler = Vision.VNImageRequestHandler.alloc().initWithCIImage_options_(ci_image, None)  # type: ignore[attr-defined]
+                request = Vision.VNClassifyImageRequest.alloc().init()  # type: ignore[attr-defined]
 
-            # Perform the classification
-            success, error = handler.performRequests_error_([request], None)
+                # Perform the classification
+                success, error = handler.performRequests_error_([request], None)
 
-            if not success:
-                return {
-                    "status": "error",
-                    "classifications": [],
-                    "error": str(error) if error else "Classification failed",
-                    "processing_time_ms": int((time.time() - start_time) * 1000),
-                }
+                if not success:
+                    return {
+                        "status": "error",
+                        "classifications": [],
+                        "error": str(error) if error else "Classification failed",
+                        "processing_time_ms": int((time.time() - start_time) * 1000),
+                    }
 
-            # Process results
-            results = request.results() or []
-            classifications = []
+                # Process results — extract Python primitives before pool drains
+                results = request.results() or []
+                classifications = []
 
-            for observation in results:
-                conf = float(observation.confidence())
-                if conf >= min_confidence:
-                    classifications.append(
-                        {
-                            "identifier": str(observation.identifier()),
-                            "confidence": conf,
-                        }
-                    )
+                for observation in results:
+                    conf = float(observation.confidence())
+                    if conf >= min_confidence:
+                        classifications.append(
+                            {
+                                "identifier": str(observation.identifier()),
+                                "confidence": conf,
+                            }
+                        )
 
             # Sort by confidence descending and limit to top_k
             classifications.sort(key=lambda x: x["confidence"], reverse=True)

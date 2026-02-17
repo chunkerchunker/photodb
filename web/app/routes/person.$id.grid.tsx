@@ -1,4 +1,4 @@
-import { EyeOff, Link2, Pencil, Star, Trash2, Unlink, User, Users } from "lucide-react";
+import { EyeOff, Link2, Loader2, Pencil, Star, Trash2, Unlink, User, Users } from "lucide-react";
 import { useEffect, useState } from "react";
 import { Link, useFetcher, useNavigate, useRevalidator } from "react-router";
 import { Breadcrumb } from "~/components/breadcrumb";
@@ -11,9 +11,10 @@ import { Badge } from "~/components/ui/badge";
 import { Button } from "~/components/ui/button";
 import { Card, CardContent } from "~/components/ui/card";
 import { ContextMenu, ContextMenuContent, ContextMenuItem, ContextMenuTrigger } from "~/components/ui/context-menu";
+import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "~/components/ui/dialog";
 import { requireCollectionId } from "~/lib/auth.server";
 import { dataWithViewMode } from "~/lib/cookies.server";
-import { getClustersByPerson, getPersonById, unlinkClusterFromPerson } from "~/lib/db.server";
+import { deletePersonRow, getClustersByPerson, getPersonById, unlinkClusterFromPerson } from "~/lib/db.server";
 import type { Route } from "./+types/person.$id.grid";
 
 export function meta({ data }: Route.MetaArgs) {
@@ -55,6 +56,13 @@ export async function action({ request, params }: Route.ActionArgs) {
     return await unlinkClusterFromPerson(collectionId, clusterId);
   }
 
+  if (intent === "delete-person") {
+    if (!personId) {
+      return { success: false, message: "Person ID required" };
+    }
+    return await deletePersonRow(collectionId, personId);
+  }
+
   return { success: false, message: "Unknown action" };
 }
 
@@ -67,6 +75,7 @@ export default function PersonDetailView({ loaderData }: Route.ComponentProps) {
   // Dialog state
   const [renameDialogOpen, setRenameDialogOpen] = useState(false);
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
+  const [deletePersonDialogOpen, setDeletePersonDialogOpen] = useState(false);
   const [linkDialogOpen, setLinkDialogOpen] = useState(false);
   const [pendingUnlinkClusterId, setPendingUnlinkClusterId] = useState<string | null>(null);
   const navigate = useNavigate();
@@ -74,10 +83,11 @@ export default function PersonDetailView({ loaderData }: Route.ComponentProps) {
   const hideFetcher = useFetcher();
   const unlinkFetcher = useFetcher();
   const representativeFetcher = useFetcher();
+  const deletePersonFetcher = useFetcher();
   const revalidator = useRevalidator();
 
   const isSubmitting =
-    hideFetcher.state !== "idle" || unlinkFetcher.state !== "idle" || representativeFetcher.state !== "idle";
+    hideFetcher.state !== "idle" || unlinkFetcher.state !== "idle" || representativeFetcher.state !== "idle" || deletePersonFetcher.state !== "idle";
 
   // Reset clusters when loader data changes
   useEffect(() => {
@@ -106,6 +116,13 @@ export default function PersonDetailView({ loaderData }: Route.ComponentProps) {
       revalidator.revalidate();
     }
   }, [representativeFetcher.data, revalidator]);
+
+  // Navigate away after person deletion
+  useEffect(() => {
+    if (deletePersonFetcher.data?.success) {
+      navigate("/people", { replace: true });
+    }
+  }, [deletePersonFetcher.data, navigate]);
 
   const handleRenameSuccess = () => {
     revalidator.revalidate();
@@ -191,10 +208,17 @@ export default function PersonDetailView({ loaderData }: Route.ComponentProps) {
                 Same Person...
               </Button>
             )}
-            <Button variant="outline" size="sm" onClick={() => setDeleteDialogOpen(true)} disabled={isSubmitting}>
-              <Trash2 className="h-4 w-4 mr-1" />
-              Delete Person
-            </Button>
+            {clusters.length > 0 ? (
+              <Button variant="outline" size="sm" onClick={() => setDeleteDialogOpen(true)} disabled={isSubmitting}>
+                <Trash2 className="h-4 w-4 mr-1" />
+                Remove All Clusters
+              </Button>
+            ) : (
+              <Button variant="outline" size="sm" onClick={() => setDeletePersonDialogOpen(true)} disabled={isSubmitting}>
+                <Trash2 className="h-4 w-4 mr-1" />
+                Delete Person
+              </Button>
+            )}
           </SecondaryControls>
         </div>
 
@@ -328,7 +352,7 @@ export default function PersonDetailView({ loaderData }: Route.ComponentProps) {
           />
         )}
 
-        {/* Delete Person Dialog */}
+        {/* Remove All Clusters Dialog */}
         <DeletePersonDialog
           open={deleteDialogOpen}
           onOpenChange={setDeleteDialogOpen}
@@ -337,6 +361,40 @@ export default function PersonDetailView({ loaderData }: Route.ComponentProps) {
           clusterCount={clusters.length}
           onSuccess={() => navigate("/people")}
         />
+
+        {/* Delete Person Dialog (no clusters) */}
+        <Dialog open={deletePersonDialogOpen} onOpenChange={setDeletePersonDialogOpen}>
+          <DialogContent className="max-w-sm">
+            <DialogHeader>
+              <DialogTitle>Delete Person</DialogTitle>
+              <DialogDescription>
+                Permanently delete <span className="font-medium text-gray-700">{person.person_name || `Person ${person.id}`}</span>? This cannot be undone.
+              </DialogDescription>
+            </DialogHeader>
+            <DialogFooter>
+              <Button variant="outline" onClick={() => setDeletePersonDialogOpen(false)} disabled={deletePersonFetcher.state !== "idle"}>
+                Cancel
+              </Button>
+              <Button
+                variant="destructive"
+                disabled={deletePersonFetcher.state !== "idle"}
+                onClick={() => deletePersonFetcher.submit({ intent: "delete-person" }, { method: "post" })}
+              >
+                {deletePersonFetcher.state !== "idle" ? (
+                  <>
+                    <Loader2 className="h-4 w-4 mr-1 animate-spin" />
+                    Deleting...
+                  </>
+                ) : (
+                  <>
+                    <Trash2 className="h-4 w-4 mr-1" />
+                    Delete
+                  </>
+                )}
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
       </div>
     </Layout>
   );

@@ -996,6 +996,20 @@ export async function deletePersonAggregation(collectionId: number, personId: st
 }
 
 /**
+ * Delete a person row entirely (only when they have no clusters).
+ */
+export async function deletePersonRow(collectionId: number, personId: string) {
+  const result = await pool.query(
+    `DELETE FROM person WHERE id = $1 AND collection_id = $2`,
+    [personId, collectionId],
+  );
+  return {
+    success: (result.rowCount ?? 0) > 0,
+    message: result.rowCount ? "Person deleted" : "Person not found",
+  };
+}
+
+/**
  * Set a person's representative detection from a cluster.
  * Uses the cluster's representative_detection_id.
  */

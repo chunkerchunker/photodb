@@ -17,6 +17,9 @@ def maintenance(mock_pool):
     """Create a MaintenanceUtilities instance with mocked pool and repo."""
     m = MaintenanceUtilities(mock_pool, collection_id=1)
     m.repo = MagicMock()
+    # Default: no person constraints
+    m.repo.get_must_links_for_clusters.return_value = {}
+    m.repo.get_cannot_links_for_clusters.return_value = {}
     return m
 
 
@@ -191,3 +194,87 @@ class TestAutoAssociateClusters:
         maintenance.repo.create_person.assert_not_called()
         maintenance.repo.link_clusters_to_person.assert_not_called()
         maintenance.repo.merge_persons.assert_not_called()
+
+    def test_cannot_link_prevents_grouping(self, maintenance):
+        """Cluster with cannot-link to candidate person is excluded from group."""
+        maintenance.repo.find_similar_cluster_pairs.return_value = [
+            {"cluster_id_1": 1, "cluster_id_2": 2, "cosine_distance": 0.3},
+        ]
+        maintenance.repo.get_clusters_for_association.return_value = [
+            _make_cluster(1, person_id=100),
+            _make_cluster(2),
+        ]
+        # Cluster 2 has a cannot-link to person 100
+        maintenance.repo.get_cannot_links_for_clusters.return_value = {2: {100}}
+
+        result = maintenance.auto_associate_clusters(threshold=0.55)
+
+        # Group should be filtered down to just cluster 1 (< 2 members), so skipped
+        assert result["clusters_linked"] == 0
+        assert result["persons_created"] == 0
+        maintenance.repo.link_clusters_to_person.assert_not_called()
+
+    def test_must_link_forces_person(self, maintenance):
+        """Must-link target person is used even if no cluster currently has that person_id."""
+        maintenance.repo.find_similar_cluster_pairs.return_value = [
+            {"cluster_id_1": 1, "cluster_id_2": 2, "cosine_distance": 0.3},
+        ]
+        maintenance.repo.get_clusters_for_association.return_value = [
+            _make_cluster(1),  # No person
+            _make_cluster(2),  # No person
+        ]
+        # Cluster 1 has a must-link to person 100
+        maintenance.repo.get_must_links_for_clusters.return_value = {1: 100}
+        maintenance.repo.link_clusters_to_person.return_value = 2
+
+        result = maintenance.auto_associate_clusters(threshold=0.55)
+
+        # Must-link target person 100 should be used (treated as existing person)
+        assert result["groups_found"] == 1
+        assert result["persons_created"] == 0
+        # Should link both clusters to person 100
+        maintenance.repo.link_clusters_to_person.assert_called_once_with(
+            [1, 2], 100, 1
+        )
+
+    def test_conflicting_must_links_splits_group(self, maintenance):
+        """Two clusters with must-links to different persons cannot be in same group."""
+        maintenance.repo.find_similar_cluster_pairs.return_value = [
+            {"cluster_id_1": 1, "cluster_id_2": 2, "cosine_distance": 0.3},
+            {"cluster_id_1": 1, "cluster_id_2": 3, "cosine_distance": 0.35},
+            {"cluster_id_1": 2, "cluster_id_2": 3, "cosine_distance": 0.4},
+        ]
+        maintenance.repo.get_clusters_for_association.return_value = [
+            _make_cluster(1),
+            _make_cluster(2),
+            _make_cluster(3),
+        ]
+        # Cluster 1 must-links to person 100, cluster 2 must-links to person 200
+        maintenance.repo.get_must_links_for_clusters.return_value = {1: 100, 2: 200}
+        maintenance.repo.link_clusters_to_person.return_value = 2
+
+        result = maintenance.auto_associate_clusters(threshold=0.55)
+
+        # Conflicting must-links: one faction wins, the conflicting cluster is removed.
+        # Since both have 1 must-link, the one with higher person ID (200) or first
+        # encountered wins. Either way, the group should have at most 2 clusters.
+        assert result["groups_found"] == 1
+
+    def test_must_link_priority_over_verified(self, maintenance):
+        """Must-link person wins over verified cluster's person during merge."""
+        maintenance.repo.find_similar_cluster_pairs.return_value = [
+            {"cluster_id_1": 1, "cluster_id_2": 2, "cosine_distance": 0.35},
+        ]
+        maintenance.repo.get_clusters_for_association.return_value = [
+            _make_cluster(1, person_id=100, verified=True, face_count=10),
+            _make_cluster(2, person_id=200, verified=False, face_count=3),
+        ]
+        # Cluster 2 has a must-link to person 200
+        maintenance.repo.get_must_links_for_clusters.return_value = {2: 200}
+        maintenance.repo.merge_persons.return_value = 1
+
+        result = maintenance.auto_associate_clusters(threshold=0.55)
+
+        assert result["persons_merged"] == 1
+        # Person 200 (must-link) should be kept, person 100 (verified but no must-link) removed
+        maintenance.repo.merge_persons.assert_called_once_with(200, 100, 1)

@@ -14,9 +14,10 @@ Detailed processing design in `docs/DESIGN.md`.
   - `process-local` (`src/photodb/cli_local.py`): Local photo processing (normalize, metadata extraction)
   - `enrich-photos` (`src/photodb/cli_enrich.py`): Remote LLM-based enrichment with batch processing
 - **Processors (`src/photodb/processors.py`)**: Orchestrates parallel photo processing using ThreadPoolExecutor
-- **Stages (`src/photodb/stages/`)**: Processing pipeline stages (normalize, metadata, detection, age_gender, clustering, scene_analysis, enrich)
+- **Stages (`src/photodb/stages/`)**: Processing pipeline stages (normalize, metadata, detection, age_gender, scene_analysis, enrich) plus standalone clustering
   - All stages inherit from `BaseStage` (`src/photodb/stages/base.py`)
-  - Each stage handles a specific aspect: file normalization, metadata extraction, person/face detection, age/gender estimation, face clustering, scene/sentiment analysis, enrichment
+  - Each stage handles a specific aspect: file normalization, metadata extraction, person/face detection, age/gender estimation, scene/sentiment analysis, enrichment
+  - Clustering is run separately via `scripts/bootstrap_clusters.py` after batch imports
 - **Database Layer**: PostgreSQL-based with connection pooling
   - Models (`src/photodb/database/models.py`): Photo, ProcessingStatus, Metadata entities
   - Repository (`src/photodb/database/pg_repository.py`): Data access layer
@@ -33,8 +34,11 @@ Photos flow through stages sequentially but can be processed in parallel. The pi
 2. **Metadata**: EXIF extraction and metadata parsing
 3. **Detection**: YOLO-based face and body detection using YOLOv8x person_face model
 4. **Age/Gender**: MiVOLO-based age and gender estimation from detected faces
-5. **Clustering**: Face embedding extraction and clustering for person identification
-6. **Scene Analysis**: Apple Vision scene taxonomy (macOS) and prompt-based tagging with MobileCLIP
+5. **Scene Analysis**: Apple Vision scene taxonomy (macOS) and prompt-based tagging with MobileCLIP
+
+**Clustering (separate from pipeline):**
+- Run via `scripts/bootstrap_clusters.py` after importing batches of photos
+- Not included in the normal `process-local` pipeline since clustering should operate on complete datasets
 
 **Remote Processing (`enrich-photos`):**
 7. **Enrich**: LLM-based analysis and enrichment using batch processing
@@ -68,7 +72,7 @@ uv run process-local /path/to/photos
 # With parallel processing (recommended for local stages)
 uv run process-local /path/to/photos --parallel 500
 
-# Specific stage only (normalize, metadata, detection, age_gender, clustering, scene_analysis)
+# Specific stage only (normalize, metadata, detection, age_gender, scene_analysis)
 uv run process-local /path/to/photos --stage metadata
 
 # Run detection stage only (face/body detection)
@@ -259,10 +263,10 @@ uv run photodb-maintenance check-staleness
 ```
 
 **Bootstrap Clustering:**
-To run HDBSCAN bootstrap on existing embeddings:
+To run HDBSCAN bootstrap on existing embeddings (run after batch photo imports):
 ```bash
-uv run python scripts/migrate_to_hdbscan.py --dry-run  # Preview changes
-uv run python scripts/migrate_to_hdbscan.py            # Run migration
+uv run python scripts/bootstrap_clusters.py --dry-run  # Preview changes
+uv run python scripts/bootstrap_clusters.py            # Run bootstrap
 ```
 
 **Database Migration:**

@@ -27,7 +27,6 @@ from .utils.logging import setup_logging  # noqa: E402
             "metadata",
             "detection",
             "age_gender",
-            "clustering",
             "scene_analysis",
         ]
     ),
@@ -37,7 +36,7 @@ from .utils.logging import setup_logging  # noqa: E402
 @click.option(
     "--exclude",
     type=click.Choice(
-        ["normalize", "metadata", "detection", "age_gender", "clustering", "scene_analysis"]
+        ["normalize", "metadata", "detection", "age_gender", "scene_analysis"]
     ),
     multiple=True,
     help="Stages to exclude (can be specified multiple times)",
@@ -114,7 +113,7 @@ def main(
         process-local /path/to/directory
         process-local . --recursive --pattern "*.heic" --parallel 500
         process-local /path/to/directory --stage faces --parallel 100
-        process-local --skip-directory-scan --stage clustering
+        process-local --skip-directory-scan --stage scene_analysis
     """
     if quiet:
         log_level = logging.WARNING

@@ -14,7 +14,14 @@ Photo Files (raw)
 │  ├─ Stage 2: Metadata - Extract EXIF data           │
 │  ├─ Stage 3: Detection - YOLO face+body detection   │
 │  ├─ Stage 4: Age/Gender - MiVOLO estimation         │
-│  └─ Stage 5: Clustering - Group detections by ID    │
+│  └─ Stage 5: Scene Analysis - Taxonomy + tagging    │
+└─────────────────────────────────────────────────────┘
+       │
+       ▼ (PostgreSQL + pgvector)
+┌─────────────────────────────────────────────────────┐
+│  CLUSTERING (scripts/bootstrap_clusters.py)         │
+│  └─ HDBSCAN bootstrap on all embeddings             │
+│     Run after batch photo imports, not per-photo    │
 └─────────────────────────────────────────────────────┘
        │
        ▼ (PostgreSQL + pgvector)
@@ -59,8 +66,11 @@ uv run process-local /path/to/photos --stage normalize
 uv run process-local /path/to/photos --stage metadata
 uv run process-local /path/to/photos --stage detection
 uv run process-local /path/to/photos --stage age_gender
-uv run process-local /path/to/photos --stage clustering
 uv run process-local /path/to/photos --stage scene_analysis
+
+# Clustering (run separately after batch imports)
+uv run python scripts/bootstrap_clusters.py --dry-run
+uv run python scripts/bootstrap_clusters.py
 
 # Force reprocessing
 uv run process-local /path/to/photos --force
@@ -223,11 +233,14 @@ Estimates age and gender using MiVOLO model on existing detections.
 
 **Output**: Updated PersonDetection records with age/gender data
 
-### Stage 5: Clustering
+### Clustering (separate from pipeline)
 
 **File**: `src/photodb/stages/clustering.py`
+**Script**: `scripts/bootstrap_clusters.py`
 
 Hierarchical density-based clustering using HDBSCAN with two-tier incremental assignment for person identity grouping.
+
+Clustering is **not** part of the normal `process-local` pipeline. HDBSCAN operates on the full set of embeddings to build a global cluster hierarchy, so it should be run after importing batches of photos rather than per-photo. Incremental assignment (for ad-hoc single photo additions) is supported but there is no automated flow for it yet.
 
 **Two-Phase Approach**:
 
@@ -714,6 +727,7 @@ photodb/
 │   └── system_prompt.md       # LLM system prompt
 ├── schema.sql                 # Database schema
 ├── scripts/
+│   ├── bootstrap_clusters.py  # HDBSCAN bootstrap clustering
 │   └── download_models.sh     # Download YOLO + MiVOLO models
 ├── migrations/                # Database migrations
 ├── tests/                     # Test suite

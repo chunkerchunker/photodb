@@ -1,6 +1,6 @@
 #!/usr/bin/env python
 """
-Migrate existing cluster assignments to HDBSCAN-based clustering.
+Bootstrap HDBSCAN-based clustering on all face embeddings.
 
 This script:
 1. Backs up current cluster assignments (in memory, not destructive)
@@ -10,6 +10,9 @@ This script:
    - Verified clusters (keeps assignments, updates is_core)
    - Cannot-link constraints (stored in separate table, unchanged)
 4. Calculates and stores per-cluster epsilon values
+
+Run this after importing batches of photos through the normal pipeline
+(normalize, metadata, detection, age_gender, scene_analysis).
 """
 
 import sys
@@ -32,7 +35,7 @@ from photodb.stages.clustering import ClusteringStage  # noqa: E402
 )
 @click.option("--collection-id", type=int, default=1, help="Collection ID to process")
 def main(dry_run: bool, force: bool, collection_id: int):
-    """Migrate existing clustering to HDBSCAN-based approach."""
+    """Bootstrap HDBSCAN clustering on all face embeddings."""
     logging.basicConfig(
         level=logging.INFO,
         format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
@@ -42,7 +45,7 @@ def main(dry_run: bool, force: bool, collection_id: int):
     database_url = defaults.DATABASE_URL
 
     logger.info("=" * 60)
-    logger.info("HDBSCAN Clustering Migration")
+    logger.info("HDBSCAN Clustering Bootstrap")
     logger.info("=" * 60)
 
     with ConnectionPool(connection_string=database_url) as pool:
@@ -61,14 +64,14 @@ def main(dry_run: bool, force: bool, collection_id: int):
         logger.info(f"Currently clustered: {clustered}")
         logger.info(f"Manual assignments: {manual}")
 
-        # Check if already migrated (clusters have epsilon values)
+        # Check if already bootstrapped (clusters have epsilon values)
         clusters_with_epsilon = repository.get_clusters_with_epsilon()
         epsilon_count = sum(1 for c in clusters_with_epsilon if c.get("epsilon") is not None)
         logger.info(f"Clusters with epsilon values: {epsilon_count}")
 
         if epsilon_count > 0 and not force:
             logger.warning(
-                "Some clusters already have epsilon values. Use --force to re-run migration anyway."
+                "Some clusters already have epsilon values. Use --force to re-run bootstrap anyway."
             )
             sys.exit(0)
 
@@ -79,7 +82,7 @@ def main(dry_run: bool, force: bool, collection_id: int):
             logger.info(f"Would process {len(embeddings)} embeddings")
             logger.info(f"Would preserve {manual} manual assignments")
             logger.info("")
-            logger.info("Run without --dry-run to perform the migration")
+            logger.info("Run without --dry-run to perform the bootstrap")
             sys.exit(0)
 
         # Load HDBSCAN configuration from environment
@@ -109,7 +112,7 @@ def main(dry_run: bool, force: bool, collection_id: int):
             if success:
                 logger.info("")
                 logger.info("=" * 60)
-                logger.info("Migration completed successfully!")
+                logger.info("Bootstrap completed successfully!")
                 logger.info("=" * 60)
 
                 # Print summary
@@ -147,11 +150,11 @@ def main(dry_run: bool, force: bool, collection_id: int):
                         f"{'persisted' if active_run.get('clusterer_state') else 'not persisted'}"
                     )
             else:
-                logger.error("Migration failed")
+                logger.error("Bootstrap failed")
                 sys.exit(1)
 
         except Exception as e:
-            logger.error(f"Migration failed with error: {e}")
+            logger.error(f"Bootstrap failed with error: {e}")
             raise
 
 

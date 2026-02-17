@@ -108,7 +108,7 @@ BEGIN
     RAISE NOTICE 'Embeddings preserved: %', v_embeddings;
     RAISE NOTICE 'Clusters remaining: % (should be 0)', v_clusters;
     RAISE NOTICE '===================';
-    RAISE NOTICE 'Ready for re-clustering with: uv run python scripts/migrate_to_hdbscan.py';
+    RAISE NOTICE 'Ready for re-clustering with: uv run python scripts/bootstrap_clusters.py';
 END $$;
 
 COMMIT;

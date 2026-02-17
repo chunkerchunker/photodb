@@ -11,7 +11,6 @@ from ..stages.normalize import NormalizeStage
 from ..stages.metadata import MetadataStage
 from ..stages.detection import DetectionStage
 from ..stages.age_gender import AgeGenderStage
-from ..stages.clustering import ClusteringStage
 from ..stages.scene_analysis import SceneAnalysisStage
 
 logger = logging.getLogger(__name__)
@@ -82,8 +81,6 @@ class LocalProcessor(BaseProcessor):
         if "age_gender" in stages_to_create:
             self.stages["age_gender"] = AgeGenderStage(repository, config)
             self._shared_mivolo = self.stages["age_gender"].predictor
-        if "clustering" in stages_to_create:
-            self.stages["clustering"] = ClusteringStage(repository, config)
         if "scene_analysis" in stages_to_create:
             self.stages["scene_analysis"] = SceneAnalysisStage(repository, config)
             self._shared_scene_analyzer = self.stages["scene_analysis"].analyzer
@@ -104,13 +101,12 @@ class LocalProcessor(BaseProcessor):
         self.close()
 
     def _get_stages(self, stage: str) -> List[str]:
-        """Get list of stages to run (normalize, metadata, detection, age_gender, clustering, scene_analysis)."""
+        """Get list of stages to run (normalize, metadata, detection, age_gender, scene_analysis)."""
         all_stages = [
             "normalize",
             "metadata",
             "detection",
             "age_gender",
-            "clustering",
             "scene_analysis",
         ]
 
@@ -285,8 +281,6 @@ class LocalProcessor(BaseProcessor):
                     age_gender_stage.collection_id = self.collection_id
                     age_gender_stage.predictor = self._shared_mivolo  # Reuse shared model
                     pooled_stages["age_gender"] = age_gender_stage
-                if "clustering" in stages_list:
-                    pooled_stages["clustering"] = ClusteringStage(pooled_repo, self.config)
                 if "scene_analysis" in stages_list:
                     assert self._shared_scene_analyzer is not None  # Loaded in __init__
                     assert self._shared_prompt_cache is not None  # Loaded in __init__

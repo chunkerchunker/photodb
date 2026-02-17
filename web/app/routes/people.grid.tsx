@@ -1,4 +1,4 @@
-import { EyeOff, Loader2, Pencil, Search, User } from "lucide-react";
+import { EyeOff, Loader2, Pencil, Search, Sparkles, User } from "lucide-react";
 import { useCallback, useEffect, useState } from "react";
 import { Link, useFetcher, useNavigate, useRevalidator } from "react-router";
 import { Layout } from "~/components/layout";
@@ -303,8 +303,21 @@ export default function PeopleView({ loaderData }: Route.ComponentProps) {
                                   )}
 
                                   <div className="space-y-1">
-                                    <div className="font-semibold text-gray-900 truncate" title={person.person_name}>
-                                      {person.person_name}
+                                    <div
+                                      className={`font-semibold truncate ${
+                                        person.auto_created
+                                          ? "text-gray-400"
+                                          : person.person_name
+                                            ? "text-gray-900"
+                                            : "text-blue-600"
+                                      }`}
+                                      title={person.auto_created ? "Auto-grouped" : person.person_name || `Person #${person.id}`}
+                                    >
+                                      {person.auto_created ? (
+                                        <Sparkles className="h-4 w-4 mx-auto text-gray-400" />
+                                      ) : (
+                                        person.person_name || `Person #${person.id}`
+                                      )}
                                     </div>
                                     <div className="text-sm text-gray-600">
                                       {person.total_face_count} photo{person.total_face_count !== 1 ? "s" : ""}

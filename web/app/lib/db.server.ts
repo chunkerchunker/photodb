@@ -685,6 +685,7 @@ export async function getPeople(
     SELECT
       per.id,
       TRIM(CONCAT(per.first_name, ' ', COALESCE(per.last_name, ''))) as person_name,
+      COALESCE(per.auto_created, false) as auto_created,
       COALESCE(ps.total_face_count, 0) as total_face_count,
       COALESCE(ps.cluster_count, 0) as cluster_count,
       -- Use person's representative if set, otherwise use fallback from largest cluster

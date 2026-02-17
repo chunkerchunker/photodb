@@ -469,7 +469,7 @@ export default function ClustersView({ loaderData }: Route.ComponentProps) {
                                     <div className="space-y-1">
                                       <div
                                         className={`font-semibold truncate ${
-                                          isPerson ? "text-blue-600" : item.person_name ? "text-gray-900" : "text-blue-600"
+                                          item.person_name ? "text-gray-900" : "text-blue-600"
                                         }`}
                                         title={item.person_name || `Cluster #${item.id}`}
                                       >
@@ -489,12 +489,10 @@ export default function ClustersView({ loaderData }: Route.ComponentProps) {
                           </div>
                         </ContextMenuTrigger>
                         <ContextMenuContent>
-                          {!isPerson && (
-                            <ContextMenuItem onClick={() => handleRename(item)}>
-                              <Pencil className="h-4 w-4 mr-2" />
-                              Rename
-                            </ContextMenuItem>
-                          )}
+                          <ContextMenuItem onClick={() => handleRename(item)}>
+                            <Pencil className="h-4 w-4 mr-2" />
+                            Rename
+                          </ContextMenuItem>
                           <ContextMenuItem onClick={() => handleHide(item)}>
                             <EyeOff className="h-4 w-4 mr-2" />
                             Hide{isPerson ? " All" : ""}

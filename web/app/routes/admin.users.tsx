@@ -65,10 +65,21 @@ export default function AdminUsersPage({ loaderData }: Route.ComponentProps) {
                               </span>
                             )}
                           </div>
-                          <p className="text-sm text-gray-500 truncate">@{user.username}</p>
-                          <div className="mt-2 flex items-center text-sm text-gray-500">
-                            <Users className="h-4 w-4 mr-1" />
-                            {user.collection_count} collection{user.collection_count !== 1 ? "s" : ""}
+                          <p className="text-sm text-gray-500 truncate">@{user.username} <span className="text-gray-400">· id {user.id}</span></p>
+                          <div className="mt-2 space-y-1">
+                            <div className="flex items-center text-sm text-gray-500">
+                              <Users className="h-4 w-4 mr-1" />
+                              {user.collections.length} collection{user.collections.length !== 1 ? "s" : ""}
+                            </div>
+                            {user.collections.length > 0 && (
+                              <ul className="text-xs text-gray-500 space-y-0.5 pl-5">
+                                {user.collections.map((col) => (
+                                  <li key={col.id}>
+                                    <span className="text-gray-400">#{col.id}</span> {col.name}
+                                  </li>
+                                ))}
+                              </ul>
+                            )}
                           </div>
                         </div>
 

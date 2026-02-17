@@ -396,6 +396,11 @@ export async function updateUserProfile(userId: number, firstName: string, lastN
 // Admin Functions
 // ============================================================================
 
+export type UserListCollection = {
+  id: number;
+  name: string;
+};
+
 export type UserListItem = {
   id: number;
   username: string;
@@ -403,13 +408,13 @@ export type UserListItem = {
   last_name: string;
   is_admin: boolean;
   default_collection_id: number | null;
-  collection_count: number;
+  collections: UserListCollection[];
   created_at: string;
 };
 
 /**
  * Get all users for admin user list.
- * Returns users with their collection membership counts.
+ * Returns users with their collection memberships.
  */
 export async function getAllUsers(): Promise<UserListItem[]> {
   const query = `
@@ -421,9 +426,14 @@ export async function getAllUsers(): Promise<UserListItem[]> {
       u.is_admin,
       u.default_collection_id,
       u.created_at,
-      COUNT(cm.collection_id)::int as collection_count
+      COALESCE(
+        json_agg(json_build_object('id', c.id, 'name', c.name) ORDER BY c.name)
+        FILTER (WHERE c.id IS NOT NULL),
+        '[]'
+      ) as collections
     FROM app_user u
     LEFT JOIN collection_member cm ON u.id = cm.user_id
+    LEFT JOIN collection c ON cm.collection_id = c.id
     GROUP BY u.id
     ORDER BY u.created_at DESC
   `;

@@ -494,28 +494,19 @@ export async function getClustersGroupedByPerson(collectionId: number, limit = 5
         TRIM(CONCAT(per.first_name, ' ', COALESCE(per.last_name, ''))) as person_name,
         COALESCE(per.auto_created, false) as auto_created,
         -- Get the largest cluster ID for drag-drop operations
-        (SELECT c2.id FROM cluster c2
-         WHERE c2.person_id = per.id
-           AND c2.face_count > 0
-           AND (c2.hidden = false OR c2.hidden IS NULL)
-         ORDER BY c2.face_count DESC
-         LIMIT 1) as primary_cluster_id,
+        (array_agg(c.id ORDER BY c.face_count DESC))[1] as primary_cluster_id,
         -- Get representative detection (person's or fallback to largest cluster's)
         COALESCE(
           per.representative_detection_id,
-          (SELECT c2.representative_detection_id FROM cluster c2
-           WHERE c2.person_id = per.id
-             AND c2.representative_detection_id IS NOT NULL
-             AND (c2.hidden = false OR c2.hidden IS NULL)
-           ORDER BY c2.face_count DESC
-           LIMIT 1)
+          (array_agg(c.representative_detection_id ORDER BY c.face_count DESC)
+           FILTER (WHERE c.representative_detection_id IS NOT NULL))[1]
         ) as representative_detection_id
       FROM person per
       INNER JOIN cluster c ON c.person_id = per.id
       WHERE c.face_count > 0
         AND (c.hidden = false OR c.hidden IS NULL)
         AND c.collection_id = $1
-      GROUP BY per.id, per.first_name, per.last_name, per.representative_detection_id, per.auto_created
+      GROUP BY per.id
     ),
     unassigned_clusters AS (
       -- Individual clusters without a person

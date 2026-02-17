@@ -436,6 +436,11 @@ CREATE INDEX IF NOT EXISTS idx_cluster_cannot_link_collection ON cluster_cannot_
 CREATE INDEX IF NOT EXISTS idx_cluster_eligible ON cluster(collection_id, id) WHERE centroid IS NOT NULL AND NOT hidden;
 CREATE INDEX IF NOT EXISTS idx_cluster_verified ON "cluster"(verified) WHERE verified = true;
 
+-- Index for people grid queries (getClustersGroupedByPerson, getPeople, etc.)
+CREATE INDEX IF NOT EXISTS idx_cluster_person_visible
+ON cluster(person_id, collection_id, face_count DESC)
+WHERE face_count > 0 AND (hidden = false OR hidden IS NULL);
+
 -- Cluster-Person cannot-link (records when user explicitly removes cluster from person)
 CREATE TABLE IF NOT EXISTS cluster_person_cannot_link (
     id SERIAL PRIMARY KEY,

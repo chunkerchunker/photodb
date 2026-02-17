@@ -669,13 +669,9 @@ export async function getPeople(
         SUM(c.face_count)::integer as total_face_count,
         COUNT(c.id)::integer as cluster_count,
         -- Fallback: get the representative from the largest cluster
-        (SELECT c2.representative_detection_id
-         FROM cluster c2
-         WHERE c2.person_id = c.person_id
-           AND c2.representative_detection_id IS NOT NULL
-           AND (c2.hidden = false OR c2.hidden IS NULL)
-         ORDER BY c2.face_count DESC
-         LIMIT 1) as fallback_representative_detection_id
+        (array_agg(c.representative_detection_id ORDER BY c.face_count DESC)
+         FILTER (WHERE c.representative_detection_id IS NOT NULL))[1]
+         as fallback_representative_detection_id
       FROM cluster c
       WHERE c.face_count > 0
         AND (c.hidden = false OR c.hidden IS NULL)
@@ -797,12 +793,9 @@ export async function getHiddenPeople(collectionId: number, limit = 50, offset =
         SUM(c.face_count)::integer as total_face_count,
         COUNT(c.id)::integer as cluster_count,
         -- Fallback: get the representative from the largest cluster
-        (SELECT c2.representative_detection_id
-         FROM cluster c2
-         WHERE c2.person_id = c.person_id
-           AND c2.representative_detection_id IS NOT NULL
-         ORDER BY c2.face_count DESC
-         LIMIT 1) as fallback_representative_detection_id
+        (array_agg(c.representative_detection_id ORDER BY c.face_count DESC)
+         FILTER (WHERE c.representative_detection_id IS NOT NULL))[1]
+         as fallback_representative_detection_id
       FROM cluster c
       WHERE c.face_count > 0
         AND c.collection_id = $1
@@ -843,13 +836,9 @@ export async function getPersonById(collectionId: number, personId: string) {
         SUM(c.face_count)::integer as total_face_count,
         COUNT(c.id)::integer as cluster_count,
         -- Fallback: get the representative from the largest cluster
-        (SELECT c2.representative_detection_id
-         FROM cluster c2
-         WHERE c2.person_id = c.person_id
-           AND c2.representative_detection_id IS NOT NULL
-           AND (c2.hidden = false OR c2.hidden IS NULL)
-         ORDER BY c2.face_count DESC
-         LIMIT 1) as fallback_representative_detection_id
+        (array_agg(c.representative_detection_id ORDER BY c.face_count DESC)
+         FILTER (WHERE c.representative_detection_id IS NOT NULL))[1]
+         as fallback_representative_detection_id
       FROM cluster c
       WHERE c.face_count > 0
         AND (c.hidden = false OR c.hidden IS NULL)
@@ -1472,20 +1461,15 @@ export async function searchClusters(collectionId: number, query: string, exclud
     person_results AS (
       SELECT
         'person' as item_type,
-        (SELECT c2.id FROM cluster c2
-         WHERE c2.person_id = per.id AND c2.collection_id = $4
-         ORDER BY c2.face_count DESC
-         LIMIT 1)::text as id,
+        (array_agg(c.id ORDER BY c.face_count DESC NULLS LAST)
+         FILTER (WHERE c.id IS NOT NULL))[1]::text as id,
         per.id::text as person_id,
         COALESCE(SUM(c.face_count) FILTER (WHERE c.hidden = false OR c.hidden IS NULL), 0)::integer as face_count,
         COALESCE(
           per.representative_detection_id,
-          (SELECT c2.representative_detection_id FROM cluster c2
-           WHERE c2.person_id = per.id
-             AND c2.representative_detection_id IS NOT NULL
-             AND (c2.hidden = false OR c2.hidden IS NULL)
-           ORDER BY c2.face_count DESC
-           LIMIT 1)
+          (array_agg(c.representative_detection_id ORDER BY c.face_count DESC)
+           FILTER (WHERE c.representative_detection_id IS NOT NULL
+             AND (c.hidden = false OR c.hidden IS NULL)))[1]
         ) as representative_detection_id,
         TRIM(CONCAT(per.first_name, ' ', COALESCE(per.last_name, ''))) as person_name,
         COUNT(c.id) FILTER (WHERE c.hidden = false OR c.hidden IS NULL)::integer as cluster_count,
@@ -1504,7 +1488,7 @@ export async function searchClusters(collectionId: number, query: string, exclud
              OR EXISTS (SELECT 1 FROM cluster c3
                         WHERE c3.person_id = per.id AND c3.collection_id = $4 AND c3.id::text = $1))
         AND ($2::text IS NULL OR per.id IS DISTINCT FROM (SELECT person_id FROM source_person))
-      GROUP BY per.id, per.first_name, per.last_name, per.representative_detection_id
+      GROUP BY per.id
     ),
     cluster_results AS (
       SELECT

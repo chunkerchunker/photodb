@@ -17,6 +17,7 @@ Run this after importing batches of photos through the normal pipeline
 
 import sys
 import logging
+import time
 import click
 from dotenv import load_dotenv
 
@@ -107,7 +108,9 @@ def main(dry_run: bool, force: bool, collection_id: int):
         logger.info("-" * 40)
 
         try:
+            bootstrap_start = time.monotonic()
             success = stage.run_bootstrap()
+            bootstrap_elapsed = time.monotonic() - bootstrap_start
 
             if success:
                 logger.info("")
@@ -120,8 +123,15 @@ def main(dry_run: bool, force: bool, collection_id: int):
                 new_clustered = sum(1 for e in new_embeddings if e.get("cluster_id") is not None)
                 new_clusters = repository.get_clusters_with_epsilon()
 
+                elapsed_min, elapsed_sec = divmod(int(bootstrap_elapsed), 60)
+                per_emb = (
+                    f" ({bootstrap_elapsed / len(new_embeddings):.3f}s/embedding)"
+                    if new_embeddings
+                    else ""
+                )
                 logger.info("")
                 logger.info("Summary:")
+                logger.info(f"  Elapsed: {elapsed_min}m{elapsed_sec:02d}s{per_emb}")
                 logger.info(f"  Embeddings clustered: {new_clustered}/{len(new_embeddings)}")
                 logger.info(f"  Clusters created: {len(new_clusters)}")
                 logger.info(

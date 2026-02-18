@@ -185,6 +185,18 @@ class LocalProcessor(BaseProcessor):
                                 )
                             elif stage_status and stage_status.status == "completed":
                                 stages_processed += 1
+                                # Track face counts for detection-related stages
+                                if stage_name in (
+                                    "detection", "age_gender", "scene_analysis",
+                                ):
+                                    detections = (
+                                        stage_obj.repository.get_detections_for_photo(
+                                            photo.id
+                                        )
+                                    )
+                                    result.stage_face_counts[stage_name] = len(
+                                        detections
+                                    )
                         else:
                             all_stages_succeeded = False
                             logger.error(
@@ -362,9 +374,8 @@ class LocalProcessor(BaseProcessor):
             start_time = time.monotonic()
             last_progress_time = start_time
             completed_count = 0
-            stage_first_start: dict[str, float] = {}
-            stage_last_end: dict[str, float] = {}
             stage_durations: dict[str, list[float]] = defaultdict(list)
+            stage_total_faces: dict[str, int] = defaultdict(int)
             for future in as_completed(futures):
                 file_path = futures.pop(future)
                 try:
@@ -374,11 +385,9 @@ class LocalProcessor(BaseProcessor):
                     result.failed += file_result.failed
                     result.failed_files.extend(file_result.failed_files)
                     for sname, (start, end) in file_result.stage_timings.items():
-                        if sname not in stage_first_start or start < stage_first_start[sname]:
-                            stage_first_start[sname] = start
-                        if sname not in stage_last_end or end > stage_last_end[sname]:
-                            stage_last_end[sname] = end
                         stage_durations[sname].append(end - start)
+                    for sname, fcount in file_result.stage_face_counts.items():
+                        stage_total_faces[sname] += fcount
 
                     # Check if we've hit the max_photos limit after each completed task
                     if self.max_photos is not None and result.processed >= self.max_photos:
@@ -423,11 +432,18 @@ class LocalProcessor(BaseProcessor):
                 if sname in stage_durations:
                     durations = stage_durations[sname]
                     count = len(durations)
-                    wall = stage_last_end[sname] - stage_first_start[sname]
                     avg = sum(durations) / count
-                    lines.append(
-                        f"  {sname}: {count} photos, {wall:.1f}s wall, {avg:.2f}s avg/photo"
-                    )
+                    total_faces = stage_total_faces.get(sname)
+                    if total_faces:
+                        avg_face = sum(durations) / total_faces
+                        lines.append(
+                            f"  {sname}: {count} photos, {avg:.2f}s avg/photo"
+                            f" | {total_faces} faces, {avg_face:.3f}s avg/face"
+                        )
+                    else:
+                        lines.append(
+                            f"  {sname}: {count} photos, {avg:.2f}s avg/photo"
+                        )
             logger.warning("\n".join(lines))
 
         result.success = result.failed == 0

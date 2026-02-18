@@ -15,6 +15,7 @@ class ProcessingResult:
     failed_files: List[tuple] = field(default_factory=list)
     success: bool = True
     stage_timings: dict = field(default_factory=dict)  # {stage_name: (start, end) monotonic}
+    stage_face_counts: dict = field(default_factory=dict)  # {stage_name: face_count}
 
 
 class BaseProcessor:

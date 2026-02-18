@@ -10,6 +10,7 @@ Includes support for constrained clustering:
 """
 
 import logging
+import time
 from typing import Dict, Any, List
 import numpy as np
 
@@ -864,14 +865,30 @@ class MaintenanceUtilities:
             "persons_merged": 0,
             "clusters_linked": 0,
             "groups_found": 0,
+            "clusters_evaluated": 0,
         }
 
+        start = time.monotonic()
         for cid in self._get_collection_ids():
+            cid_start = time.monotonic()
             result = self._auto_associate_for_collection(cid, threshold, dry_run)
+            cid_elapsed = time.monotonic() - cid_start
             for key in totals:
                 totals[key] += result[key]
+            n_clusters = result["clusters_evaluated"]
+            per_cluster = f", {cid_elapsed / n_clusters:.3f}s/cluster" if n_clusters else ""
+            logger.info(
+                f"Collection {cid} auto-association: {cid_elapsed:.2f}s, "
+                f"{n_clusters} clusters{per_cluster}"
+            )
+        elapsed = time.monotonic() - start
 
-        logger.info(f"Auto-association completed: {totals}")
+        elapsed_min, elapsed_sec = divmod(int(elapsed), 60)
+        n_total = totals["clusters_evaluated"]
+        per_total = f", {elapsed / n_total:.3f}s/cluster" if n_total else ""
+        logger.info(
+            f"Auto-association completed in {elapsed_min}m{elapsed_sec:02d}s{per_total}: {totals}"
+        )
         return totals
 
     def _auto_associate_for_collection(
@@ -886,6 +903,7 @@ class MaintenanceUtilities:
             "persons_merged": 0,
             "clusters_linked": 0,
             "groups_found": 0,
+            "clusters_evaluated": 0,
         }
 
         pairs = self.repo.find_similar_cluster_pairs(threshold, collection_id)
@@ -894,6 +912,7 @@ class MaintenanceUtilities:
             return results
 
         clusters = self.repo.get_clusters_for_association(collection_id)
+        results["clusters_evaluated"] = len(clusters)
         cluster_map = {c["id"]: c for c in clusters}
 
         # Build adjacency set from pairs (complete-linkage needs O(1) edge lookup)

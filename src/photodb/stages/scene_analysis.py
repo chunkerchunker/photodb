@@ -42,10 +42,12 @@ class SceneAnalysisStage(BaseStage):
         self.stage_name = "scene_analysis"
 
         self.analyzer = MobileCLIPAnalyzer()
+        self.analyzer.warmup()
         self.prompt_cache = PromptCache(repository, device=self.analyzer.device)
 
         if _apple_vision_available and AppleVisionClassifier is not None:
             self.apple_classifier = AppleVisionClassifier()
+            self.apple_classifier.warmup()
         else:
             self.apple_classifier = None
             logger.warning("Apple Vision not available (not macOS or import failed)")

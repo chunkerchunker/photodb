@@ -1,5 +1,6 @@
 from pathlib import Path
 from typing import List, Optional
+from collections import defaultdict
 import logging
 import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
@@ -162,7 +163,10 @@ class LocalProcessor(BaseProcessor):
                     try:
                         # Set force flag on stage object for clustering logic
                         stage_obj.force = self.force
+                        stage_start = time.monotonic()
                         stage_obj.process(file_path)
+                        stage_end = time.monotonic()
+                        result.stage_timings[stage_name] = (stage_start, stage_end)
 
                         # Check if the stage actually succeeded by looking at processing status
                         photo = stage_obj.repository.get_photo_by_orig_path(
@@ -358,6 +362,9 @@ class LocalProcessor(BaseProcessor):
             start_time = time.monotonic()
             last_progress_time = start_time
             completed_count = 0
+            stage_first_start: dict[str, float] = {}
+            stage_last_end: dict[str, float] = {}
+            stage_durations: dict[str, list[float]] = defaultdict(list)
             for future in as_completed(futures):
                 file_path = futures.pop(future)
                 try:
@@ -366,6 +373,12 @@ class LocalProcessor(BaseProcessor):
                     result.skipped += file_result.skipped
                     result.failed += file_result.failed
                     result.failed_files.extend(file_result.failed_files)
+                    for sname, (start, end) in file_result.stage_timings.items():
+                        if sname not in stage_first_start or start < stage_first_start[sname]:
+                            stage_first_start[sname] = start
+                        if sname not in stage_last_end or end > stage_last_end[sname]:
+                            stage_last_end[sname] = end
+                        stage_durations[sname].append(end - start)
 
                     # Check if we've hit the max_photos limit after each completed task
                     if self.max_photos is not None and result.processed >= self.max_photos:
@@ -400,6 +413,22 @@ class LocalProcessor(BaseProcessor):
                     else:
                         logger.info(msg)
                     last_progress_time = now
+
+        # Log per-stage performance stats
+        if stage_durations:
+            total_wall = time.monotonic() - start_time
+            total_wall_min, total_wall_sec = divmod(int(total_wall), 60)
+            lines = [f"Performance stats ({total_wall_min}m{total_wall_sec:02d}s wall time):"]
+            for sname in self._get_stages(stage):
+                if sname in stage_durations:
+                    durations = stage_durations[sname]
+                    count = len(durations)
+                    wall = stage_last_end[sname] - stage_first_start[sname]
+                    avg = sum(durations) / count
+                    lines.append(
+                        f"  {sname}: {count} photos, {wall:.1f}s wall, {avg:.2f}s avg/photo"
+                    )
+            logger.warning("\n".join(lines))
 
         result.success = result.failed == 0
         return result

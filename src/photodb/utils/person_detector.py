@@ -145,6 +145,23 @@ class PersonDetector:
         # Uses CoreML on macOS, CUDA on Linux, with CPU fallback
         self.embedding_extractor = EmbeddingExtractor()
 
+    def warmup(self) -> None:
+        """Run dummy inference to trigger lazy model compilation (CoreML/ONNX)."""
+        dummy = Image.new("RGB", (640, 640), color=(128, 128, 128))
+        try:
+            if self.using_coreml:
+                self.model(dummy, conf=self.min_confidence, verbose=False)
+            else:
+                self.model(dummy, conf=self.min_confidence, device=self._yolo_device, verbose=False)
+            # Warmup embedding extractor with a small face-sized image
+            dummy_face = np.zeros((112, 112, 3), dtype=np.uint8)
+            self.embedding_extractor.model.get_feat([dummy_face])  # type: ignore[union-attr]
+            logger.info("PersonDetector warmup complete")
+        except Exception as e:
+            logger.warning(f"PersonDetector warmup failed (non-fatal): {e}")
+        finally:
+            dummy.close()
+
     def detect(self, image_path: str) -> Dict[str, Any]:
         """
         Detect faces and bodies in an image.

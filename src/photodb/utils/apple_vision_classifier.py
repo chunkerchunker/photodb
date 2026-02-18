@@ -34,6 +34,23 @@ class AppleVisionClassifier:
         """Initialize the classifier."""
         logger.info("AppleVisionClassifier initialized")
 
+    def warmup(self) -> None:
+        """Run dummy classification to trigger CoreML/ANE compilation."""
+        import tempfile
+        from PIL import Image
+
+        dummy = Image.new("RGB", (64, 64), color=(128, 128, 128))
+        try:
+            with tempfile.NamedTemporaryFile(suffix=".png") as f:
+                dummy.save(f, "PNG")
+                f.flush()
+                self.classify(f.name)
+            logger.info("AppleVisionClassifier warmup complete")
+        except Exception as e:
+            logger.warning(f"AppleVisionClassifier warmup failed (non-fatal): {e}")
+        finally:
+            dummy.close()
+
     def classify(
         self,
         image_path: str,

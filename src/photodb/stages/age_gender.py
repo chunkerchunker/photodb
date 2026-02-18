@@ -108,6 +108,21 @@ class MiVOLOPredictor:
         except Exception as e:
             logger.error(f"Failed to initialize MiVOLO: {e}")
 
+    def warmup(self) -> None:
+        """Run dummy inference to force-init MiVOLO's lazy YOLO predictor."""
+        if not self._available:
+            return
+        import numpy as np
+
+        dummy = np.zeros((640, 640, 3), dtype=np.uint8)
+        try:
+            assert self.predictor is not None
+            with self._lock:
+                self.predictor.recognize(dummy)
+            logger.info("MiVOLO warmup complete")
+        except Exception as e:
+            logger.warning(f"MiVOLO warmup failed (non-fatal): {e}")
+
     def predict(self, image_path: str) -> List[Dict[str, Any]]:
         """
         Predict age and gender for all detections in an image.
@@ -311,6 +326,7 @@ class AgeGenderStage(BaseStage):
             detector_weights_path=detector_weights_path,
             device=device,
         )
+        self.predictor.warmup()
         logger.debug(f"AgeGenderStage initialized with device: {device}")
 
     def process_photo(self, photo: Photo, file_path: Path) -> bool:

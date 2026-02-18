@@ -114,6 +114,21 @@ class MobileCLIPAnalyzer:
         assert _model_name is not None  # Guaranteed by _ensure_loaded
         return _model_name
 
+    def warmup(self) -> None:
+        """Run dummy inference to trigger MPS Metal shader compilation."""
+        self._ensure_loaded()
+        assert self._preprocess is not None and self._model is not None
+        dummy = Image.new("RGB", (224, 224), color=(128, 128, 128))
+        try:
+            image_tensor = self._preprocess(dummy).unsqueeze(0).to(self._device)  # type: ignore[union-attr]
+            with torch.no_grad():
+                self._model.encode_image(image_tensor)
+            logger.info("MobileCLIP warmup complete")
+        except Exception as e:
+            logger.warning(f"MobileCLIP warmup failed (non-fatal): {e}")
+        finally:
+            dummy.close()
+
     def encode_image(self, image_path: Union[str, Path]) -> torch.Tensor:
         """
         Encode an image file to embedding.

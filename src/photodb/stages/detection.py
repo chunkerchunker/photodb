@@ -30,6 +30,7 @@ class DetectionStage(BaseStage):
         force_cpu = defaults.DETECTION_FORCE_CPU
 
         self.detector = PersonDetector(force_cpu=force_cpu)
+        self.detector.warmup()
         self.faces_output_dir = (
             Path(self.config.get("IMG_PATH", "./photos/processed")) / FACES_SUBDIR
         )

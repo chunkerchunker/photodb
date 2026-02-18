@@ -674,7 +674,7 @@ export async function getPeople(
   const orderBy =
     sort === "photos"
       ? "COALESCE(ps.total_face_count, 0) DESC, COALESCE(per.preferred_name, per.first_name), per.last_name, per.id"
-      : "COALESCE(per.preferred_name, per.first_name), per.last_name, per.id";
+      : "COALESCE(per.auto_created, false), COALESCE(per.preferred_name, per.first_name), per.last_name, per.id";
 
   // Filter clause for people without images (no linked clusters)
   const withoutImagesFilter = includeWithoutImages ? "" : "AND ps.person_id IS NOT NULL";

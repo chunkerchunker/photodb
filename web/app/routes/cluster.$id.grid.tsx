@@ -46,6 +46,7 @@ import {
   getClusterFaces,
   getClusterFacesCount,
   linkClustersToSamePerson,
+  reassignCluster,
   setClusterHidden,
   setClusterPersonName,
   setClusterRepresentative,
@@ -166,6 +167,22 @@ export async function action({ request, params }: Route.ActionArgs) {
       return await setPersonRepresentativeDetection(collectionId, personId, faceId);
     }
     return { success: false, message: "Invalid face or person ID" };
+  }
+
+  if (intent === "reassign") {
+    const targetClusterId = formData.get("targetClusterId") as string;
+    const targetPersonId = formData.get("targetPersonId") as string;
+    if (!clusterId) {
+      return { success: false, message: "Invalid cluster ID" };
+    }
+    if (!targetPersonId && !targetClusterId) {
+      return { success: false, message: "Missing target person or cluster ID" };
+    }
+    const result = await reassignCluster(collectionId, clusterId, {
+      personId: targetPersonId || undefined,
+      clusterId: targetClusterId || undefined,
+    });
+    return result;
   }
 
   if (intent === "unlink") {
@@ -493,10 +510,13 @@ export default function ClusterDetailView({ loaderData }: Route.ComponentProps) 
   };
 
   const confirmLink = (result: SearchCluster) => {
+    // Use "reassign" when changing an existing person association (moves only this cluster),
+    // "link" when linking an unassociated cluster (merges all clusters from both persons).
+    const intent = cluster?.person_id ? "reassign" : "link";
     if (result.item_type === "person" && !result.id && result.person_id) {
-      fetcher.submit({ intent: "link", targetPersonId: result.person_id }, { method: "post" });
+      fetcher.submit({ intent, targetPersonId: result.person_id }, { method: "post" });
     } else if (result.id) {
-      fetcher.submit({ intent: "link", targetClusterId: result.id }, { method: "post" });
+      fetcher.submit({ intent, targetClusterId: result.id }, { method: "post" });
     }
     setLinkModalOpen(false);
     setPendingLinkClusterId(null);

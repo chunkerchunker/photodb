@@ -1011,10 +1011,10 @@ export async function unlinkClusterFromPerson(collectionId: number, clusterId: s
 
     // If person was auto_created and now has no remaining clusters, delete it
     let deletedPerson = false;
-    const remaining = await client.query(
-      `SELECT COUNT(*) FROM cluster WHERE person_id = $1 AND collection_id = $2`,
-      [personId, collectionId],
-    );
+    const remaining = await client.query(`SELECT COUNT(*) FROM cluster WHERE person_id = $1 AND collection_id = $2`, [
+      personId,
+      collectionId,
+    ]);
     if (parseInt(remaining.rows[0].count) === 0) {
       const personRow = await client.query(`SELECT auto_created FROM person WHERE id = $1 AND collection_id = $2`, [
         personId,
@@ -1029,7 +1029,9 @@ export async function unlinkClusterFromPerson(collectionId: number, clusterId: s
     await client.query("COMMIT");
     return {
       success: true,
-      message: deletedPerson ? "Cluster unlinked and empty auto-created person deleted" : "Cluster unlinked from person",
+      message: deletedPerson
+        ? "Cluster unlinked and empty auto-created person deleted"
+        : "Cluster unlinked from person",
       deletedPerson,
     };
   } catch (error) {
@@ -1938,6 +1940,132 @@ export async function assignClusterToPerson(collectionId: number, sourceClusterI
     await client.query("ROLLBACK");
     console.error("Failed to assign cluster to person:", error);
     return { success: false, message: "Failed to assign cluster to person" };
+  } finally {
+    client.release();
+  }
+}
+
+/**
+ * Reassign a single cluster to a different person (or to a cluster's person).
+ * Unlike assignClusterToPerson/linkClustersToSamePerson which merge ALL clusters
+ * from the old person, this only moves the one cluster. The old person is deleted
+ * only if it becomes empty and was auto_created.
+ */
+export async function reassignCluster(
+  collectionId: number,
+  clusterId: string,
+  target: { personId?: string; clusterId?: string },
+) {
+  const client = await pool.connect();
+  try {
+    await client.query("BEGIN");
+
+    // Get source cluster
+    const sourceResult = await client.query(`SELECT id, person_id FROM cluster WHERE id = $1 AND collection_id = $2`, [
+      clusterId,
+      collectionId,
+    ]);
+    if (sourceResult.rows.length === 0) {
+      await client.query("ROLLBACK");
+      return { success: false, message: "Source cluster not found" };
+    }
+    const oldPersonId = sourceResult.rows[0].person_id;
+
+    // Resolve target person ID
+    let targetPersonId: number;
+    let targetPersonName: string;
+
+    if (target.personId) {
+      const personResult = await client.query(
+        `SELECT id, TRIM(CONCAT(COALESCE(preferred_name, first_name), ' ', COALESCE(last_name, ''))) as person_name
+         FROM person WHERE id = $1 AND collection_id = $2`,
+        [target.personId, collectionId],
+      );
+      if (personResult.rows.length === 0) {
+        await client.query("ROLLBACK");
+        return { success: false, message: "Target person not found" };
+      }
+      targetPersonId = personResult.rows[0].id;
+      targetPersonName = personResult.rows[0].person_name;
+    } else if (target.clusterId) {
+      const targetClusterResult = await client.query(
+        `SELECT c.id, c.person_id,
+                TRIM(CONCAT(COALESCE(p.preferred_name, p.first_name), ' ', COALESCE(p.last_name, ''))) as person_name
+         FROM cluster c
+         LEFT JOIN person p ON c.person_id = p.id
+         WHERE c.id = $1 AND c.collection_id = $2`,
+        [target.clusterId, collectionId],
+      );
+      if (targetClusterResult.rows.length === 0) {
+        await client.query("ROLLBACK");
+        return { success: false, message: "Target cluster not found" };
+      }
+      const targetCluster = targetClusterResult.rows[0];
+      if (targetCluster.person_id) {
+        targetPersonId = targetCluster.person_id;
+        targetPersonName = targetCluster.person_name;
+      } else {
+        // Target cluster has no person — create one and assign the target cluster to it
+        const newPerson = await client.query(
+          `INSERT INTO person (collection_id, auto_created, representative_detection_id)
+           SELECT $1, true, representative_detection_id FROM cluster WHERE id = $2 AND collection_id = $1
+           RETURNING id`,
+          [collectionId, target.clusterId],
+        );
+        targetPersonId = newPerson.rows[0].id;
+        targetPersonName = `Cluster ${target.clusterId}`;
+        await client.query(
+          `UPDATE cluster SET person_id = $1, updated_at = NOW() WHERE id = $2 AND collection_id = $3`,
+          [targetPersonId, target.clusterId, collectionId],
+        );
+      }
+    } else {
+      await client.query("ROLLBACK");
+      return { success: false, message: "No target specified" };
+    }
+
+    if (oldPersonId === targetPersonId) {
+      await client.query("ROLLBACK");
+      return { success: true, message: "Already assigned to this person" };
+    }
+
+    // Reassign only this cluster
+    await client.query(`UPDATE cluster SET person_id = $1, updated_at = NOW() WHERE id = $2 AND collection_id = $3`, [
+      targetPersonId,
+      clusterId,
+      collectionId,
+    ]);
+
+    // Remove any cannot-link between this cluster and the target person
+    await client.query(`DELETE FROM cluster_person_cannot_link WHERE cluster_id = $1 AND person_id = $2`, [
+      clusterId,
+      targetPersonId,
+    ]);
+
+    // Clean up old person if it's now empty and was auto_created
+    if (oldPersonId) {
+      const remaining = await client.query(`SELECT COUNT(*) FROM cluster WHERE person_id = $1 AND collection_id = $2`, [
+        oldPersonId,
+        collectionId,
+      ]);
+      if (parseInt(remaining.rows[0].count) === 0) {
+        const oldPerson = await client.query(`SELECT auto_created FROM person WHERE id = $1 AND collection_id = $2`, [
+          oldPersonId,
+          collectionId,
+        ]);
+        if (oldPerson.rows.length > 0 && oldPerson.rows[0].auto_created) {
+          await client.query(`DELETE FROM cluster_person_cannot_link WHERE person_id = $1`, [oldPersonId]);
+          await client.query(`DELETE FROM person WHERE id = $1 AND collection_id = $2`, [oldPersonId, collectionId]);
+        }
+      }
+    }
+
+    await client.query("COMMIT");
+    return { success: true, message: `Reassigned to "${targetPersonName}"` };
+  } catch (error) {
+    await client.query("ROLLBACK");
+    console.error("Failed to reassign cluster:", error);
+    return { success: false, message: "Failed to reassign cluster" };
   } finally {
     client.release();
   }

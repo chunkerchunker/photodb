@@ -1,0 +1,17 @@
+{
+	"files.exclude": {
+		"**/.git": true,
+		"**/.svn": true,
+		"**/.hg": true,
+		"**/.DS_Store": true,
+		"**/Thumbs.db": true,
+		".worktrees": true,
+		".venv": true,
+		".ruff_cache": true,
+		"**/node_modules": true,
+		"web/build": true,
+		"bkup": true,
+		".github": true
+	},
+	"explorerExclude.backup": {}
+}

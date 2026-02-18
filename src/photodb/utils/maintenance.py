@@ -221,6 +221,35 @@ class MaintenanceUtilities:
         logger.info(f"Removed {deleted_count} empty clusters")
         return deleted_count
 
+    def cleanup_empty_auto_created_persons(self) -> int:
+        """
+        Remove auto_created persons that have no remaining clusters.
+
+        This can happen when clusters are unlinked or deleted from a person
+        that was originally created by auto_associate_clusters.
+
+        Returns:
+            Number of empty auto-created persons removed
+        """
+        logger.info("Cleaning up empty auto-created persons")
+
+        with self.pool.transaction() as conn:
+            with conn.cursor() as cursor:
+                cursor.execute("""
+                    DELETE FROM person
+                    WHERE auto_created = true
+                    AND id NOT IN (
+                        SELECT DISTINCT person_id
+                        FROM cluster
+                        WHERE person_id IS NOT NULL
+                    )
+                """)
+
+                deleted_count = cursor.rowcount
+
+        logger.info(f"Removed {deleted_count} empty auto-created persons")
+        return deleted_count
+
     def update_cluster_statistics(self) -> int:
         """
         Update face_count and other statistics for all clusters.
@@ -1209,6 +1238,12 @@ class MaintenanceUtilities:
             except Exception as e:
                 logger.error(f"Failed to auto-associate clusters: {e}")
                 results["auto_association"] = {}
+
+        try:
+            results["empty_auto_persons_removed"] = self.cleanup_empty_auto_created_persons()
+        except Exception as e:
+            logger.error(f"Failed to cleanup empty auto-created persons: {e}")
+            results["empty_auto_persons_removed"] = 0
 
         if cluster_unassigned:
             try:

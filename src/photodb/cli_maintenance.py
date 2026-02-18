@@ -183,6 +183,20 @@ def cleanup_empty(args):
     return run_maintenance_command(operation, "Failed to cleanup clusters", args.collection_id)
 
 
+def cleanup_empty_persons(args):
+    """Remove empty auto-created persons."""
+    logger.info("Cleaning up empty auto-created persons...")
+
+    def operation(maintenance: MaintenanceUtilities) -> int:
+        count = maintenance.cleanup_empty_auto_created_persons()
+        print(f"Removed {count} empty auto-created persons")
+        return 0
+
+    return run_maintenance_command(
+        operation, "Failed to cleanup empty auto-created persons", args.collection_id
+    )
+
+
 def update_stats(args):
     """Update cluster statistics."""
     logger.info("Updating cluster statistics...")
@@ -439,6 +453,13 @@ Examples:
         "cleanup-empty", parents=[common], help="Remove empty clusters"
     )
     cleanup_parser.set_defaults(func=cleanup_empty)
+
+    cleanup_persons_parser = subparsers.add_parser(
+        "cleanup-empty-persons",
+        parents=[common],
+        help="Remove auto-created persons with no remaining clusters",
+    )
+    cleanup_persons_parser.set_defaults(func=cleanup_empty_persons)
 
     stats_parser = subparsers.add_parser(
         "update-stats", parents=[common], help="Update cluster statistics"

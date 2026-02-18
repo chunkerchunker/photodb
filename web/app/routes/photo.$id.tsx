@@ -91,6 +91,7 @@ interface FaceMatchCandidate {
   status: string;
   person_id?: string;
   person_name?: string;
+  auto_created?: boolean;
   face_count: number;
 }
 
@@ -117,6 +118,7 @@ interface Face {
   bbox_height: number;
   confidence: number;
   person_name?: string;
+  auto_created?: boolean;
   cluster_id?: string;
   cluster_confidence?: number;
   match_candidates?: FaceMatchCandidate[];
@@ -201,7 +203,7 @@ function FaceOverlay({
               )}
             >
               <div>Face {index + 1}</div>
-              {face.person_name && <div>{face.person_name}</div>}
+              {face.person_name && !face.auto_created && <div>{face.person_name}</div>}
             </div>
           </button>
         );
@@ -675,7 +677,13 @@ export default function PhotoDetail({ loaderData }: Route.ComponentProps) {
                                     <span className="font-medium">Face {index + 1}:</span>
                                     {face.person_name ? (
                                       <>
-                                        <Badge variant="default">{face.person_name}</Badge>
+                                        <Badge variant={face.auto_created ? "secondary" : "default"}>
+                                          {face.auto_created ? (
+                                            <Sparkles className="h-3 w-3 text-gray-400" />
+                                          ) : (
+                                            face.person_name
+                                          )}
+                                        </Badge>
                                         {face.cluster_id && (
                                           <Button
                                             variant="ghost"
@@ -804,7 +812,11 @@ export default function PhotoDetail({ loaderData }: Route.ComponentProps) {
                                               variant="outline"
                                               className="hover:bg-gray-100 cursor-pointer text-xs"
                                             >
-                                              {candidate.person_name || `Cluster ${candidate.cluster_id}`}
+                                              {candidate.auto_created ? (
+                                                <Sparkles className="h-3 w-3 text-gray-400" />
+                                              ) : (
+                                                candidate.person_name || `Cluster ${candidate.cluster_id}`
+                                              )}
                                               <span className="ml-1 text-gray-500">
                                                 ({Math.round(candidate.similarity * 100)}%)
                                               </span>

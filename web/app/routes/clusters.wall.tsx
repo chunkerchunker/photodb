@@ -50,7 +50,7 @@ export default function ClustersWallView({ loaderData }: Route.ComponentProps) {
           id: `${item.item_type}:${item.id}`,
           imageUrls: imageUrl ? [imageUrl] : [],
           // For people: show name only. For clusters: show photo count only (as subtitle)
-          label: isPerson ? item.person_name || "" : "",
+          label: isPerson ? (item.auto_created ? "✨" : item.person_name || "") : "",
           navigateTo,
           metadata: {
             subtitle: isPerson ? undefined : `${item.face_count} photo${item.face_count !== 1 ? "s" : ""}`,

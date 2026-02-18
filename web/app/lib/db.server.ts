@@ -216,9 +216,10 @@ export async function getPhotoDetails(collectionId: number, photoId: number) {
            pd.age_estimate, pd.gender, pd.gender_confidence,
            pd.body_bbox_x, pd.body_bbox_y, pd.body_bbox_width, pd.body_bbox_height,
            COALESCE(
-             NULLIF(TRIM(CONCAT(p.first_name, ' ', COALESCE(p.last_name, ''))), ''),
-             NULLIF(TRIM(CONCAT(cp.first_name, ' ', COALESCE(cp.last_name, ''))), '')
+             NULLIF(TRIM(CONCAT(COALESCE(p.preferred_name, p.first_name), ' ', COALESCE(p.last_name, ''))), ''),
+             NULLIF(TRIM(CONCAT(COALESCE(cp.preferred_name, cp.first_name), ' ', COALESCE(cp.last_name, ''))), '')
            ) as person_name,
+           COALESCE(p.auto_created, cp.auto_created, false) as auto_created,
            pd.cluster_id, pd.cluster_status, pd.cluster_confidence
     FROM person_detection pd
     LEFT JOIN person p ON pd.person_id = p.id
@@ -236,7 +237,8 @@ export async function getPhotoDetails(collectionId: number, photoId: number) {
     const candidatesQuery = `
       SELECT fmc.cluster_id, fmc.similarity, fmc.status,
              c.person_id,
-             TRIM(CONCAT(per.first_name, ' ', COALESCE(per.last_name, ''))) as person_name,
+             TRIM(CONCAT(COALESCE(per.preferred_name, per.first_name), ' ', COALESCE(per.last_name, ''))) as person_name,
+             COALESCE(per.auto_created, false) as auto_created,
              c.face_count
       FROM face_match_candidate fmc
       LEFT JOIN "cluster" c ON fmc.cluster_id = c.id
@@ -448,7 +450,7 @@ export async function getClusters(collectionId: number, limit = 50, offset = 0) 
            pd.face_path,
            p.id as photo_id, p.med_path, p.orig_path,
            p.med_width, p.med_height,
-           TRIM(CONCAT(per.first_name, ' ', COALESCE(per.last_name, ''))) as person_name
+           TRIM(CONCAT(COALESCE(per.preferred_name, per.first_name), ' ', COALESCE(per.last_name, ''))) as person_name
     FROM cluster c
     LEFT JOIN person_detection pd ON c.representative_detection_id = pd.id
     LEFT JOIN photo p ON pd.photo_id = p.id
@@ -491,7 +493,7 @@ export async function getClustersGroupedByPerson(collectionId: number, limit = 5
         per.id as person_id,
         SUM(c.face_count)::integer as face_count,
         COUNT(c.id)::integer as cluster_count,
-        TRIM(CONCAT(per.first_name, ' ', COALESCE(per.last_name, ''))) as person_name,
+        TRIM(CONCAT(COALESCE(per.preferred_name, per.first_name), ' ', COALESCE(per.last_name, ''))) as person_name,
         COALESCE(per.auto_created, false) as auto_created,
         -- Get the largest cluster ID for drag-drop operations
         (array_agg(c.id ORDER BY c.face_count DESC))[1] as primary_cluster_id,
@@ -579,7 +581,8 @@ export async function getHiddenClusters(collectionId: number, limit = 50, offset
   const query = `
     SELECT c.id, c.face_count, c.representative_detection_id,
            pd.face_path, pd.id as detection_id,
-           TRIM(CONCAT(per.first_name, ' ', COALESCE(per.last_name, ''))) as person_name
+           TRIM(CONCAT(COALESCE(per.preferred_name, per.first_name), ' ', COALESCE(per.last_name, ''))) as person_name,
+           COALESCE(per.auto_created, false) as auto_created
     FROM cluster c
     LEFT JOIN person_detection pd ON c.representative_detection_id = pd.id
     LEFT JOIN person per ON c.person_id = per.id
@@ -608,13 +611,13 @@ export async function getHiddenClustersCount(collectionId: number) {
 export async function getNamedClusters(collectionId: number, limit = 50, offset = 0, sort: "photos" | "name" = "name") {
   const orderBy =
     sort === "photos"
-      ? "c.face_count DESC, per.first_name, per.last_name, c.id"
-      : "per.first_name, per.last_name, c.id";
+      ? "c.face_count DESC, COALESCE(per.preferred_name, per.first_name), per.last_name, c.id"
+      : "COALESCE(per.preferred_name, per.first_name), per.last_name, c.id";
 
   const query = `
     SELECT c.id, c.face_count, c.representative_detection_id,
            pd.face_path, pd.id as detection_id,
-           TRIM(CONCAT(per.first_name, ' ', COALESCE(per.last_name, ''))) as person_name
+           TRIM(CONCAT(COALESCE(per.preferred_name, per.first_name), ' ', COALESCE(per.last_name, ''))) as person_name
     FROM cluster c
     INNER JOIN person per ON c.person_id = per.id
     LEFT JOIN person_detection pd ON c.representative_detection_id = pd.id
@@ -656,8 +659,8 @@ export async function getPeople(
 ) {
   const orderBy =
     sort === "photos"
-      ? "COALESCE(ps.total_face_count, 0) DESC, per.first_name, per.last_name, per.id"
-      : "per.first_name, per.last_name, per.id";
+      ? "COALESCE(ps.total_face_count, 0) DESC, COALESCE(per.preferred_name, per.first_name), per.last_name, per.id"
+      : "COALESCE(per.preferred_name, per.first_name), per.last_name, per.id";
 
   // Filter clause for people without images (no linked clusters)
   const withoutImagesFilter = includeWithoutImages ? "" : "AND ps.person_id IS NOT NULL";
@@ -681,7 +684,7 @@ export async function getPeople(
     )
     SELECT
       per.id,
-      TRIM(CONCAT(per.first_name, ' ', COALESCE(per.last_name, ''))) as person_name,
+      TRIM(CONCAT(COALESCE(per.preferred_name, per.first_name), ' ', COALESCE(per.last_name, ''))) as person_name,
       COALESCE(per.auto_created, false) as auto_created,
       COALESCE(ps.total_face_count, 0) as total_face_count,
       COALESCE(ps.cluster_count, 0) as cluster_count,
@@ -783,8 +786,8 @@ export async function getHiddenPeopleCount(collectionId: number) {
 export async function getHiddenPeople(collectionId: number, limit = 50, offset = 0, sort: "photos" | "name" = "name") {
   const orderBy =
     sort === "photos"
-      ? "total_face_count DESC, per.first_name, per.last_name, per.id"
-      : "per.first_name, per.last_name, per.id";
+      ? "total_face_count DESC, COALESCE(per.preferred_name, per.first_name), per.last_name, per.id"
+      : "COALESCE(per.preferred_name, per.first_name), per.last_name, per.id";
 
   const query = `
     WITH person_stats AS (
@@ -804,7 +807,7 @@ export async function getHiddenPeople(collectionId: number, limit = 50, offset =
     )
     SELECT
       per.id,
-      TRIM(CONCAT(per.first_name, ' ', COALESCE(per.last_name, ''))) as person_name,
+      TRIM(CONCAT(COALESCE(per.preferred_name, per.first_name), ' ', COALESCE(per.last_name, ''))) as person_name,
       ps.total_face_count,
       ps.cluster_count,
       -- Use person's representative if set, otherwise use fallback from largest cluster
@@ -850,7 +853,12 @@ export async function getPersonById(collectionId: number, personId: string) {
       per.id,
       per.first_name,
       per.last_name,
-      TRIM(CONCAT(per.first_name, ' ', COALESCE(per.last_name, ''))) as person_name,
+      per.middle_name,
+      per.maiden_name,
+      per.preferred_name,
+      per.suffix,
+      per.alternate_names,
+      TRIM(CONCAT(COALESCE(per.preferred_name, per.first_name), ' ', COALESCE(per.last_name, ''))) as person_name,
       COALESCE(per.auto_created, false) as auto_created,
       COALESCE(ps.total_face_count, 0)::integer as total_face_count,
       COALESCE(ps.cluster_count, 0)::integer as cluster_count,
@@ -887,15 +895,37 @@ export async function getClustersByPerson(collectionId: number, personId: string
 /**
  * Rename a person directly.
  */
-export async function setPersonName(collectionId: number, personId: string, firstName: string, lastName?: string) {
+export async function setPersonName(
+  collectionId: number,
+  personId: string,
+  firstName: string,
+  lastName?: string,
+  middleName?: string,
+  maidenName?: string,
+  preferredName?: string,
+  suffix?: string,
+  alternateNames?: string[],
+) {
   const query = `
     UPDATE person
-    SET first_name = $1, last_name = $2, auto_created = false, updated_at = NOW()
-    WHERE id = $3 AND collection_id = $4
+    SET first_name = $1, last_name = $2, middle_name = $3, maiden_name = $4,
+        preferred_name = $5, suffix = $6, alternate_names = $7,
+        auto_created = false, updated_at = NOW()
+    WHERE id = $8 AND collection_id = $9
     RETURNING id
   `;
 
-  const result = await pool.query(query, [firstName, lastName || null, personId, collectionId]);
+  const result = await pool.query(query, [
+    firstName,
+    lastName || null,
+    middleName || null,
+    maidenName || null,
+    preferredName || null,
+    suffix || null,
+    alternateNames || [],
+    personId,
+    collectionId,
+  ]);
   return {
     success: result.rows.length > 0,
     message: result.rows.length > 0 ? "Person renamed" : "Person not found",
@@ -1108,6 +1138,11 @@ export async function setClusterPersonName(
   clusterId: string,
   firstName: string,
   lastName?: string,
+  middleName?: string,
+  maidenName?: string,
+  preferredName?: string,
+  suffix?: string,
+  alternateNames?: string[],
 ) {
   const client = await pool.connect();
   try {
@@ -1128,14 +1163,37 @@ export async function setClusterPersonName(
     if (existingPersonId) {
       // Update existing person's name
       await client.query(
-        "UPDATE person SET first_name = $1, last_name = $2, auto_created = false, updated_at = NOW() WHERE id = $3 AND collection_id = $4",
-        [firstName, lastName || null, existingPersonId, collectionId],
+        `UPDATE person SET first_name = $1, last_name = $2, middle_name = $3, maiden_name = $4,
+                preferred_name = $5, suffix = $6, alternate_names = $7,
+                auto_created = false, updated_at = NOW()
+         WHERE id = $8 AND collection_id = $9`,
+        [
+          firstName,
+          lastName || null,
+          middleName || null,
+          maidenName || null,
+          preferredName || null,
+          suffix || null,
+          alternateNames || [],
+          existingPersonId,
+          collectionId,
+        ],
       );
     } else {
       // Create new person and link to cluster
       const personResult = await client.query(
-        "INSERT INTO person (collection_id, first_name, last_name) VALUES ($1, $2, $3) RETURNING id",
-        [collectionId, firstName, lastName || null],
+        `INSERT INTO person (collection_id, first_name, last_name, middle_name, maiden_name, preferred_name, suffix, alternate_names)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8) RETURNING id`,
+        [
+          collectionId,
+          firstName,
+          lastName || null,
+          middleName || null,
+          maidenName || null,
+          preferredName || null,
+          suffix || null,
+          alternateNames || [],
+        ],
       );
       const newPersonId = personResult.rows[0].id;
       await client.query("UPDATE cluster SET person_id = $1, updated_at = NOW() WHERE id = $2 AND collection_id = $3", [
@@ -1208,7 +1266,7 @@ export async function getClusterDetails(collectionId: number, clusterId: string)
            per.first_name, per.last_name,
            per.gender as person_gender, per.gender_confidence as person_gender_confidence,
            per.estimated_birth_year, per.birth_year_stddev,
-           TRIM(CONCAT(per.first_name, ' ', COALESCE(per.last_name, ''))) as person_name,
+           TRIM(CONCAT(COALESCE(per.preferred_name, per.first_name), ' ', COALESCE(per.last_name, ''))) as person_name,
            rep.face_path as rep_face_path,
            rep.id as rep_detection_id
     FROM cluster c
@@ -1471,20 +1529,21 @@ export async function searchClusters(collectionId: number, query: string, exclud
            FILTER (WHERE c.representative_detection_id IS NOT NULL
              AND (c.hidden = false OR c.hidden IS NULL)))[1]
         ) as representative_detection_id,
-        TRIM(CONCAT(per.first_name, ' ', COALESCE(per.last_name, ''))) as person_name,
+        TRIM(CONCAT(COALESCE(per.preferred_name, per.first_name), ' ', COALESCE(per.last_name, ''))) as person_name,
         COUNT(c.id) FILTER (WHERE c.hidden = false OR c.hidden IS NULL)::integer as cluster_count,
         CASE WHEN EXISTS (
           SELECT 1 FROM cluster c3
           WHERE c3.person_id = per.id AND c3.collection_id = $4 AND c3.id::text = $1
         ) THEN 0 ELSE 1 END as id_match_rank,
-        CASE WHEN per.first_name ILIKE $1 || '%' OR per.last_name ILIKE $1 || '%' THEN 0 ELSE 1 END as name_match_rank
+        CASE WHEN COALESCE(per.preferred_name, per.first_name) ILIKE $1 || '%' OR per.last_name ILIKE $1 || '%' THEN 0 ELSE 1 END as name_match_rank
       FROM person per
       LEFT JOIN cluster c ON c.person_id = per.id AND c.collection_id = $4
       WHERE per.collection_id = $4
         AND ($1::text IS NULL
              OR per.first_name ILIKE '%' || $1 || '%'
+             OR per.preferred_name ILIKE '%' || $1 || '%'
              OR per.last_name ILIKE '%' || $1 || '%'
-             OR CONCAT(per.first_name, ' ', COALESCE(per.last_name, '')) ILIKE '%' || $1 || '%'
+             OR CONCAT(COALESCE(per.preferred_name, per.first_name), ' ', COALESCE(per.last_name, '')) ILIKE '%' || $1 || '%'
              OR EXISTS (SELECT 1 FROM cluster c3
                         WHERE c3.person_id = per.id AND c3.collection_id = $4 AND c3.id::text = $1))
         AND ($2::text IS NULL OR per.id IS DISTINCT FROM (SELECT person_id FROM source_person))
@@ -1537,7 +1596,7 @@ export async function previewClusterLink(collectionId: number, sourceClusterId: 
     SELECT
       c.id as cluster_id,
       c.person_id,
-      TRIM(CONCAT(p.first_name, ' ', COALESCE(p.last_name, ''))) as person_name,
+      TRIM(CONCAT(COALESCE(p.preferred_name, p.first_name), ' ', COALESCE(p.last_name, ''))) as person_name,
       p.first_name,
       p.last_name,
       (SELECT COUNT(*) FROM cluster c2 WHERE c2.person_id = c.person_id) as person_cluster_count
@@ -1604,7 +1663,7 @@ export async function linkClustersToSamePerson(collectionId: number, sourceClust
     // Get source cluster info with person details
     const sourceQuery = `
       SELECT c.id, c.face_count, c.person_id, c.representative_detection_id,
-             TRIM(CONCAT(p.first_name, ' ', COALESCE(p.last_name, ''))) as person_name
+             TRIM(CONCAT(COALESCE(p.preferred_name, p.first_name), ' ', COALESCE(p.last_name, ''))) as person_name
       FROM cluster c
       LEFT JOIN person p ON c.person_id = p.id
       WHERE c.id = $1 AND c.collection_id = $2
@@ -1619,7 +1678,7 @@ export async function linkClustersToSamePerson(collectionId: number, sourceClust
     // Get target cluster info with person details
     const targetQuery = `
       SELECT c.id, c.face_count, c.person_id, c.representative_detection_id,
-             TRIM(CONCAT(p.first_name, ' ', COALESCE(p.last_name, ''))) as person_name
+             TRIM(CONCAT(COALESCE(p.preferred_name, p.first_name), ' ', COALESCE(p.last_name, ''))) as person_name
       FROM cluster c
       LEFT JOIN person p ON c.person_id = p.id
       WHERE c.id = $1 AND c.collection_id = $2
@@ -1760,7 +1819,7 @@ export async function assignClusterToPerson(collectionId: number, sourceClusterI
 
     const sourceResult = await client.query(
       `SELECT c.id, c.person_id,
-              TRIM(CONCAT(p.first_name, ' ', COALESCE(p.last_name, ''))) as person_name
+              TRIM(CONCAT(COALESCE(p.preferred_name, p.first_name), ' ', COALESCE(p.last_name, ''))) as person_name
        FROM cluster c
        LEFT JOIN person p ON c.person_id = p.id
        WHERE c.id = $1 AND c.collection_id = $2`,
@@ -1773,7 +1832,7 @@ export async function assignClusterToPerson(collectionId: number, sourceClusterI
     const sourceCluster = sourceResult.rows[0];
 
     const targetResult = await client.query(
-      `SELECT id, TRIM(CONCAT(first_name, ' ', COALESCE(last_name, ''))) as person_name
+      `SELECT id, TRIM(CONCAT(COALESCE(preferred_name, first_name), ' ', COALESCE(last_name, ''))) as person_name
        FROM person WHERE id = $1 AND collection_id = $2`,
       [targetPersonId, collectionId],
     );
@@ -1842,7 +1901,7 @@ export async function previewPersonMerge(collectionId: number, sourcePersonId: s
   const query = `
     SELECT
       per.id as person_id,
-      TRIM(CONCAT(per.first_name, ' ', COALESCE(per.last_name, ''))) as person_name,
+      TRIM(CONCAT(COALESCE(per.preferred_name, per.first_name), ' ', COALESCE(per.last_name, ''))) as person_name,
       (SELECT COUNT(*) FROM cluster c WHERE c.person_id = per.id
         AND (c.hidden = false OR c.hidden IS NULL)) as cluster_count,
       (SELECT COALESCE(SUM(c.face_count), 0) FROM cluster c WHERE c.person_id = per.id
@@ -1890,7 +1949,7 @@ export async function mergePersons(collectionId: number, sourcePersonId: string,
 
     // Verify both persons exist
     const personsResult = await client.query(
-      `SELECT id, TRIM(CONCAT(first_name, ' ', COALESCE(last_name, ''))) as person_name
+      `SELECT id, TRIM(CONCAT(COALESCE(preferred_name, first_name), ' ', COALESCE(last_name, ''))) as person_name
        FROM person WHERE id = ANY($1) AND collection_id = $2`,
       [[sourcePersonId, targetPersonId], collectionId],
     );
@@ -2025,7 +2084,7 @@ export async function getFaceDetails(collectionId: number, detectionId: number) 
            pd.face_confidence as confidence, pd.cluster_id, pd.cluster_status,
            pd.age_estimate, pd.gender, pd.gender_confidence,
            pd.photo_id, p.med_width, p.med_height,
-           TRIM(CONCAT(per.first_name, ' ', COALESCE(per.last_name, ''))) as person_name
+           TRIM(CONCAT(COALESCE(per.preferred_name, per.first_name), ' ', COALESCE(per.last_name, ''))) as person_name
     FROM person_detection pd
     JOIN photo p ON pd.photo_id = p.id
     LEFT JOIN cluster c ON pd.cluster_id = c.id
@@ -2144,7 +2203,7 @@ export async function getSimilarFaces(
              pd.age_estimate, pd.gender, pd.gender_confidence,
              p.id as photo_id, p.med_width, p.med_height,
              c.face_count as cluster_face_count,
-             TRIM(CONCAT(per.first_name, ' ', COALESCE(per.last_name, ''))) as person_name,
+             TRIM(CONCAT(COALESCE(per.preferred_name, per.first_name), ' ', COALESCE(per.last_name, ''))) as person_name,
              fe.embedding <=> te.embedding as distance
       FROM face_embedding fe
       CROSS JOIN target_embedding te
@@ -2491,7 +2550,7 @@ export async function getUserCollections(userId: number): Promise<UserCollection
       COALESCE(pc.photo_count, 0)::int as photo_count,
       cm.person_id,
       CASE WHEN per.id IS NOT NULL
-        THEN TRIM(CONCAT(per.first_name, ' ', COALESCE(per.last_name, '')))
+        THEN TRIM(CONCAT(COALESCE(per.preferred_name, per.first_name), ' ', COALESCE(per.last_name, '')))
         ELSE NULL
       END as person_name,
       pd.id as avatar_detection_id,
@@ -2546,7 +2605,7 @@ export async function getCollectionMemberInfo(
       c.name as collection_name,
       cm.person_id,
       CASE WHEN per.id IS NOT NULL
-        THEN TRIM(CONCAT(per.first_name, ' ', COALESCE(per.last_name, '')))
+        THEN TRIM(CONCAT(COALESCE(per.preferred_name, per.first_name), ' ', COALESCE(per.last_name, '')))
         ELSE NULL
       END as person_name,
       pd.id as avatar_detection_id,
@@ -2627,7 +2686,7 @@ export async function getPersonsForCollection(collectionId: number): Promise<Per
       per.id,
       per.first_name,
       per.last_name,
-      TRIM(CONCAT(per.first_name, ' ', COALESCE(per.last_name, ''))) as person_name,
+      TRIM(CONCAT(COALESCE(per.preferred_name, per.first_name), ' ', COALESCE(per.last_name, ''))) as person_name,
       COALESCE(
         per.representative_detection_id,
         (SELECT c.representative_detection_id
@@ -2652,7 +2711,7 @@ export async function getPersonsForCollection(collectionId: number): Promise<Per
         SELECT 1 FROM cluster c
         WHERE c.person_id = per.id AND c.face_count > 0
       )
-    ORDER BY per.first_name, per.last_name, per.id
+    ORDER BY COALESCE(per.preferred_name, per.first_name), per.last_name, per.id
   `;
 
   const result = await pool.query(query, [collectionId]);

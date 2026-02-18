@@ -14,7 +14,7 @@ import { getClustersByPerson, getPersonById } from "~/lib/db.server";
 import type { Route } from "./+types/person.$id.wall";
 
 export function meta({ data }: Route.MetaArgs) {
-  const personName = data?.person?.person_name || "Person";
+  const personName = data?.person?.auto_created ? "Auto-grouped" : data?.person?.person_name || "Person";
   return [
     { title: `Storyteller - ${personName} - 3D Wall` },
     { name: "description", content: `View ${personName}'s clusters in 3D wall view` },
@@ -82,7 +82,7 @@ export default function PersonWallView({ loaderData }: Route.ComponentProps) {
     [clusters],
   );
 
-  const displayName = person.person_name || `Person ${person.id}`;
+  const displayName = person.auto_created ? "✨" : person.person_name || `Person ${person.id}`;
 
   const headerContent = (
     <Header
@@ -178,6 +178,11 @@ export default function PersonWallView({ loaderData }: Route.ComponentProps) {
         personId={person.id.toString()}
         currentFirstName={person.first_name || ""}
         currentLastName={person.last_name || ""}
+        currentMiddleName={person.middle_name || ""}
+        currentMaidenName={person.maiden_name || ""}
+        currentPreferredName={person.preferred_name || ""}
+        currentSuffix={person.suffix || ""}
+        currentAlternateNames={person.alternate_names || []}
         onSuccess={() => {
           window.location.reload();
         }}
@@ -186,7 +191,7 @@ export default function PersonWallView({ loaderData }: Route.ComponentProps) {
         open={deleteDialogOpen}
         onOpenChange={setDeleteDialogOpen}
         personId={person.id.toString()}
-        personName={person.person_name || `Person ${person.id}`}
+        personName={person.auto_created ? "Auto-grouped" : person.person_name || `Person ${person.id}`}
         clusterCount={clusters.length}
         onSuccess={() => navigate("/people")}
       />

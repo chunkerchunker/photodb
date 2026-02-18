@@ -46,7 +46,7 @@ export default function HiddenClustersWallView({ loaderData }: Route.ComponentPr
         return {
           id: cluster.id,
           imageUrls: imageUrl ? [imageUrl] : [],
-          label: cluster.person_name || "",
+          label: cluster.auto_created ? "✨" : cluster.person_name || "",
           navigateTo: `/cluster/${cluster.id}/wall`,
           metadata: {
             subtitle: `${cluster.face_count} photo${cluster.face_count !== 1 ? "s" : ""}`,

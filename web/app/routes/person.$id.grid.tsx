@@ -1,4 +1,4 @@
-import { EyeOff, Link2, Loader2, Pencil, Star, Trash2, Unlink, User, Users } from "lucide-react";
+import { EyeOff, Link2, Loader2, Pencil, Sparkles, Star, Trash2, Unlink, User, Users } from "lucide-react";
 import { useEffect, useState } from "react";
 import { Link, useFetcher, useNavigate, useRevalidator } from "react-router";
 import { Breadcrumb } from "~/components/breadcrumb";
@@ -163,7 +163,10 @@ export default function PersonDetailView({ loaderData }: Route.ComponentProps) {
     <Layout>
       <div className="space-y-6">
         <Breadcrumb
-          items={[{ label: "People", href: "/people" }, { label: person.person_name || `Person ${person.id}` }]}
+          items={[
+            { label: "People", href: "/people" },
+            { label: person.auto_created ? "Auto-grouped" : person.person_name || `Person ${person.id}` },
+          ]}
         />
 
         {/* Person Header */}
@@ -185,7 +188,9 @@ export default function PersonDetailView({ loaderData }: Route.ComponentProps) {
             <div>
               <div className="flex items-center gap-3">
                 {person.auto_created ? (
-                  <h1 className="text-3xl italic text-gray-400">Unnamed</h1>
+                  <span title="Auto-grouped">
+                    <Sparkles className="h-7 w-7 text-gray-400" />
+                  </span>
                 ) : (
                   <h1 className="text-3xl font-bold text-gray-900">{person.person_name || `Person ${person.id}`}</h1>
                 )}
@@ -352,6 +357,11 @@ export default function PersonDetailView({ loaderData }: Route.ComponentProps) {
           personId={person.id.toString()}
           currentFirstName={person.first_name || ""}
           currentLastName={person.last_name || ""}
+          currentMiddleName={person.middle_name || ""}
+          currentMaidenName={person.maiden_name || ""}
+          currentPreferredName={person.preferred_name || ""}
+          currentSuffix={person.suffix || ""}
+          currentAlternateNames={person.alternate_names || []}
           onSuccess={handleRenameSuccess}
         />
 

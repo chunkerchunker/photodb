@@ -65,7 +65,7 @@ export default function PeopleWallView({ loaderData }: Route.ComponentProps) {
       people.map((person) => {
         // Use direct face image URL (pre-extracted face crops)
         const imageUrl = person.detection_id ? `/api/face/${person.detection_id}` : null;
-        const displayName = person.person_name || `Person ${person.id}`;
+        const displayName = person.auto_created ? "✨" : person.person_name || `Person ${person.id}`;
 
         return {
           id: person.id,

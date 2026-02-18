@@ -1,4 +1,4 @@
-import { Eye, Grid, Loader2, Users } from "lucide-react";
+import { Eye, Grid, Loader2, Sparkles, Users } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Link, useFetcher } from "react-router";
 import { Breadcrumb } from "~/components/breadcrumb";
@@ -205,8 +205,15 @@ export default function HiddenClustersView({ loaderData }: Route.ComponentProps)
                           {cluster.face_count !== 1 ? "s" : ""}
                         </div>
                         {cluster.person_name && (
-                          <div className="text-sm font-medium text-blue-600 truncate" title={cluster.person_name}>
-                            {cluster.person_name}
+                          <div
+                            className={`text-sm font-medium truncate ${cluster.auto_created ? "text-gray-400" : "text-blue-600"}`}
+                            title={cluster.auto_created ? "Auto-grouped" : cluster.person_name}
+                          >
+                            {cluster.auto_created ? (
+                              <Sparkles className="h-3.5 w-3.5 text-gray-400" />
+                            ) : (
+                              cluster.person_name
+                            )}
                           </div>
                         )}
                       </div>

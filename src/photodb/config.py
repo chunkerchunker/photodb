@@ -116,7 +116,7 @@ EPSILON_PERCENTILE = 90.0
 # Cosine distance threshold for auto-associating clusters to the same person
 # pgvector <=> returns cosine distance (0=identical, 2=opposite)
 # Looser than per-cluster epsilon since this is cross-context matching
-PERSON_ASSOCIATION_THRESHOLD = 0.55
+PERSON_ASSOCIATION_THRESHOLD = 0.8
 
 # --- Scene Analysis ---
 

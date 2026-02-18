@@ -483,7 +483,7 @@ export async function getClustersCount(collectionId: number) {
  * Unassigned clusters (no person_id) are shown individually.
  * Sorted by face count descending.
  */
-export async function getClustersGroupedByPerson(collectionId: number, limit = 50, offset = 0) {
+export async function getClustersGroupedByPerson(collectionId: number, limit = 50, offset = 0, search?: string) {
   const query = `
     WITH person_aggregates AS (
       -- Aggregate clusters by person
@@ -508,6 +508,12 @@ export async function getClustersGroupedByPerson(collectionId: number, limit = 5
       WHERE c.face_count > 0
         AND (c.hidden = false OR c.hidden IS NULL)
         AND c.collection_id = $1
+        AND ($4::text IS NULL OR
+             per.first_name ILIKE '%' || $4 || '%'
+             OR per.preferred_name ILIKE '%' || $4 || '%'
+             OR per.last_name ILIKE '%' || $4 || '%'
+             OR CONCAT(COALESCE(per.preferred_name, per.first_name), ' ', COALESCE(per.last_name, '')) ILIKE '%' || $4 || '%'
+             OR per.id::text = $4)
       GROUP BY per.id
     ),
     unassigned_clusters AS (
@@ -527,6 +533,7 @@ export async function getClustersGroupedByPerson(collectionId: number, limit = 5
         AND (c.hidden = false OR c.hidden IS NULL)
         AND c.collection_id = $1
         AND c.person_id IS NULL
+        AND ($4::text IS NULL OR c.id::text = $4)
     ),
     combined AS (
       SELECT * FROM person_aggregates
@@ -543,7 +550,7 @@ export async function getClustersGroupedByPerson(collectionId: number, limit = 5
     LIMIT $2 OFFSET $3
   `;
 
-  const result = await pool.query(query, [collectionId, limit, offset]);
+  const result = await pool.query(query, [collectionId, limit, offset, search || null]);
   return result.rows;
 }
 
@@ -551,17 +558,23 @@ export async function getClustersGroupedByPerson(collectionId: number, limit = 5
  * Get count of items for the grouped clusters view.
  * Counts distinct people + unassigned clusters.
  */
-export async function getClustersGroupedCount(collectionId: number) {
+export async function getClustersGroupedCount(collectionId: number, search?: string) {
   const query = `
     SELECT
       (
         -- Count distinct people with visible clusters
-        SELECT COUNT(DISTINCT c.person_id)
-        FROM cluster c
+        SELECT COUNT(DISTINCT per.id)
+        FROM person per
+        INNER JOIN cluster c ON c.person_id = per.id
         WHERE c.face_count > 0
           AND (c.hidden = false OR c.hidden IS NULL)
           AND c.collection_id = $1
-          AND c.person_id IS NOT NULL
+          AND ($2::text IS NULL OR
+               per.first_name ILIKE '%' || $2 || '%'
+               OR per.preferred_name ILIKE '%' || $2 || '%'
+               OR per.last_name ILIKE '%' || $2 || '%'
+               OR CONCAT(COALESCE(per.preferred_name, per.first_name), ' ', COALESCE(per.last_name, '')) ILIKE '%' || $2 || '%'
+               OR per.id::text = $2)
       ) + (
         -- Count unassigned clusters
         SELECT COUNT(*)
@@ -570,10 +583,11 @@ export async function getClustersGroupedCount(collectionId: number) {
           AND (c.hidden = false OR c.hidden IS NULL)
           AND c.collection_id = $1
           AND c.person_id IS NULL
+          AND ($2::text IS NULL OR c.id::text = $2)
       ) as count
   `;
 
-  const result = await pool.query(query, [collectionId]);
+  const result = await pool.query(query, [collectionId, search || null]);
   return parseInt(result.rows[0].count, 10);
 }
 
@@ -995,8 +1009,29 @@ export async function unlinkClusterFromPerson(collectionId: number, clusterId: s
       [clusterId, personId, collectionId],
     );
 
+    // If person was auto_created and now has no remaining clusters, delete it
+    let deletedPerson = false;
+    const remaining = await client.query(
+      `SELECT COUNT(*) FROM cluster WHERE person_id = $1 AND collection_id = $2`,
+      [personId, collectionId],
+    );
+    if (parseInt(remaining.rows[0].count) === 0) {
+      const personRow = await client.query(`SELECT auto_created FROM person WHERE id = $1 AND collection_id = $2`, [
+        personId,
+        collectionId,
+      ]);
+      if (personRow.rows.length > 0 && personRow.rows[0].auto_created) {
+        await client.query(`DELETE FROM person WHERE id = $1 AND collection_id = $2`, [personId, collectionId]);
+        deletedPerson = true;
+      }
+    }
+
     await client.query("COMMIT");
-    return { success: true, message: "Cluster unlinked from person" };
+    return {
+      success: true,
+      message: deletedPerson ? "Cluster unlinked and empty auto-created person deleted" : "Cluster unlinked from person",
+      deletedPerson,
+    };
   } catch (error) {
     await client.query("ROLLBACK");
     throw error;
@@ -1022,19 +1057,33 @@ export async function deletePersonAggregation(collectionId: number, personId: st
       [personId, collectionId],
     );
 
-    // Clear the person's representative detection
-    await client.query(
-      `UPDATE person
-       SET representative_detection_id = NULL, updated_at = NOW()
-       WHERE id = $1 AND collection_id = $2`,
-      [personId, collectionId],
-    );
+    // If person was auto_created, delete it entirely since it now has no clusters
+    let deletedPerson = false;
+    const personRow = await client.query(`SELECT auto_created FROM person WHERE id = $1 AND collection_id = $2`, [
+      personId,
+      collectionId,
+    ]);
+    if (personRow.rows.length > 0 && personRow.rows[0].auto_created) {
+      await client.query(`DELETE FROM person WHERE id = $1 AND collection_id = $2`, [personId, collectionId]);
+      deletedPerson = true;
+    } else {
+      // Clear the person's representative detection (keep the person row)
+      await client.query(
+        `UPDATE person
+         SET representative_detection_id = NULL, updated_at = NOW()
+         WHERE id = $1 AND collection_id = $2`,
+        [personId, collectionId],
+      );
+    }
 
     await client.query("COMMIT");
     return {
       success: true,
-      message: `Unlinked ${unlinkResult.rowCount} cluster(s) from person`,
+      message: deletedPerson
+        ? `Unlinked ${unlinkResult.rowCount} cluster(s) and deleted auto-created person`
+        : `Unlinked ${unlinkResult.rowCount} cluster(s) from person`,
       unlinkedCount: unlinkResult.rowCount,
+      deletedPerson,
     };
   } catch (error) {
     await client.query("ROLLBACK");

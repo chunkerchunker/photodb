@@ -47,6 +47,15 @@ export default function PersonWallView({ loaderData }: Route.ComponentProps) {
   const navigate = useNavigate();
   const hideFetcher = useFetcher();
 
+  // Navigate away from deleted person: go back if there's history, else to people index
+  const navigateAway = () => {
+    if (location.key !== "default") {
+      navigate(-1);
+    } else {
+      navigate("/people", { replace: true });
+    }
+  };
+
   const visibleClusters = clusters.filter((c) => !c.hidden);
   const hiddenClusters = clusters.filter((c) => c.hidden);
   const isSubmitting = hideFetcher.state !== "idle";
@@ -145,7 +154,7 @@ export default function PersonWallView({ loaderData }: Route.ComponentProps) {
             className="flex items-center gap-1.5 hover:text-white transition-colors disabled:opacity-50"
           >
             <EyeOff className="h-4 w-4" />
-            <span>Hide All</span>
+            <span>Hide</span>
           </button>
         )}
         {hiddenClusters.length > 0 && (
@@ -157,7 +166,7 @@ export default function PersonWallView({ loaderData }: Route.ComponentProps) {
               disabled={isSubmitting}
               className="hover:text-white transition-colors disabled:opacity-50"
             >
-              Unhide All ({hiddenClusters.length})
+              Unhide ({hiddenClusters.length})
             </button>
           </>
         )}
@@ -193,7 +202,7 @@ export default function PersonWallView({ loaderData }: Route.ComponentProps) {
         personId={person.id.toString()}
         personName={person.auto_created ? "Auto-grouped" : person.person_name || `Person ${person.id}`}
         clusterCount={clusters.length}
-        onSuccess={() => navigate("/people")}
+        onSuccess={navigateAway}
       />
     </>
   );

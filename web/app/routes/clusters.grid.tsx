@@ -39,11 +39,13 @@ export async function loader({ request }: Route.LoaderArgs) {
   const { collectionId } = await requireCollectionId(request);
   const url = new URL(request.url);
   const page = parseInt(url.searchParams.get("page") || "1", 10);
-  const offset = (page - 1) * LIMIT;
+  const search = url.searchParams.get("search") || undefined;
+  const limit = search ? 100 : LIMIT;
+  const offset = (page - 1) * limit;
 
   try {
-    const items = await getClustersGroupedByPerson(collectionId, LIMIT, offset);
-    const totalItems = await getClustersGroupedCount(collectionId);
+    const items = await getClustersGroupedByPerson(collectionId, limit, offset, search);
+    const totalItems = await getClustersGroupedCount(collectionId, search);
     const hiddenCount = await getHiddenClustersCount(collectionId);
     const hasMore = offset + items.length < totalItems;
 
@@ -112,6 +114,7 @@ export default function ClustersView({ loaderData }: Route.ComponentProps) {
   });
 
   const fetcher = useFetcher<typeof loader>();
+  const searchFetcher = useFetcher<typeof loader>();
 
   // Reset state when initial data changes (e.g., navigation)
   useEffect(() => {
@@ -132,6 +135,17 @@ export default function ClustersView({ loaderData }: Route.ComponentProps) {
       setHasMore(fetcher.data.hasMore);
     }
   }, [fetcher.data]);
+
+  // Debounced server-side search
+  useEffect(() => {
+    const trimmed = searchQuery.trim();
+    if (!trimmed) return;
+    const timer = setTimeout(() => {
+      searchFetcher.load(`/clusters/grid?search=${encodeURIComponent(trimmed)}`);
+    }, 300);
+    return () => clearTimeout(timer);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [searchQuery]);
 
   const loadMore = useCallback(() => {
     if (fetcher.state === "idle" && hasMore) {
@@ -226,20 +240,12 @@ export default function ClustersView({ loaderData }: Route.ComponentProps) {
     }
   };
 
-  // Filter items based on search query, always including selected items
-  const filteredItems = searchQuery.trim()
-    ? items.filter((item) => {
-        const itemKey = getItemKey(item);
-        // Always include selected items
-        if (selectedItemKeys.has(itemKey)) return true;
-        const query = searchQuery.toLowerCase().trim();
-        // Match ID
-        if (item.id.toString().includes(query)) return true;
-        // Match person name
-        if (item.person_name?.toLowerCase().includes(query)) return true;
-        return false;
-      })
-    : items;
+  // Server-side search: show search results when searching, regular items otherwise
+  const isSearching = searchQuery.trim().length > 0;
+  const displayItems = isSearching ? (searchFetcher.data?.items || []) : items;
+  const searchResultCount = isSearching && searchFetcher.state === "idle" && searchFetcher.data
+    ? searchFetcher.data.totalItems
+    : undefined;
 
   return (
     <Layout>
@@ -268,26 +274,13 @@ export default function ClustersView({ loaderData }: Route.ComponentProps) {
           query={searchQuery}
           onQueryChange={setSearchQuery}
           placeholder="Search by name or cluster ID..."
-          resultCount={searchQuery ? filteredItems.length : undefined}
+          resultCount={searchResultCount}
         />
 
-        {items.length > 0 ? (
-          searchQuery && filteredItems.length === 0 ? (
-            <div className="text-center py-12">
-              <Search className="h-12 w-12 text-gray-300 mx-auto mb-4" />
-              <div className="text-gray-500">No results match "{searchQuery}"</div>
-              <button
-                type="button"
-                onClick={() => setSearchQuery("")}
-                className="mt-2 text-sm text-blue-600 hover:underline"
-              >
-                Clear search
-              </button>
-            </div>
-          ) : (
+        {displayItems.length > 0 ? (
             <>
               <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-6 gap-4">
-                {filteredItems.map((item) => {
+                {displayItems.map((item) => {
                   const itemKey = getItemKey(item);
                   const isSelected = selectedItemKeys.has(itemKey);
                   const isPerson = item.item_type === "person";
@@ -404,19 +397,46 @@ export default function ClustersView({ loaderData }: Route.ComponentProps) {
                 })}
               </div>
 
-              {/* Infinite scroll trigger */}
-              <div ref={loadMoreRef} className="flex justify-center py-8">
-                {isLoading && (
-                  <div className="flex items-center space-x-2 text-gray-500">
-                    <Loader2 className="h-5 w-5 animate-spin" />
-                    <span>Loading more...</span>
-                  </div>
-                )}
-                {!hasMore && items.length > 0 && !searchQuery && (
-                  <span className="text-gray-400 text-sm">All items loaded</span>
-                )}
-              </div>
+              {/* Infinite scroll trigger (only when not searching) */}
+              {!isSearching && (
+                <div ref={loadMoreRef} className="flex justify-center py-8">
+                  {isLoading && (
+                    <div className="flex items-center space-x-2 text-gray-500">
+                      <Loader2 className="h-5 w-5 animate-spin" />
+                      <span>Loading more...</span>
+                    </div>
+                  )}
+                  {!hasMore && items.length > 0 && (
+                    <span className="text-gray-400 text-sm">All items loaded</span>
+                  )}
+                </div>
+              )}
+              {isSearching && searchFetcher.state !== "idle" && (
+                <div className="flex justify-center py-4">
+                  <Loader2 className="h-5 w-5 animate-spin text-gray-400" />
+                </div>
+              )}
             </>
+        ) : isSearching ? (
+          searchFetcher.state !== "idle" ? (
+            <div className="flex justify-center py-12">
+              <div className="flex items-center space-x-2 text-gray-500">
+                <Loader2 className="h-5 w-5 animate-spin" />
+                <span>Searching...</span>
+              </div>
+            </div>
+          ) : (
+            <div className="text-center py-12">
+              <Search className="h-12 w-12 text-gray-300 mx-auto mb-4" />
+              <div className="text-gray-500">No results match &ldquo;{searchQuery}&rdquo;</div>
+              <button
+                type="button"
+                onClick={() => setSearchQuery("")}
+                className="mt-2 text-sm text-blue-600 hover:underline"
+              >
+                Clear search
+              </button>
+            </div>
           )
         ) : (
           <div className="text-center py-12">

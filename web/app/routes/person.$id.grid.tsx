@@ -1,8 +1,9 @@
-import { EyeOff, Link2, Loader2, Pencil, Sparkles, Star, Trash2, Unlink, User, Users } from "lucide-react";
+import { EyeOff, Link2, Loader2, Pencil, Search, Sparkles, Star, Trash2, Unlink, User, Users } from "lucide-react";
 import { useEffect, useState } from "react";
-import { Link, useFetcher, useNavigate, useRevalidator } from "react-router";
+import { Link, useFetcher, useLocation, useNavigate, useRevalidator } from "react-router";
 import { Breadcrumb } from "~/components/breadcrumb";
 import { ClusterLinkDialog } from "~/components/cluster-merge-dialog";
+import { SearchBox } from "~/components/search-box";
 import { DeletePersonDialog } from "~/components/delete-person-dialog";
 import { Layout } from "~/components/layout";
 import { RenamePersonDialog } from "~/components/rename-person-dialog";
@@ -85,9 +86,22 @@ export default function PersonDetailView({ loaderData }: Route.ComponentProps) {
   const [deletePersonDialogOpen, setDeletePersonDialogOpen] = useState(false);
   const [linkDialogOpen, setLinkDialogOpen] = useState(false);
   const [pendingUnlinkClusterId, setPendingUnlinkClusterId] = useState<string | null>(null);
+  const [searchOpen, setSearchOpen] = useState(false);
+  const [searchQuery, setSearchQuery] = useState("");
   const navigate = useNavigate();
+  const location = useLocation();
+
+  // Navigate away from deleted person: go back if there's history, else to people index
+  const navigateAway = () => {
+    if (location.key !== "default") {
+      navigate(-1);
+    } else {
+      navigate("/people", { replace: true });
+    }
+  };
 
   const hideFetcher = useFetcher();
+  const searchFetcher = useFetcher();
   const unlinkFetcher = useFetcher();
   const representativeFetcher = useFetcher();
   const deletePersonFetcher = useFetcher();
@@ -114,11 +128,16 @@ export default function PersonDetailView({ loaderData }: Route.ComponentProps) {
   // Handle unlink completion
   useEffect(() => {
     if (unlinkFetcher.data?.success && pendingUnlinkClusterId) {
+      if (unlinkFetcher.data.deletedPerson) {
+        // Person was auto-created and now empty — navigate away
+        navigateAway();
+        return;
+      }
       // Remove cluster from local state
       setClusters((prev) => prev.filter((c) => c.id.toString() !== pendingUnlinkClusterId));
       setPendingUnlinkClusterId(null);
     }
-  }, [unlinkFetcher.data, pendingUnlinkClusterId]);
+  }, [unlinkFetcher.data, pendingUnlinkClusterId, navigate]);
 
   // Revalidate after representative change
   useEffect(() => {
@@ -130,9 +149,26 @@ export default function PersonDetailView({ loaderData }: Route.ComponentProps) {
   // Navigate away after person deletion
   useEffect(() => {
     if (deletePersonFetcher.data?.success) {
-      navigate("/people", { replace: true });
+      navigateAway();
     }
   }, [deletePersonFetcher.data, navigate]);
+
+  // Debounced server-side search
+  useEffect(() => {
+    const trimmed = searchQuery.trim();
+    if (!trimmed) return;
+    const timer = setTimeout(() => {
+      searchFetcher.load(`/clusters/grid?search=${encodeURIComponent(trimmed)}`);
+    }, 300);
+    return () => clearTimeout(timer);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [searchQuery]);
+
+  const isSearching = searchQuery.trim().length > 0;
+  const searchResults = isSearching ? (searchFetcher.data?.items || []) : [];
+  const searchResultCount = isSearching && searchFetcher.state === "idle" && searchFetcher.data
+    ? searchFetcher.data.totalItems
+    : undefined;
 
   const handleRenameSuccess = () => {
     revalidator.revalidate();
@@ -214,12 +250,12 @@ export default function PersonDetailView({ loaderData }: Route.ComponentProps) {
             {visibleClusters.length > 0 && (
               <Button variant="outline" size="sm" onClick={handleHideAll} disabled={isSubmitting}>
                 <EyeOff className="h-4 w-4 mr-1" />
-                Hide All
+                Hide
               </Button>
             )}
             {hiddenClusters.length > 0 && (
               <Button variant="outline" size="sm" onClick={handleUnhideAll} disabled={isSubmitting}>
-                Unhide All ({hiddenClusters.length})
+                Unhide ({hiddenClusters.length})
               </Button>
             )}
             {clusters.length > 0 && (
@@ -247,8 +283,97 @@ export default function PersonDetailView({ loaderData }: Route.ComponentProps) {
           </SecondaryControls>
         </div>
 
-        {/* Clusters Grid */}
-        {clusters.length > 0 ? (
+        <SearchBox
+          open={searchOpen}
+          onOpenChange={setSearchOpen}
+          query={searchQuery}
+          onQueryChange={setSearchQuery}
+          placeholder="Search all people..."
+          resultCount={searchResultCount}
+        />
+
+        {/* Search Results */}
+        {isSearching ? (
+          searchResults.length > 0 ? (
+            <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-6 gap-4">
+              {searchResults.map((item: { item_type: string; id: number; person_name: string | null; auto_created: boolean; face_count: number; cluster_count: number; detection_id: number | null }) => {
+                const isPerson = item.item_type === "person";
+                const linkTo = isPerson ? `/person/${item.id}` : `/cluster/${item.id}`;
+                return (
+                  <Link key={`${item.item_type}:${item.id}`} to={linkTo}>
+                    <Card className="hover:shadow-lg transition-all h-full">
+                      <CardContent className="p-4">
+                        <div className="text-center space-y-3">
+                          {item.detection_id ? (
+                            <div className="w-32 h-32 mx-auto bg-gray-100 rounded-lg border overflow-hidden">
+                              <img
+                                src={`/api/face/${item.detection_id}`}
+                                alt={isPerson ? item.person_name || `Person ${item.id}` : `Cluster ${item.id}`}
+                                className="w-full h-full object-cover"
+                                loading="lazy"
+                              />
+                            </div>
+                          ) : (
+                            <div className="w-full h-32 bg-gray-200 rounded-lg flex items-center justify-center">
+                              {isPerson ? (
+                                <User className="h-8 w-8 text-gray-400" />
+                              ) : (
+                                <Users className="h-8 w-8 text-gray-400" />
+                              )}
+                            </div>
+                          )}
+                          <div className="space-y-1">
+                            <div
+                              className={`font-semibold truncate ${
+                                isPerson && item.auto_created
+                                  ? "text-gray-400"
+                                  : item.person_name
+                                    ? "text-gray-900"
+                                    : "text-blue-600"
+                              }`}
+                            >
+                              {isPerson && item.auto_created ? (
+                                <Sparkles className="h-4 w-4 mx-auto text-gray-400" />
+                              ) : (
+                                item.person_name || `Cluster #${item.id}`
+                              )}
+                            </div>
+                            <div className="text-sm text-gray-600">
+                              {item.face_count} photo{item.face_count !== 1 ? "s" : ""}
+                              {isPerson && item.cluster_count > 1 && (
+                                <span className="text-gray-400"> · {item.cluster_count} clusters</span>
+                              )}
+                            </div>
+                          </div>
+                        </div>
+                      </CardContent>
+                    </Card>
+                  </Link>
+                );
+              })}
+            </div>
+          ) : searchFetcher.state !== "idle" ? (
+            <div className="flex justify-center py-12">
+              <div className="flex items-center space-x-2 text-gray-500">
+                <Loader2 className="h-5 w-5 animate-spin" />
+                <span>Searching...</span>
+              </div>
+            </div>
+          ) : (
+            <div className="text-center py-12">
+              <Search className="h-12 w-12 text-gray-300 mx-auto mb-4" />
+              <div className="text-gray-500">No results match &ldquo;{searchQuery}&rdquo;</div>
+              <button
+                type="button"
+                onClick={() => setSearchQuery("")}
+                className="mt-2 text-sm text-blue-600 hover:underline"
+              >
+                Clear search
+              </button>
+            </div>
+          )
+        ) : /* Clusters Grid */
+        clusters.length > 0 ? (
           <div className="space-y-6">
             {/* Visible Clusters */}
             {visibleClusters.length > 0 && (
@@ -389,7 +514,7 @@ export default function PersonDetailView({ loaderData }: Route.ComponentProps) {
           personId={person.id.toString()}
           personName={person.person_name || `Person ${person.id}`}
           clusterCount={clusters.length}
-          onSuccess={() => navigate("/people")}
+          onSuccess={navigateAway}
         />
 
         {/* Delete Person Dialog (no clusters) */}

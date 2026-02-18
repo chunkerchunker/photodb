@@ -165,10 +165,9 @@ export default function PersonDetailView({ loaderData }: Route.ComponentProps) {
   }, [searchQuery]);
 
   const isSearching = searchQuery.trim().length > 0;
-  const searchResults = isSearching ? (searchFetcher.data?.items || []) : [];
-  const searchResultCount = isSearching && searchFetcher.state === "idle" && searchFetcher.data
-    ? searchFetcher.data.totalItems
-    : undefined;
+  const searchResults = isSearching ? searchFetcher.data?.items || [] : [];
+  const searchResultCount =
+    isSearching && searchFetcher.state === "idle" && searchFetcher.data ? searchFetcher.data.totalItems : undefined;
 
   const handleRenameSuccess = () => {
     revalidator.revalidate();
@@ -296,61 +295,71 @@ export default function PersonDetailView({ loaderData }: Route.ComponentProps) {
         {isSearching ? (
           searchResults.length > 0 ? (
             <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-6 gap-4">
-              {searchResults.map((item: { item_type: string; id: number; person_name: string | null; auto_created: boolean; face_count: number; cluster_count: number; detection_id: number | null }) => {
-                const isPerson = item.item_type === "person";
-                const linkTo = isPerson ? `/person/${item.id}` : `/cluster/${item.id}`;
-                return (
-                  <Link key={`${item.item_type}:${item.id}`} to={linkTo}>
-                    <Card className="hover:shadow-lg transition-all h-full">
-                      <CardContent className="p-4">
-                        <div className="text-center space-y-3">
-                          {item.detection_id ? (
-                            <div className="w-32 h-32 mx-auto bg-gray-100 rounded-lg border overflow-hidden">
-                              <img
-                                src={`/api/face/${item.detection_id}`}
-                                alt={isPerson ? item.person_name || `Person ${item.id}` : `Cluster ${item.id}`}
-                                className="w-full h-full object-cover"
-                                loading="lazy"
-                              />
-                            </div>
-                          ) : (
-                            <div className="w-full h-32 bg-gray-200 rounded-lg flex items-center justify-center">
-                              {isPerson ? (
-                                <User className="h-8 w-8 text-gray-400" />
-                              ) : (
-                                <Users className="h-8 w-8 text-gray-400" />
-                              )}
-                            </div>
-                          )}
-                          <div className="space-y-1">
-                            <div
-                              className={`font-semibold truncate ${
-                                isPerson && item.auto_created
-                                  ? "text-gray-400"
-                                  : item.person_name
-                                    ? "text-gray-900"
-                                    : "text-blue-600"
-                              }`}
-                            >
-                              {isPerson && item.auto_created ? (
-                                <Sparkles className="h-4 w-4 mx-auto text-gray-400" />
-                              ) : (
-                                item.person_name || `Cluster #${item.id}`
-                              )}
-                            </div>
-                            <div className="text-sm text-gray-600">
-                              {item.face_count} photo{item.face_count !== 1 ? "s" : ""}
-                              {isPerson && item.cluster_count > 1 && (
-                                <span className="text-gray-400"> · {item.cluster_count} clusters</span>
-                              )}
+              {searchResults.map(
+                (item: {
+                  item_type: string;
+                  id: number;
+                  person_name: string | null;
+                  auto_created: boolean;
+                  face_count: number;
+                  cluster_count: number;
+                  detection_id: number | null;
+                }) => {
+                  const isPerson = item.item_type === "person";
+                  const linkTo = isPerson ? `/person/${item.id}` : `/cluster/${item.id}`;
+                  return (
+                    <Link key={`${item.item_type}:${item.id}`} to={linkTo}>
+                      <Card className="hover:shadow-lg transition-all h-full">
+                        <CardContent className="p-4">
+                          <div className="text-center space-y-3">
+                            {item.detection_id ? (
+                              <div className="w-32 h-32 mx-auto bg-gray-100 rounded-lg border overflow-hidden">
+                                <img
+                                  src={`/api/face/${item.detection_id}`}
+                                  alt={isPerson ? item.person_name || `Person ${item.id}` : `Cluster ${item.id}`}
+                                  className="w-full h-full object-cover"
+                                  loading="lazy"
+                                />
+                              </div>
+                            ) : (
+                              <div className="w-full h-32 bg-gray-200 rounded-lg flex items-center justify-center">
+                                {isPerson ? (
+                                  <User className="h-8 w-8 text-gray-400" />
+                                ) : (
+                                  <Users className="h-8 w-8 text-gray-400" />
+                                )}
+                              </div>
+                            )}
+                            <div className="space-y-1">
+                              <div
+                                className={`font-semibold truncate ${
+                                  isPerson && item.auto_created
+                                    ? "text-gray-400"
+                                    : item.person_name
+                                      ? "text-gray-900"
+                                      : "text-blue-600"
+                                }`}
+                              >
+                                {isPerson && item.auto_created ? (
+                                  <Sparkles className="h-4 w-4 mx-auto text-gray-400" />
+                                ) : (
+                                  item.person_name || `Cluster #${item.id}`
+                                )}
+                              </div>
+                              <div className="text-sm text-gray-600">
+                                {item.face_count} photo{item.face_count !== 1 ? "s" : ""}
+                                {isPerson && item.cluster_count > 1 && (
+                                  <span className="text-gray-400"> · {item.cluster_count} clusters</span>
+                                )}
+                              </div>
                             </div>
                           </div>
-                        </div>
-                      </CardContent>
-                    </Card>
-                  </Link>
-                );
-              })}
+                        </CardContent>
+                      </Card>
+                    </Link>
+                  );
+                },
+              )}
             </div>
           ) : searchFetcher.state !== "idle" ? (
             <div className="flex justify-center py-12">

@@ -1,0 +1,32 @@
+services:
+  db:
+    image: pgvector/pgvector:pg17
+    volumes:
+      - /data/postgres:/var/lib/postgresql/data
+    environment:
+      POSTGRES_DB: photodb
+      POSTGRES_USER: photodb
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in .env}
+    ports:
+      - "127.0.0.1:5432:5432"
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U photodb"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  web:
+    build:
+      context: ./web
+    ports:
+      - "3000:3000"
+    environment:
+      DATABASE_URL: postgresql://photodb:${POSTGRES_PASSWORD}@db:5432/photodb
+      NODE_ENV: production
+    volumes:
+      - /data/photos:/data/photos:ro
+    depends_on:
+      db:
+        condition: service_healthy
+    restart: unless-stopped

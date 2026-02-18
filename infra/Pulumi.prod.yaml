@@ -1,0 +1,4 @@
+config:
+  aws:region: ap-east-1
+  photodb:allowedIps:
+    - "24.4.199.105"

@@ -1,0 +1,16 @@
+{
+  "name": "photodb-infra",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "deploy": "./deploy.sh"
+  },
+  "dependencies": {
+    "@pulumi/aws": "^6",
+    "@pulumi/pulumi": "^3",
+    "@pulumi/tls": "^5"
+  },
+  "devDependencies": {
+    "typescript": "^5.9"
+  }
+}

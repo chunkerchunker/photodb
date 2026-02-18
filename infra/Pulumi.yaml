@@ -1,0 +1,6 @@
+name: photodb
+runtime:
+  name: nodejs
+  options:
+    packagemanager: npm
+description: PhotoDB web app infrastructure

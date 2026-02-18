@@ -16,11 +16,27 @@ export async function action({ request, params }: Route.ActionArgs) {
   const formData = await request.formData();
   const firstName = (formData.get("firstName") as string)?.trim();
   const lastName = (formData.get("lastName") as string)?.trim();
+  const middleName = (formData.get("middleName") as string)?.trim();
+  const maidenName = (formData.get("maidenName") as string)?.trim();
+  const preferredName = (formData.get("preferredName") as string)?.trim();
+  const suffix = (formData.get("suffix") as string)?.trim();
+  const alternateNamesRaw = formData.get("alternateNames") as string;
+  const alternateNames = alternateNamesRaw ? JSON.parse(alternateNamesRaw) : [];
 
   if (!firstName) {
     return Response.json({ success: false, message: "First name is required" }, { status: 400 });
   }
 
-  const result = await setClusterPersonName(collectionId, clusterId, firstName, lastName || undefined);
+  const result = await setClusterPersonName(
+    collectionId,
+    clusterId,
+    firstName,
+    lastName || undefined,
+    middleName || undefined,
+    maidenName || undefined,
+    preferredName || undefined,
+    suffix || undefined,
+    alternateNames,
+  );
   return Response.json(result);
 }

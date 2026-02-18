@@ -466,12 +466,19 @@ class PhotoRepository:
             with conn.cursor() as cursor:
                 cursor.execute(
                     """INSERT INTO person (collection_id, first_name, last_name,
+                                          middle_name, maiden_name, preferred_name, suffix,
+                                          alternate_names,
                                           auto_created, created_at, updated_at)
-                       VALUES (%s, %s, %s, %s, %s, %s) RETURNING id""",
+                       VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s) RETURNING id""",
                     (
                         person.collection_id,
                         person.first_name,
                         person.last_name,
+                        person.middle_name,
+                        person.maiden_name,
+                        person.preferred_name,
+                        person.suffix,
+                        person.alternate_names or [],
                         person.auto_created,
                         person.created_at,
                         person.updated_at,
@@ -524,9 +531,23 @@ class PhotoRepository:
             with conn.cursor() as cursor:
                 cursor.execute(
                     """UPDATE person
-                       SET first_name = %s, last_name = %s, updated_at = %s
+                       SET first_name = %s, last_name = %s,
+                           middle_name = %s, maiden_name = %s,
+                           preferred_name = %s, suffix = %s,
+                           alternate_names = %s,
+                           updated_at = %s
                        WHERE id = %s""",
-                    (person.first_name, person.last_name, person.updated_at, person.id),
+                    (
+                        person.first_name,
+                        person.last_name,
+                        person.middle_name,
+                        person.maiden_name,
+                        person.preferred_name,
+                        person.suffix,
+                        person.alternate_names or [],
+                        person.updated_at,
+                        person.id,
+                    ),
                 )
 
     def list_people(self) -> List[Person]:
@@ -536,7 +557,7 @@ class PhotoRepository:
                 cursor.execute(
                     """SELECT * FROM person
                        WHERE collection_id = %s
-                       ORDER BY first_name, last_name""",
+                       ORDER BY COALESCE(preferred_name, first_name), last_name""",
                     (self.collection_id,),
                 )
                 rows = cursor.fetchall()

@@ -65,7 +65,9 @@ export default function AdminUsersPage({ loaderData }: Route.ComponentProps) {
                               </span>
                             )}
                           </div>
-                          <p className="text-sm text-gray-500 truncate">@{user.username} <span className="text-gray-400">· id {user.id}</span></p>
+                          <p className="text-sm text-gray-500 truncate">
+                            @{user.username} <span className="text-gray-400">· id {user.id}</span>
+                          </p>
                           <div className="mt-2 space-y-1">
                             <div className="flex items-center text-sm text-gray-500">
                               <Users className="h-4 w-4 mr-1" />

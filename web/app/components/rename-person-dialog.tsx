@@ -1,7 +1,8 @@
-import { Loader2 } from "lucide-react";
+import { ChevronDown, Loader2, Plus, X } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { useFetcher } from "react-router";
 import { Button } from "~/components/ui/button";
+import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "~/components/ui/collapsible";
 import {
   Dialog,
   DialogContent,
@@ -18,6 +19,11 @@ interface RenamePersonDialogProps {
   personId: string;
   currentFirstName?: string;
   currentLastName?: string;
+  currentMiddleName?: string;
+  currentMaidenName?: string;
+  currentPreferredName?: string;
+  currentSuffix?: string;
+  currentAlternateNames?: string[];
   onSuccess?: (newFirstName: string, newLastName: string) => void;
   /** Title to show in the dialog header. Defaults to "Rename Person" or "Set Name" if no current name. */
   title?: string;
@@ -26,6 +32,13 @@ interface RenamePersonDialogProps {
   /** The API endpoint type - "person" or "cluster". Defaults to "person". */
   apiType?: "person" | "cluster";
 }
+
+const autocompleteOff = {
+  autoComplete: "off",
+  "data-form-type": "other",
+  "data-1p-ignore": true,
+  "data-lpignore": "true",
+} as const;
 
 /**
  * Reusable dialog for renaming a person or cluster.
@@ -37,6 +50,11 @@ export function RenamePersonDialog({
   personId,
   currentFirstName = "",
   currentLastName = "",
+  currentMiddleName = "",
+  currentMaidenName = "",
+  currentPreferredName = "",
+  currentSuffix = "",
+  currentAlternateNames = [],
   onSuccess,
   title,
   description = "Enter the person's name.",
@@ -44,6 +62,13 @@ export function RenamePersonDialog({
 }: RenamePersonDialogProps): React.ReactElement {
   const [firstName, setFirstName] = useState(currentFirstName);
   const [lastName, setLastName] = useState(currentLastName);
+  const [middleName, setMiddleName] = useState(currentMiddleName);
+  const [maidenName, setMaidenName] = useState(currentMaidenName);
+  const [preferredName, setPreferredName] = useState(currentPreferredName);
+  const [suffix, setSuffix] = useState(currentSuffix);
+  const [alternateNames, setAlternateNames] = useState<string[]>(currentAlternateNames);
+  const [newAltName, setNewAltName] = useState("");
+  const [moreOpen, setMoreOpen] = useState(false);
   const submittedValuesRef = useRef<{ first: string; last: string } | null>(null);
   const renameFetcher = useFetcher();
 
@@ -51,13 +76,34 @@ export function RenamePersonDialog({
   const hasCurrentName = currentFirstName || currentLastName;
   const dialogTitle = title ?? (hasCurrentName ? "Rename Person" : "Set Name");
 
+  // Auto-open "More" section if any optional fields have values
+  const hasOptionalFields =
+    currentMiddleName || currentMaidenName || currentPreferredName || currentSuffix || currentAlternateNames.length > 0;
+
   // Reset form when dialog opens with new values
   useEffect(() => {
     if (open) {
       setFirstName(currentFirstName);
       setLastName(currentLastName);
+      setMiddleName(currentMiddleName);
+      setMaidenName(currentMaidenName);
+      setPreferredName(currentPreferredName);
+      setSuffix(currentSuffix);
+      setAlternateNames(currentAlternateNames);
+      setNewAltName("");
+      setMoreOpen(!!hasOptionalFields);
     }
-  }, [open, currentFirstName, currentLastName]);
+  }, [
+    open,
+    currentFirstName,
+    currentLastName,
+    currentMiddleName,
+    currentMaidenName,
+    currentPreferredName,
+    currentSuffix,
+    currentAlternateNames,
+    hasOptionalFields,
+  ]);
 
   // Handle successful submission
   useEffect(() => {
@@ -75,7 +121,15 @@ export function RenamePersonDialog({
     if (trimmedFirst) {
       submittedValuesRef.current = { first: trimmedFirst, last: trimmedLast };
       renameFetcher.submit(
-        { firstName: trimmedFirst, lastName: trimmedLast },
+        {
+          firstName: trimmedFirst,
+          lastName: trimmedLast,
+          middleName: middleName.trim(),
+          maidenName: maidenName.trim(),
+          preferredName: preferredName.trim(),
+          suffix: suffix.trim(),
+          alternateNames: JSON.stringify(alternateNames),
+        },
         { method: "post", action: `/api/${apiType}/${personId}/rename` },
       );
     }
@@ -84,6 +138,25 @@ export function RenamePersonDialog({
   function handleKeyDown(e: React.KeyboardEvent): void {
     if (e.key === "Enter") {
       handleSubmit();
+    }
+  }
+
+  function addAlternateName(): void {
+    const trimmed = newAltName.trim();
+    if (trimmed && !alternateNames.includes(trimmed)) {
+      setAlternateNames([...alternateNames, trimmed]);
+      setNewAltName("");
+    }
+  }
+
+  function removeAlternateName(index: number): void {
+    setAlternateNames(alternateNames.filter((_, i) => i !== index));
+  }
+
+  function handleAltNameKeyDown(e: React.KeyboardEvent): void {
+    if (e.key === "Enter") {
+      e.preventDefault();
+      addAlternateName();
     }
   }
 
@@ -105,10 +178,7 @@ export function RenamePersonDialog({
               onChange={(e) => setFirstName(e.target.value)}
               onKeyDown={handleKeyDown}
               placeholder="First name"
-              autoComplete="off"
-              data-form-type="other"
-              data-1p-ignore
-              data-lpignore="true"
+              {...autocompleteOff}
               autoFocus
             />
           </div>
@@ -122,12 +192,119 @@ export function RenamePersonDialog({
               onChange={(e) => setLastName(e.target.value)}
               onKeyDown={handleKeyDown}
               placeholder="Last name (optional)"
-              autoComplete="off"
-              data-form-type="other"
-              data-1p-ignore
-              data-lpignore="true"
+              {...autocompleteOff}
             />
           </div>
+          <Collapsible open={moreOpen} onOpenChange={setMoreOpen}>
+            <CollapsibleTrigger asChild>
+              <button
+                type="button"
+                className="flex items-center gap-1 text-sm text-muted-foreground hover:text-foreground transition-colors"
+              >
+                <ChevronDown className={`h-4 w-4 transition-transform ${moreOpen ? "" : "-rotate-90"}`} />
+                More name fields
+              </button>
+            </CollapsibleTrigger>
+            <CollapsibleContent className="space-y-4 pt-3">
+              <div className="space-y-2">
+                <label htmlFor="renameMiddleName" className="text-sm font-medium">
+                  Middle Name
+                </label>
+                <Input
+                  id="renameMiddleName"
+                  value={middleName}
+                  onChange={(e) => setMiddleName(e.target.value)}
+                  onKeyDown={handleKeyDown}
+                  placeholder="Middle name (optional)"
+                  {...autocompleteOff}
+                />
+              </div>
+              <div className="space-y-2">
+                <label htmlFor="renameSuffix" className="text-sm font-medium">
+                  Suffix
+                </label>
+                <Input
+                  id="renameSuffix"
+                  value={suffix}
+                  onChange={(e) => setSuffix(e.target.value)}
+                  onKeyDown={handleKeyDown}
+                  placeholder="Jr, Sr, III, etc. (optional)"
+                  {...autocompleteOff}
+                />
+              </div>
+              <div className="space-y-2">
+                <label htmlFor="renameMaidenName" className="text-sm font-medium">
+                  Maiden Name
+                </label>
+                <Input
+                  id="renameMaidenName"
+                  value={maidenName}
+                  onChange={(e) => setMaidenName(e.target.value)}
+                  onKeyDown={handleKeyDown}
+                  placeholder="Maiden name (optional)"
+                  {...autocompleteOff}
+                />
+              </div>
+              <div className="space-y-2">
+                <label htmlFor="renamePreferredName" className="text-sm font-medium">
+                  Preferred Name
+                </label>
+                <Input
+                  id="renamePreferredName"
+                  value={preferredName}
+                  onChange={(e) => setPreferredName(e.target.value)}
+                  onKeyDown={handleKeyDown}
+                  placeholder="Preferred name (optional)"
+                  {...autocompleteOff}
+                />
+              </div>
+              <div className="space-y-2">
+                <label htmlFor="renameNewAltName" className="text-sm font-medium">
+                  Alternate Names
+                </label>
+                <p className="text-xs text-muted-foreground">Names in other languages, nicknames, etc.</p>
+                {alternateNames.length > 0 && (
+                  <div className="flex flex-wrap gap-1.5">
+                    {alternateNames.map((name, i) => (
+                      <span
+                        key={name}
+                        className="inline-flex items-center gap-1 rounded-md bg-secondary px-2 py-1 text-sm"
+                      >
+                        {name}
+                        <button
+                          type="button"
+                          onClick={() => removeAlternateName(i)}
+                          className="text-muted-foreground hover:text-foreground transition-colors"
+                        >
+                          <X className="h-3 w-3" />
+                        </button>
+                      </span>
+                    ))}
+                  </div>
+                )}
+                <div className="flex gap-2">
+                  <Input
+                    id="renameNewAltName"
+                    value={newAltName}
+                    onChange={(e) => setNewAltName(e.target.value)}
+                    onKeyDown={handleAltNameKeyDown}
+                    placeholder="Add alternate name"
+                    {...autocompleteOff}
+                  />
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="icon"
+                    onClick={addAlternateName}
+                    disabled={!newAltName.trim()}
+                    className="shrink-0"
+                  >
+                    <Plus className="h-4 w-4" />
+                  </Button>
+                </div>
+              </div>
+            </CollapsibleContent>
+          </Collapsible>
         </div>
         <DialogFooter>
           <Button variant="outline" onClick={() => onOpenChange(false)}>

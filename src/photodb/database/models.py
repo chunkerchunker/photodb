@@ -234,6 +234,12 @@ class Person:
     last_name: Optional[str]
     created_at: datetime
     updated_at: datetime
+    # Optional name fields
+    middle_name: Optional[str] = None
+    maiden_name: Optional[str] = None
+    preferred_name: Optional[str] = None
+    suffix: Optional[str] = None  # Jr, Sr, III, etc.
+    alternate_names: Optional[List[str]] = None  # e.g., names in other languages
     # Age/gender aggregation fields
     estimated_birth_year: Optional[int] = None
     birth_year_stddev: Optional[float] = None
@@ -257,6 +263,11 @@ class Person:
         collection_id: int,
         first_name: Optional[str] = None,
         last_name: Optional[str] = None,
+        middle_name: Optional[str] = None,
+        maiden_name: Optional[str] = None,
+        preferred_name: Optional[str] = None,
+        suffix: Optional[str] = None,
+        alternate_names: Optional[List[str]] = None,
         estimated_birth_year: Optional[int] = None,
         birth_year_stddev: Optional[float] = None,
         gender: Optional[str] = None,
@@ -280,6 +291,11 @@ class Person:
             last_name=last_name,
             created_at=now,
             updated_at=now,
+            middle_name=middle_name,
+            maiden_name=maiden_name,
+            preferred_name=preferred_name,
+            suffix=suffix,
+            alternate_names=alternate_names,
             estimated_birth_year=estimated_birth_year,
             birth_year_stddev=birth_year_stddev,
             gender=gender,
@@ -296,14 +312,23 @@ class Person:
         )
 
     @property
+    def display_first_name(self) -> Optional[str]:
+        """Get the preferred name if set, otherwise first name."""
+        return self.preferred_name or self.first_name
+
+    @property
     def full_name(self) -> str:
-        """Get the full name (first + last), placeholder description, or fallback."""
+        """Get the full name (preferred/first + middle + last + suffix), placeholder description, or fallback."""
         if self.first_name is not None or self.last_name is not None:
             parts = []
-            if self.first_name:
-                parts.append(self.first_name)
+            if self.display_first_name:
+                parts.append(self.display_first_name)
+            if self.middle_name:
+                parts.append(self.middle_name)
             if self.last_name:
                 parts.append(self.last_name)
+            if self.suffix:
+                parts.append(self.suffix)
             return " ".join(parts) if parts else f"Unknown #{self.id}"
         elif self.placeholder_description:
             return self.placeholder_description
@@ -316,6 +341,11 @@ class Person:
             "collection_id": self.collection_id,
             "first_name": self.first_name,
             "last_name": self.last_name,
+            "middle_name": self.middle_name,
+            "maiden_name": self.maiden_name,
+            "preferred_name": self.preferred_name,
+            "suffix": self.suffix,
+            "alternate_names": self.alternate_names or [],
             "full_name": self.full_name,
             "created_at": self.created_at,
             "updated_at": self.updated_at,

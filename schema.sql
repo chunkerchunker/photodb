@@ -225,6 +225,11 @@ CREATE TABLE IF NOT EXISTS person(
     collection_id bigint NOT NULL,
     first_name text NOT NULL,
     last_name text,
+    middle_name text,
+    maiden_name text,
+    preferred_name text,
+    suffix text,
+    alternate_names text[] DEFAULT '{}',
     -- Age/gender aggregation from detections
     estimated_birth_year integer,
     birth_year_stddev real,

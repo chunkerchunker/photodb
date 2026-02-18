@@ -25,3 +25,5 @@
 @pghero:
   docker run -e DATABASE_URL=postgres://andrewchoi:PXpYgUwiAGpOgSAd@host.docker.internal:5432/photodb -p 8080:8080 --rm ankane/pghero
 
+@capture-import *args:
+  uv run python scripts/import_capture_order.py {{args}}

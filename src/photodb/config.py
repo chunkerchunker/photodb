@@ -118,6 +118,13 @@ EPSILON_PERCENTILE = 90.0
 # Looser than per-cluster epsilon since this is cross-context matching
 PERSON_ASSOCIATION_THRESHOLD = 0.8
 
+# --- Capture Import ---
+
+# PostgreSQL connection string for the Capture system database
+CAPTURE_DATABASE_URL = "postgresql://localhost/capture"
+# Root directory for Capture photo files on disk
+CAPTURE_BASE_PATH = "/Volumes/media/Pictures/capture"
+
 # --- Scene Analysis ---
 
 # MobileCLIP model variant for prompt-based tagging

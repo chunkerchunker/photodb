@@ -747,6 +747,10 @@ export default function ClusterDetailView({ loaderData }: Route.ComponentProps) 
                   <User className="h-4 w-4 mr-1" />
                   Person Photo
                 </Button>
+                <Button variant="outline" size="sm" disabled={isSubmitting} onClick={() => setLinkModalOpen(true)}>
+                  <Link2 className="h-4 w-4 mr-1" />
+                  Change Person
+                </Button>
                 <Button
                   variant="outline"
                   size="sm"
@@ -758,109 +762,109 @@ export default function ClusterDetailView({ loaderData }: Route.ComponentProps) 
                 </Button>
               </>
             ) : (
-              <Dialog open={linkModalOpen} onOpenChange={setLinkModalOpen}>
-                <DialogTrigger asChild>
-                  <Button variant="outline" size="sm" disabled={isSubmitting}>
-                    <Link2 className="h-4 w-4 mr-1" />
-                    Same Person
-                  </Button>
-                </DialogTrigger>
-                <DialogContent className="max-w-lg">
-                  <DialogHeader>
-                    <DialogTitle>Link as Same Person</DialogTitle>
-                    <DialogDescription>
-                      Search for another cluster of the same person. Both clusters will be linked to the same identity.
-                    </DialogDescription>
-                  </DialogHeader>
-                  <div className="space-y-4">
-                    <div className="relative">
-                      <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-gray-400" />
-                      <Input
-                        placeholder="Search by cluster ID or person name..."
-                        value={searchQuery}
-                        onChange={(e) => setSearchQuery(e.target.value)}
-                        className="pl-9"
-                      />
-                    </div>
-                    <div className="max-h-80 overflow-y-auto space-y-2">
-                      {isSearching ? (
-                        <div className="text-center py-4 text-gray-500">Searching...</div>
-                      ) : searchResults.length > 0 ? (
-                        searchResults.map((result) => {
-                          const resultKey = `${result.item_type || "cluster"}:${result.person_id || result.id}`;
-                          const isPending = pendingLinkClusterId === resultKey;
-                          const targetName = result.person_name || `Cluster ${result.id}`;
+              <Button variant="outline" size="sm" disabled={isSubmitting} onClick={() => setLinkModalOpen(true)}>
+                <Link2 className="h-4 w-4 mr-1" />
+                Same Person
+              </Button>
+            )}
+            <Dialog open={linkModalOpen} onOpenChange={setLinkModalOpen}>
+              <DialogContent className="max-w-lg">
+                <DialogHeader>
+                  <DialogTitle>{cluster.person_id ? "Change Person" : "Link as Same Person"}</DialogTitle>
+                  <DialogDescription>
+                    {cluster.person_id
+                      ? "Search for a different person or cluster to reassign this cluster to."
+                      : "Search for another cluster of the same person. Both clusters will be linked to the same identity."}
+                  </DialogDescription>
+                </DialogHeader>
+                <div className="space-y-4">
+                  <div className="relative">
+                    <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-gray-400" />
+                    <Input
+                      placeholder="Search by cluster ID or person name..."
+                      value={searchQuery}
+                      onChange={(e) => setSearchQuery(e.target.value)}
+                      className="pl-9"
+                    />
+                  </div>
+                  <div className="max-h-80 overflow-y-auto space-y-2">
+                    {isSearching ? (
+                      <div className="text-center py-4 text-gray-500">Searching...</div>
+                    ) : searchResults.length > 0 ? (
+                      searchResults.map((result) => {
+                        const resultKey = `${result.item_type || "cluster"}:${result.person_id || result.id}`;
+                        const isPending = pendingLinkClusterId === resultKey;
+                        const targetName = result.person_name || `Cluster ${result.id}`;
 
-                          return (
-                            <div
-                              key={resultKey}
-                              className={cn(
-                                "w-full flex items-center justify-between p-3 border rounded-lg transition-colors",
-                                isPending ? "bg-amber-50 border-amber-200" : "hover:bg-gray-50",
-                              )}
-                            >
-                              <div className="flex items-center space-x-3">
-                                {result.detection_id ? (
-                                  <div className="w-12 h-12 bg-gray-100 rounded border overflow-hidden flex-shrink-0">
-                                    <img
-                                      src={`/api/face/${result.detection_id}`}
-                                      alt={targetName}
-                                      className="w-full h-full object-cover"
-                                    />
-                                  </div>
-                                ) : (
-                                  <div className="w-12 h-12 bg-gray-200 rounded flex items-center justify-center flex-shrink-0">
-                                    <Users className="h-5 w-5 text-gray-400" />
-                                  </div>
-                                )}
-                                <div>
-                                  {isPending ? (
-                                    <div className="font-medium text-amber-800">Link with "{targetName}"?</div>
-                                  ) : (
-                                    <>
-                                      <div className="font-medium">{targetName}</div>
-                                      <div className="text-sm text-gray-500">
-                                        {result.face_count} face
-                                        {result.face_count !== 1 ? "s" : ""}
-                                        {result.item_type === "person" && (result.cluster_count ?? 0) > 1 && (
-                                          <span className="text-gray-400"> · {result.cluster_count} clusters</span>
-                                        )}
-                                      </div>
-                                    </>
-                                  )}
-                                </div>
-                              </div>
-                              {isPending ? (
-                                <div className="flex items-center space-x-2">
-                                  <Button variant="outline" size="sm" onClick={cancelLink}>
-                                    Cancel
-                                  </Button>
-                                  <Button size="sm" onClick={() => confirmLink(result)}>
-                                    Confirm
-                                  </Button>
+                        return (
+                          <div
+                            key={resultKey}
+                            className={cn(
+                              "w-full flex items-center justify-between p-3 border rounded-lg transition-colors",
+                              isPending ? "bg-amber-50 border-amber-200" : "hover:bg-gray-50",
+                            )}
+                          >
+                            <div className="flex items-center space-x-3">
+                              {result.detection_id ? (
+                                <div className="w-12 h-12 bg-gray-100 rounded border overflow-hidden flex-shrink-0">
+                                  <img
+                                    src={`/api/face/${result.detection_id}`}
+                                    alt={targetName}
+                                    className="w-full h-full object-cover"
+                                  />
                                 </div>
                               ) : (
-                                <button
-                                  type="button"
-                                  className="text-sm text-blue-600 hover:text-blue-800"
-                                  onClick={() => handleLinkClick(result)}
-                                >
-                                  Same Person
-                                </button>
+                                <div className="w-12 h-12 bg-gray-200 rounded flex items-center justify-center flex-shrink-0">
+                                  <Users className="h-5 w-5 text-gray-400" />
+                                </div>
                               )}
+                              <div>
+                                {isPending ? (
+                                  <div className="font-medium text-amber-800">Link with "{targetName}"?</div>
+                                ) : (
+                                  <>
+                                    <div className="font-medium">{targetName}</div>
+                                    <div className="text-sm text-gray-500">
+                                      {result.face_count} face
+                                      {result.face_count !== 1 ? "s" : ""}
+                                      {result.item_type === "person" && (result.cluster_count ?? 0) > 1 && (
+                                        <span className="text-gray-400"> · {result.cluster_count} clusters</span>
+                                      )}
+                                    </div>
+                                  </>
+                                )}
+                              </div>
                             </div>
-                          );
-                        })
-                      ) : searchQuery ? (
-                        <div className="text-center py-4 text-gray-500">No clusters found</div>
-                      ) : (
-                        <div className="text-center py-4 text-gray-500">Type to search for clusters</div>
-                      )}
-                    </div>
+                            {isPending ? (
+                              <div className="flex items-center space-x-2">
+                                <Button variant="outline" size="sm" onClick={cancelLink}>
+                                  Cancel
+                                </Button>
+                                <Button size="sm" onClick={() => confirmLink(result)}>
+                                  Confirm
+                                </Button>
+                              </div>
+                            ) : (
+                              <button
+                                type="button"
+                                className="text-sm text-blue-600 hover:text-blue-800"
+                                onClick={() => handleLinkClick(result)}
+                              >
+                                Same Person
+                              </button>
+                            )}
+                          </div>
+                        );
+                      })
+                    ) : searchQuery ? (
+                      <div className="text-center py-4 text-gray-500">No clusters found</div>
+                    ) : (
+                      <div className="text-center py-4 text-gray-500">Type to search for clusters</div>
+                    )}
                   </div>
-                </DialogContent>
-              </Dialog>
-            )}
+                </div>
+              </DialogContent>
+            </Dialog>
             <Button variant="outline" size="sm" onClick={handleToggleHidden} disabled={isSubmitting}>
               {cluster.hidden ? (
                 <>

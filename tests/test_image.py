@@ -122,29 +122,6 @@ class TestImageHandler:
         assert resized.size == (50, 50)
         assert resized.mode == img.mode
 
-    def test_save_as_png(self, sample_image, temp_dir):
-        """Test saving image as PNG."""
-        img = ImageHandler.open_image(sample_image)
-        output_path = temp_dir / "output.png"
-
-        ImageHandler.save_as_png(img, output_path, optimize=True)
-
-        assert output_path.exists()
-        # Verify it's a PNG
-        with Image.open(output_path) as saved_img:
-            assert saved_img.format == "PNG"
-            assert saved_img.size == img.size
-
-    def test_save_as_png_creates_directory(self, sample_image, temp_dir):
-        """Test that save_as_png creates parent directories."""
-        img = ImageHandler.open_image(sample_image)
-        output_path = temp_dir / "nested" / "dir" / "output.png"
-
-        ImageHandler.save_as_png(img, output_path)
-
-        assert output_path.exists()
-        assert output_path.parent.exists()
-
     def test_mode_conversions(self, temp_dir):
         """Test various image mode conversions."""
         # Test palette mode

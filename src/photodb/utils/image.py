@@ -217,108 +217,21 @@ class ImageHandler:
         return resized
 
     @classmethod
-    def _apply_exif_orientation(cls, image: Image.Image, original_path: Path) -> Image.Image:
-        """
-        Apply EXIF orientation correction to an image.
-
-        Args:
-            image: PIL Image object to transform
-            original_path: Path to original file for EXIF data
-
-        Returns:
-            Transformed image (may be same object if no transformation needed)
-        """
-        try:
-            with Image.open(original_path) as original:
-                # Check if EXIF orientation would change the image
-                corrected = ImageOps.exif_transpose(original)
-
-                if corrected is not original:
-                    exif = original.getexif()
-                    orientation = exif.get(0x0112) if exif else None
-
-                    if orientation and orientation != 1:
-                        original_image = image
-
-                        # Apply the same transformation that exif_transpose would do
-                        if orientation == 2:  # Flip horizontal
-                            image = image.transpose(Image.Transpose.FLIP_LEFT_RIGHT)
-                        elif orientation == 3:  # 180°
-                            image = image.rotate(180, expand=True)
-                        elif orientation == 4:  # Flip vertical
-                            image = image.transpose(Image.Transpose.FLIP_TOP_BOTTOM)
-                        elif orientation == 5:  # Transpose (flip + 90° CW)
-                            image = image.transpose(Image.Transpose.TRANSPOSE)
-                        elif orientation == 6:  # 90° CCW
-                            image = image.rotate(-90, expand=True)
-                        elif orientation == 7:  # Transverse (flip + 90° CCW)
-                            image = image.transpose(Image.Transpose.TRANSVERSE)
-                        elif orientation == 8:  # 90° CW
-                            image = image.rotate(90, expand=True)
-
-                        if image is not original_image:
-                            original_image.close()
-                            logger.debug(f"Applied EXIF orientation {orientation}")
-
-                corrected.close()
-
-        except Exception as e:
-            logger.debug(f"Could not apply EXIF orientation: {e}")
-
-        return image
-
-    @classmethod
-    def save_as_png(
-        cls,
-        image: Image.Image,
-        output_path: Path,
-        optimize: bool = True,
-        original_path: Optional[Path] = None,
-    ) -> None:
-        """
-        Save image as PNG with optimization and EXIF orientation correction.
-
-        Args:
-            image: PIL Image object
-            output_path: Path to save PNG
-            optimize: Whether to optimize file size
-            original_path: Path to original file for EXIF data (optional)
-        """
-        output_path.parent.mkdir(parents=True, exist_ok=True)
-
-        if original_path:
-            image = cls._apply_exif_orientation(image, original_path)
-
-        save_kwargs = {"format": "PNG", "optimize": optimize}
-
-        # Add compression for RGB images
-        if image.mode == "RGB":
-            save_kwargs["compress_level"] = defaults.PNG_COMPRESS_LEVEL
-
-        image.save(output_path, **save_kwargs)
-        logger.debug(f"Saved image to {output_path}")
-
-    @classmethod
     def save_as_webp(
         cls,
         image: Image.Image,
         output_path: Path,
         quality: int = 95,
-        original_path: Optional[Path] = None,
     ) -> None:
         """
-        Save image as WebP with lossy compression and EXIF orientation correction.
+        Save image as WebP with lossy compression.
 
         Args:
             image: PIL Image object
             output_path: Path to save WebP
             quality: WebP quality (0-100, default 95 for high quality lossy)
-            original_path: Path to original file for EXIF data (optional)
         """
         output_path.parent.mkdir(parents=True, exist_ok=True)
-
-        if original_path:
-            image = cls._apply_exif_orientation(image, original_path)
 
         # Ensure RGB mode for WebP (no alpha for lossy)
         if image.mode != "RGB":

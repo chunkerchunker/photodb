@@ -1,9 +1,9 @@
-import { requireUser } from "~/lib/auth.server";
+import { requireEffectiveUser } from "~/lib/auth.server";
 import { updateUserProfile } from "~/lib/db.server";
 import type { Route } from "./+types/api.user.update-profile";
 
 export async function action({ request }: Route.ActionArgs) {
-  const user = await requireUser(request);
+  const user = await requireEffectiveUser(request);
   const formData = await request.formData();
 
   const firstName = (formData.get("firstName") as string)?.trim();

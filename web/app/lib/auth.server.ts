@@ -166,6 +166,17 @@ export async function requireUser(request: Request): Promise<AppUser> {
 }
 
 /**
+ * Require authentication and return the effective user (impersonated user if active).
+ */
+export async function requireEffectiveUser(request: Request): Promise<AppUser> {
+  const sessionInfo = await getSessionInfo(request);
+  if (!sessionInfo) {
+    throw redirect("/login");
+  }
+  return sessionInfo.effectiveUser;
+}
+
+/**
  * Require admin access. Returns the admin user or throws 403.
  */
 export async function requireAdmin(request: Request): Promise<AppUser> {

@@ -1,9 +1,9 @@
-import { requireUser } from "~/lib/auth.server";
+import { requireEffectiveUser } from "~/lib/auth.server";
 import { updateUserDefaultCollection } from "~/lib/db.server";
 import type { Route } from "./+types/api.user.set-default-collection";
 
 export async function action({ request }: Route.ActionArgs) {
-  const user = await requireUser(request);
+  const user = await requireEffectiveUser(request);
   const formData = await request.formData();
 
   const collectionId = parseInt(formData.get("collectionId") as string, 10);

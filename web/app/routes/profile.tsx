@@ -7,7 +7,7 @@ import { Button } from "~/components/ui/button";
 import { Card, CardContent } from "~/components/ui/card";
 import { Input } from "~/components/ui/input";
 import { useRootData } from "~/hooks/use-root-data";
-import { requireUser } from "~/lib/auth.server";
+import { requireEffectiveUser } from "~/lib/auth.server";
 import {
   getPersonsForCollection,
   getUserCollections,
@@ -21,7 +21,7 @@ export function meta() {
 }
 
 export async function loader({ request }: Route.LoaderArgs) {
-  const user = await requireUser(request);
+  const user = await requireEffectiveUser(request);
   const collections = await getUserCollections(user.id);
 
   // Get persons for each collection

@@ -167,8 +167,8 @@ class PersonDetector:
         """Run YOLO detection on a batch of PIL images.
 
         This is the inference function used by BatchCoordinator for batched detection.
-        Runs on the BatchCoordinator's background thread, so we need an autorelease pool
-        on macOS to drain CoreML ObjC objects (IOSurfaces, CIImages).
+        The BatchCoordinator's background thread wraps calls in objc.autorelease_pool()
+        on macOS to drain Metal/MPS ObjC objects.
 
         Args:
             images: List of PIL.Image.Image objects.
@@ -176,11 +176,7 @@ class PersonDetector:
         Returns:
             List of ultralytics Results objects, one per input image.
         """
-        if sys.platform == "darwin":
-            with objc.autorelease_pool():
-                return self._run_yolo_impl(images)
-        else:
-            return self._run_yolo_impl(images)
+        return self._run_yolo_impl(images)
 
     def _run_yolo_impl(self, images: list) -> list:
         """Internal YOLO batch inference."""

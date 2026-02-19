@@ -20,6 +20,7 @@ from __future__ import annotations
 
 import logging
 import queue
+import sys
 import threading
 import time
 from concurrent.futures import Future
@@ -190,12 +191,21 @@ class BatchCoordinator:
         """
         Form a batch from collected items, run inference, and resolve futures.
 
+        On macOS, wraps inference in ``objc.autorelease_pool()`` to drain Metal/MPS
+        ObjC objects (IOSurfaces, MTLBuffers) created on this long-lived daemon thread.
+
         Supports PyTorch tensors (concatenated with ``torch.cat``) and plain lists
         (concatenated with ``+``). Torch is imported lazily.
         """
         try:
             batch, mode, sizes = self._form_batch(items)
-            results = self._inference_fn(batch)
+            if sys.platform == "darwin":
+                import objc
+
+                with objc.autorelease_pool():
+                    results = self._inference_fn(batch)
+            else:
+                results = self._inference_fn(batch)
             split = self._split_results(results, len(items), mode, sizes)
 
             for future, result in zip(futures, split):

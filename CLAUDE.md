@@ -192,15 +192,6 @@ Seed prompts with `uv run python scripts/seed_prompts.py`. Recompute embeddings 
 
 ## Important Gotchas
 
-### MiVOLO Thread Safety
-
-MiVOLO inference is serialized with a lock. Without serialization:
-
-1. Internal YOLO detector lazy-initializes on first use, causing race conditions with concurrent `recognize()` calls
-2. Concurrent inference produces inconsistent results (same image returns different prediction counts)
-
-*Tested with mivolo 0.6.0.dev0 (git HEAD) on 2026-02-01. Future versions may fix these issues.*
-
 ### timm Compatibility
 
 MiVOLO was written for timm 0.8.x but we use timm 1.0.x for MobileCLIP-S2's FastViT backbone. A compatibility shim (`src/photodb/utils/timm_compat.py`) patches:
@@ -213,12 +204,11 @@ Always import `timm_compat` before importing mivolo to apply the patches.
 
 ### Free-threaded Python
 
-**Not currently usable** due to two blockers:
+**Not currently usable** due to one blocker:
 
 1. **opencv-python**: No wheels for Python 3.13t (free-threaded)
-2. **MiVOLO thread safety**: Must be serialized regardless (see above)
 
-Use standard Python 3.13. InsightFace (ONNX Runtime) and CoreML detection are already thread-safe.
+Use standard Python 3.13. InsightFace (ONNX Runtime), MiVOLO, and CoreML detection are already thread-safe.
 
 ## Performance Considerations
 

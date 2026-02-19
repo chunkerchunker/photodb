@@ -218,16 +218,18 @@ Estimates age and gender using MiVOLO model on existing detections.
 **Process**:
 
 1. Load existing person_detection records for photo
-2. For each detection with face or body bbox:
-   - Run MiVOLO prediction with available bboxes
-   - MiVOLO performs better with both face AND body
-3. Update detection records with age_estimate, gender, gender_confidence
-4. Store full MiVOLO output in mivolo_output JSONB field
+2. Build synthetic `PersonAndFaceResult` from pre-computed face/body bboxes
+3. Run MiVOLO age/gender model directly (no redundant YOLO detection)
+4. Map results back to detections by index (no IoU matching needed)
+5. Update detection records with age_estimate, gender, gender_confidence
+6. Store full MiVOLO output in mivolo_output JSONB field
 
 **Key features**:
 
-- MiVOLO d1 model (pth.tar format, face+body)
+- MiVOLO d1 model loaded directly (bypasses MiVOLO's built-in YOLO detector)
+- Pre-computed bboxes from detection stage eliminate ~76% of stage time
 - Uses both face and body bboxes for improved accuracy
+- Thread-safe: no serialization lock needed (pure model inference)
 - Graceful degradation if MiVOLO not installed
 - `MIVOLO_FORCE_CPU=true` for CPU fallback
 - Gender stored as CHAR(1): 'M', 'F', or 'U' (unknown)
@@ -809,7 +811,7 @@ Stages are ordered for optimal batch utilization:
 detection → scene_analysis → age_gender
 ```
 
-**Why this order matters**: Detection produces a burst of work that feeds directly into scene_analysis's batch coordinators. If age_gender (which is serialized with a thread lock) ran between them, it would throttle the burst into a trickle, producing small, inefficient batches for scene_analysis. Putting the serial stage last means it doesn't matter that it's slow — there's nothing after it waiting for batches.
+**Why this order matters**: Detection produces a burst of work that feeds directly into scene_analysis's batch coordinators. Putting age_gender last keeps the detection→scene_analysis burst intact for optimal batch utilization.
 
 **Init order** is separate from processing order:
 
@@ -833,7 +835,7 @@ MobileCLIP on MPS vs CPU alone is 7x faster for scene_analysis.
 
 | Pipeline | Recommended | Rationale |
 |---|---|---|
-| Full pipeline (all stages) | 40–50 | Enough to keep batch coordinators fed; age_gender serialization doesn't block other workers |
+| Full pipeline (all stages) | 40–50 | Enough to keep batch coordinators fed |
 | Detection + scene_analysis only | 40–60 | Both stages batch well |
 | Normalize + metadata only | 100–200 | I/O bound, no GPU contention |
 

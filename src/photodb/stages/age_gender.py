@@ -161,12 +161,12 @@ class MiVOLOPredictor:
             return {}
 
         try:
-            import cv2
+            from PIL import Image
 
-            img = cv2.imread(image_path)
-            if img is None:
-                logger.error(f"Failed to load image: {image_path}")
-                return {}
+            pil_img = Image.open(image_path)
+            pil_img.load()
+            img = np.array(pil_img.convert("RGB"))[:, :, ::-1]  # RGB → BGR
+            pil_img.close()
 
             detected_objects = self._build_synthetic_result(img, detections)
             if detected_objects.n_objects == 0:

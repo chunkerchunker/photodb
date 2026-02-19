@@ -166,8 +166,7 @@ class LocalProcessor(BaseProcessor):
         Order matters for throughput: scene_analysis runs before age_gender so
         that the burst of workers exiting the detection batch coordinator feeds
         directly into the scene_analysis batch coordinator (big batches, good
-        GPU utilization).  If age_gender ran first, its serial lock would
-        convert the burst into a trickle, starving scene_analysis batches.
+        GPU utilization).
         """
         all_stages = [
             "normalize",

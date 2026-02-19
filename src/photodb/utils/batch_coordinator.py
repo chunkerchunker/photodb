@@ -23,7 +23,7 @@ import queue
 import threading
 import time
 from concurrent.futures import Future
-from typing import Any, Callable, Optional
+from typing import Any, Callable
 
 logger = logging.getLogger(__name__)
 
@@ -48,6 +48,7 @@ class BatchCoordinator:
         inference_fn: Callable[[Any], Any],
         max_batch_size: int = 32,
         max_wait_ms: int = 50,
+        name: str = "batch",
     ) -> None:
         """
         Initialize the BatchCoordinator.
@@ -59,10 +60,12 @@ class BatchCoordinator:
             max_batch_size: Maximum number of items to include in a single batch.
             max_wait_ms: Maximum time in milliseconds to wait for additional items
                 after the first item arrives before dispatching a partial batch.
+            name: Human-readable name for log messages (e.g., "yolo", "clip_image").
         """
         self._inference_fn = inference_fn
         self._max_batch_size = max_batch_size
         self._max_wait_ms = max_wait_ms
+        self._name = name
 
         self._queue: queue.Queue[tuple[Any, Future] | object] = queue.Queue()
         self._closed = False
@@ -191,9 +194,9 @@ class BatchCoordinator:
         (concatenated with ``+``). Torch is imported lazily.
         """
         try:
-            batch, mode = self._form_batch(items)
+            batch, mode, sizes = self._form_batch(items)
             results = self._inference_fn(batch)
-            split = self._split_results(results, len(items), mode)
+            split = self._split_results(results, len(items), mode, sizes)
 
             for future, result in zip(futures, split):
                 future.set_result(result)
@@ -202,14 +205,14 @@ class BatchCoordinator:
                 self._batches_processed += 1
                 self._items_processed += len(items)
 
-            logger.debug("Processed batch of %d items", len(items))
+            logger.debug("[%s] Processed batch of %d items", self._name, len(items))
 
         except Exception as exc:
-            logger.error("Batch inference failed: %s", exc)
+            logger.error("[%s] Batch inference failed: %s", self._name, exc)
             for future in futures:
                 future.set_exception(exc)
 
-    def _form_batch(self, items: list[Any]) -> tuple[Any, str]:
+    def _form_batch(self, items: list[Any]) -> tuple[Any, str, list[int] | None]:
         """
         Combine individual items into a single batch.
 
@@ -217,48 +220,57 @@ class BatchCoordinator:
         concatenates them. Otherwise wraps items in a plain list.
 
         Returns:
-            A tuple of (batch, mode) where mode is one of "tensor", "list",
-            or "scalar" to inform how results should be split.
+            A tuple of (batch, mode, sizes) where mode is one of "tensor", "list",
+            or "scalar" to inform how results should be split. ``sizes`` records each
+            input item's contribution to the batch (tensor dim-0 or list length) so
+            that ``_split_results`` can correctly partition variable-size outputs.
         """
         if self._is_tensor(items[0]):
             import torch
 
-            return torch.cat(items, dim=0), "tensor"
+            sizes = [item.shape[0] for item in items]
+            return torch.cat(items, dim=0), "tensor", sizes
 
         # List batching: concatenate lists
         if isinstance(items[0], list):
+            sizes = [len(item) for item in items]
             batch: list[Any] = []
             for item in items:
                 batch.extend(item)
-            return batch, "list"
+            return batch, "list", sizes
 
         # Fallback: wrap in a list (each item is a single scalar/object)
-        return items, "scalar"
+        return items, "scalar", None
 
-    def _split_results(self, results: Any, count: int, mode: str) -> list[Any]:
+    def _split_results(
+        self, results: Any, count: int, mode: str, sizes: list[int] | None
+    ) -> list[Any]:
         """
         Split batched results back into individual outputs.
 
-        For tensors, splits along dim 0 using ``torch.split``. For lists formed by
-        concatenation, splits evenly by length. For scalar-mode lists, returns each
-        element directly.
+        For tensors, splits along dim 0 using ``torch.split`` with the recorded
+        per-item sizes. For lists formed by concatenation, slices using recorded
+        per-item lengths. For scalar-mode lists, returns each element directly.
 
         Args:
             results: The batched output from the inference function.
             count: Number of individual items that were batched.
             mode: One of "tensor", "list", or "scalar" (from ``_form_batch``).
+            sizes: Per-item sizes recorded by ``_form_batch`` (tensor dim-0 or
+                list length). ``None`` for scalar mode.
         """
-        if mode == "tensor" and self._is_tensor(results):
+        if mode == "tensor" and self._is_tensor(results) and sizes is not None:
             import torch
 
-            chunk_size = results.shape[0] // count
-            return list(torch.split(results, chunk_size, dim=0))
+            return list(torch.split(results, sizes, dim=0))
 
-        if mode == "list" and isinstance(results, list):
-            if count == 1:
-                return [results]
-            chunk_size = len(results) // count
-            return [results[i * chunk_size : (i + 1) * chunk_size] for i in range(count)]
+        if mode == "list" and isinstance(results, list) and sizes is not None:
+            splits: list[Any] = []
+            offset = 0
+            for s in sizes:
+                splits.append(results[offset : offset + s])
+                offset += s
+            return splits
 
         if mode == "scalar" and isinstance(results, (list, tuple)):
             return list(results)

@@ -81,7 +81,7 @@ def _load_model():
 class MobileCLIPAnalyzer:
     """CLIP image and text encoder for zero-shot classification.
 
-    Uses OpenAI's ViT-B-32 CLIP model by default. Model can be configured
+    Uses Apple's MobileCLIP-S2 model by default. Model can be configured
     via CLIP_MODEL_NAME and CLIP_PRETRAINED environment variables.
 
     Usage:

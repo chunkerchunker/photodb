@@ -113,6 +113,7 @@ class LocalProcessor(BaseProcessor):
                     inference_fn=self._shared_detector.run_yolo,
                     max_batch_size=max_size,
                     max_wait_ms=wait_ms,
+                    name="yolo",
                 )
                 self._batch_coordinators.append(self._yolo_coordinator)
                 self.stages["detection"].yolo_batch_coordinator = self._yolo_coordinator
@@ -123,11 +124,13 @@ class LocalProcessor(BaseProcessor):
                     inference_fn=self._shared_scene_analyzer.batch_encode,
                     max_batch_size=max_size,
                     max_wait_ms=wait_ms,
+                    name="clip_image",
                 )
                 self._clip_face_coordinator = BatchCoordinator(
                     inference_fn=self._shared_scene_analyzer.batch_encode,
                     max_batch_size=max_size,
                     max_wait_ms=wait_ms,
+                    name="clip_face",
                 )
                 self._batch_coordinators.extend(
                     [self._clip_image_coordinator, self._clip_face_coordinator]

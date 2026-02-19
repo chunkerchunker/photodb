@@ -95,7 +95,8 @@ class PersonDetector:
             device: Device to use ('mps', 'cuda', 'cpu'). Auto-detects if not specified.
             force_cpu: Force CPU-only mode for PyTorch models.
             prefer_coreml: On macOS, prefer CoreML (.mlpackage) if available.
-                          CoreML is faster (5x) and thread-safe. Default True.
+                          Default False (PyTorch MPS with batch inference is
+                          faster overall and avoids CoreML+MPS SIGSEGV).
         """
 
         # Get model path from env or parameter

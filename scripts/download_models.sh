@@ -56,7 +56,8 @@ fi
 # On macOS, export CoreML model for faster inference via Neural Engine
 # NOTE: dynamic=True export causes SIGSEGV with coremltools 9.0 + PyTorch 2.8 on Apple Silicon.
 # We export with nms=False (required for Ultralytics 8.3+) but without dynamic=True.
-# YOLO batch inference via CoreML is disabled by default (YOLO_BATCH_ENABLED=False in config.py).
+# The default config uses PyTorch MPS batch inference (DETECTION_PREFER_COREML=False).
+# This CoreML export is retained as a fallback (enable with DETECTION_PREFER_COREML=true).
 if [[ "$OSTYPE" == "darwin"* ]]; then
     COREML_DIR="$MODELS_DIR/yolov8x_person_face.mlpackage"
 

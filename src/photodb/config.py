@@ -37,7 +37,7 @@ WEBP_QUALITY = 95
 # Max pixel count before refusing to open an image (memory guard)
 MAX_IMAGE_PIXELS = 178_956_970
 # WebP encoder effort level (0=fast, 6=best compression)
-WEBP_METHOD = 6
+WEBP_METHOD = 4
 # PNG compression level for lossless saves (0-9)
 PNG_COMPRESS_LEVEL = 9
 

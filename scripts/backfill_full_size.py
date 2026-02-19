@@ -34,15 +34,9 @@ from pathlib import Path
 from concurrent.futures import ThreadPoolExecutor, as_completed
 import threading
 
-if sys.platform == "darwin":
-    _fallback = os.environ.get("DYLD_FALLBACK_LIBRARY_PATH", "")
-    _brew_paths = "/opt/homebrew/lib:/usr/local/lib"
-    if _brew_paths not in _fallback:
-        os.environ["DYLD_FALLBACK_LIBRARY_PATH"] = (
-            f"{_brew_paths}:{_fallback}" if _fallback else _brew_paths
-        )
-
-import pyvips
+# Add project root to path so we can import the vips compat shim
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "src"))
+from photodb.utils.vips_compat import pyvips  # noqa: E402
 import psycopg
 from psycopg.rows import dict_row
 from dotenv import load_dotenv

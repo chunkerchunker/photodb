@@ -192,6 +192,16 @@ Seed prompts with `uv run python scripts/seed_prompts.py`. Recompute embeddings 
 
 ## Important Gotchas
 
+### libvips Concurrency
+
+The normalize stage uses pyvips (libvips). libvips maintains its own internal thread pool (default: `VIPS_CONCURRENCY` = number of CPU cores). When running with `--parallel N`, the total thread count is N Python threads + `VIPS_CONCURRENCY` libvips threads. To avoid over-subscription at high parallelism:
+
+```bash
+VIPS_CONCURRENCY=1 just local /path/to/photos --parallel 8
+```
+
+Rule of thumb: `--parallel` x `VIPS_CONCURRENCY` should approximate the number of performance cores. Always import pyvips via `vips_compat.py` (not directly) to ensure macOS Homebrew library path is set.
+
 ### MiVOLO Thread Safety
 
 MiVOLO inference is serialized with a lock. Without serialization:

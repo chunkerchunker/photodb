@@ -1,19 +1,9 @@
 import logging
 import os
-import sys
 from pathlib import Path
 from typing import Any, Dict, Optional, Tuple
 
-# macOS: ensure Homebrew's libvips is discoverable by cffi's dlopen
-if sys.platform == "darwin":
-    _fallback = os.environ.get("DYLD_FALLBACK_LIBRARY_PATH", "")
-    _brew_paths = "/opt/homebrew/lib:/usr/local/lib"
-    if _brew_paths not in _fallback:
-        os.environ["DYLD_FALLBACK_LIBRARY_PATH"] = (
-            f"{_brew_paths}:{_fallback}" if _fallback else _brew_paths
-        )
-
-import pyvips  # noqa: E402  (must come after library-path fix)
+from .vips_compat import pyvips
 
 from .. import config as defaults
 

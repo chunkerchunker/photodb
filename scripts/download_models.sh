@@ -101,18 +101,18 @@ model.export(format='coreml', nms=False, imgsz=640)
     fi
 fi
 
-# InsightFace buffalo_l model
-INSIGHTFACE_MODEL_DIR="$HOME/.insightface/models/buffalo_l"
-if [ ! -d "$INSIGHTFACE_MODEL_DIR" ] || [ -z "$(ls -A "$INSIGHTFACE_MODEL_DIR" 2>/dev/null)" ]; then
+# ArcFace recognition model (w600k_r50 from buffalo_l pack)
+ARCFACE_MODEL="$HOME/.insightface/models/buffalo_l/w600k_r50.onnx"
+if [ ! -f "$ARCFACE_MODEL" ]; then
     echo ""
-    echo "Downloading InsightFace buffalo_l model..."
-    if command -v uv &> /dev/null; then
-        uv run python -c "from insightface.app import FaceAnalysis; FaceAnalysis(name='buffalo_l').prepare(ctx_id=0)"
-    else
-        python -c "from insightface.app import FaceAnalysis; FaceAnalysis(name='buffalo_l').prepare(ctx_id=0)"
-    fi
+    echo "Downloading ArcFace recognition model (buffalo_l pack)..."
+    mkdir -p "$(dirname "$ARCFACE_MODEL")"
+    curl -L "https://github.com/deepinsight/insightface/releases/download/v0.7/buffalo_l.zip" -o /tmp/buffalo_l.zip
+    unzip -o /tmp/buffalo_l.zip -d "$HOME/.insightface/models/buffalo_l/"
+    rm /tmp/buffalo_l.zip
+    echo "ArcFace model extracted to $(dirname "$ARCFACE_MODEL")"
 else
-    echo "InsightFace buffalo_l model already exists, skipping..."
+    echo "ArcFace w600k_r50.onnx already exists, skipping..."
 fi
 
 echo ""

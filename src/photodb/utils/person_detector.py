@@ -156,7 +156,7 @@ class PersonDetector:
                 self.model(dummy, conf=self.min_confidence, device=self._yolo_device, verbose=False)
             # Warmup embedding extractor with a small face-sized image
             dummy_face = np.zeros((112, 112, 3), dtype=np.uint8)
-            self.embedding_extractor.model.get_feat([dummy_face])  # type: ignore[union-attr]
+            self.embedding_extractor.get_feat([dummy_face])
             logger.info("PersonDetector warmup complete")
         except Exception as e:
             logger.warning(f"PersonDetector warmup failed (non-fatal): {e}")

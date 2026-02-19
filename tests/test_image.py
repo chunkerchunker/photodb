@@ -122,29 +122,6 @@ class TestImageHandler:
         assert resized.size == (50, 50)
         assert resized.mode == img.mode
 
-    def test_save_as_png(self, sample_image, temp_dir):
-        """Test saving image as PNG."""
-        img = ImageHandler.open_image(sample_image)
-        output_path = temp_dir / "output.png"
-
-        ImageHandler.save_as_png(img, output_path, optimize=True)
-
-        assert output_path.exists()
-        # Verify it's a PNG
-        with Image.open(output_path) as saved_img:
-            assert saved_img.format == "PNG"
-            assert saved_img.size == img.size
-
-    def test_save_as_png_creates_directory(self, sample_image, temp_dir):
-        """Test that save_as_png creates parent directories."""
-        img = ImageHandler.open_image(sample_image)
-        output_path = temp_dir / "nested" / "dir" / "output.png"
-
-        ImageHandler.save_as_png(img, output_path)
-
-        assert output_path.exists()
-        assert output_path.parent.exists()
-
     def test_mode_conversions(self, temp_dir):
         """Test various image mode conversions."""
         # Test palette mode
@@ -167,3 +144,35 @@ class TestImageHandler:
         img.save(img_path, "JPEG")
         converted = ImageHandler.open_image(img_path)
         assert converted.mode == "L"  # L mode is kept as-is
+
+    def test_open_and_orient(self, sample_image):
+        """Test open_and_orient returns correctly oriented image."""
+        img = ImageHandler.open_and_orient(sample_image)
+        assert isinstance(img, Image.Image)
+        assert img.mode == "RGB"
+        assert img.size == (100, 100)
+
+    def test_open_and_orient_unsupported(self, temp_dir):
+        """Test open_and_orient rejects unsupported formats."""
+        txt_file = temp_dir / "test.txt"
+        txt_file.write_text("not an image")
+        with pytest.raises(ValueError, match="Unsupported format"):
+            ImageHandler.open_and_orient(txt_file)
+
+    def test_open_and_orient_exif_rotation(self, temp_dir):
+        """Test that EXIF orientation is applied and tag stripped."""
+        import piexif
+
+        # Create a 100x200 image with EXIF orientation 6 (90° CCW rotation)
+        img_path = temp_dir / "rotated.jpg"
+        img = Image.new("RGB", (100, 200), color="red")
+        exif_dict = {"0th": {piexif.ImageIFD.Orientation: 6}}
+        exif_bytes = piexif.dump(exif_dict)
+        img.save(img_path, "JPEG", exif=exif_bytes)
+
+        result = ImageHandler.open_and_orient(img_path)
+        # After 90° CCW rotation, 100x200 becomes 200x100
+        assert result.size == (200, 100)
+        # EXIF orientation tag should be stripped
+        exif = result.getexif()
+        assert exif.get(0x0112) in (None, 1)

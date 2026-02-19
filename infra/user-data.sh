@@ -25,3 +25,6 @@ mkdir -p /data/photos /data/postgres
 # --- App directory ---
 mkdir -p /home/ec2-user/photodb
 chown -R ec2-user:ec2-user /home/ec2-user/photodb /data
+
+# --- Shell config ---
+echo 'export TERM=xterm-256color' >> /home/ec2-user/.bashrc

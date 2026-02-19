@@ -71,13 +71,14 @@ const instance = new aws.ec2.Instance("photodb", {
   keyName: keyPair.keyName,
   vpcSecurityGroupIds: [sg.id],
   rootBlockDevice: {
-    volumeSize: 40,
+    volumeSize: 80,
     volumeType: "gp3",
     deleteOnTermination: false,
   },
+  userDataReplaceOnChange: false,
   userData,
   tags: { Name: "photodb" },
-});
+}, { protect: true });
 
 // --- Elastic IP (stable address across stop/start) ---
 

@@ -233,6 +233,40 @@ Estimates age and gender using MiVOLO model on existing detections.
 
 **Output**: Updated PersonDetection records with age/gender data
 
+### Stage 5: Scene Analysis
+
+**File**: `src/photodb/stages/scene_analysis.py`
+
+Classifies photos and detected faces using Apple Vision scene taxonomy and MobileCLIP zero-shot tagging.
+
+**Process**:
+
+1. **Apple Vision taxonomy (macOS only)**: Classify the image against Apple's built-in 1303-label scene taxonomy, returning top-k labels with confidence scores. Uses the Neural Engine for fast inference.
+2. **Image embedding**: Encode the normalized image with MobileCLIP-S2.
+3. **Scene tagging**: Classify the image embedding against all scene prompt categories (mood, setting, activity, time, weather, social). Each category supports either single-select (top-1) or multi-select mode with per-category confidence thresholds.
+4. **Face tagging**: For each detected face, crop and encode the face region with MobileCLIP, then classify against face prompt categories (emotion, expression, gaze).
+5. **Persist results**: Store `AnalysisOutput` records for both taxonomy and MobileCLIP outputs, `PhotoTag` records for scene tags, `DetectionTag` records for face tags, and a `SceneAnalysis` summary record linking everything together.
+
+**Prompt-based classification**:
+
+Prompts are stored in the database as pre-computed embeddings organized into categories. Classification works by computing cosine similarity between the image/face embedding and each prompt embedding in a category, then selecting the best match(es).
+
+Categories are configured with:
+- `selection_mode`: `single` (top-1 winner) or `multi` (all above threshold)
+- `min_confidence`: Per-category threshold for tag inclusion
+- `target`: `scene` (applied to whole image) or `face` (applied to face crops)
+
+See [`docs/prompt_strategy.md`](prompt_strategy.md) for details on prompt ensembling, template sets, and embedding computation.
+
+**Key features**:
+
+- Apple Vision runs via `pyobjc` with `objc.autorelease_pool()` for thread safety
+- MobileCLIP embeddings are cached per-category in `PromptCache` for fast repeated classification
+- Face crops are batch-encoded for efficiency
+- Both classifiers warm up at stage initialization to avoid cold-start latency
+
+**Output**: SceneAnalysis record + PhotoTag records (scene) + DetectionTag records (faces) + AnalysisOutput records (raw model outputs)
+
 ### Clustering (separate from pipeline)
 
 **File**: `src/photodb/stages/clustering.py`
@@ -335,6 +369,62 @@ new_centroid = (old_centroid * face_count + embedding) / (face_count + 1)
 All embeddings and centroids are L2-normalized to unit vectors for cosine similarity.
 
 **Output**: Hierarchical cluster assignments + condensed tree persistence + lambda/persistence metadata
+
+### Cluster Auto-Association (Person Grouping)
+
+**File**: `src/photodb/utils/maintenance.py` (`auto_associate_clusters`)
+
+Automatically groups clusters into shared person records based on centroid similarity. This runs as part of weekly maintenance to link clusters that likely represent the same individual.
+
+**Algorithm**:
+
+1. **Pair discovery**: Uses pgvector's `<=>` cosine distance operator to find cluster pairs within a configurable threshold (default: `PERSON_ASSOCIATION_THRESHOLD=0.8`). Hidden clusters and pairs blocked by cannot-link constraints are excluded.
+2. **Complete-linkage grouping**: Builds groups of similar clusters using complete-linkage (not single-linkage) to prevent chaining. A cluster joins a group only if it is within threshold of **every** existing member. Pairs are processed in distance order (closest first).
+3. **Cannot-link filtering**: Before linking, clusters with `cluster_person_cannot_link` constraints to the group's candidate person are removed.
+4. **Person assignment**: For each group of 2+ clusters:
+   - **No existing person**: Creates a new auto-created person (`first_name='Unknown'`, `auto_created=true`) and links all clusters
+   - **One existing person**: Links unlinked clusters to the existing person
+   - **Multiple existing persons**: Merges into the best person (priority: verified clusters > most clusters > highest ID), then links remaining unlinked clusters
+
+**Complete-linkage vs single-linkage**:
+
+Single-linkage would chain clusters A→B→C even if A and C are dissimilar. Complete-linkage requires all pairs within a group to be within threshold, producing tighter, more reliable groupings.
+
+```text
+Single-linkage (avoided):     Complete-linkage (used):
+A -- B -- C -- D              A -- B    C -- D
+(chain, A↔D may be far)      (A↔B close, C↔D close, but groups separate)
+```
+
+**Person merge priority** (when a group spans multiple persons):
+
+```text
+1. Has verified clusters (boolean, highest priority)
+2. Number of clusters linked to the person
+3. Person ID (tiebreaker, higher = newer)
+```
+
+The losing person is deleted and all its clusters are moved to the winning person via `merge_persons`.
+
+**Per-collection scoping**: Auto-association runs independently per collection to avoid mixing identities across collections.
+
+**Configuration**:
+
+- `PERSON_ASSOCIATION_THRESHOLD`: Maximum cosine distance between cluster centroids to consider them the same person (default: `0.8`)
+
+**CLI usage**:
+
+```bash
+# Run as part of weekly maintenance
+uv run photodb-maintenance weekly
+
+# Run standalone
+uv run photodb-maintenance auto-associate
+uv run photodb-maintenance auto-associate --threshold 0.6
+uv run photodb-maintenance auto-associate --dry-run
+```
+
+**Output**: Person records created/merged + cluster-to-person linkages
 
 ### Stage R1: Enrich
 

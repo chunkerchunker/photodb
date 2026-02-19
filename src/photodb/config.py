@@ -49,8 +49,11 @@ DETECTION_MODEL_PATH = "models/yolov8x_person_face.pt"
 DETECTION_FORCE_CPU = False
 # Minimum YOLO detection confidence to keep a face/body box
 DETECTION_MIN_CONFIDENCE = 0.5
-# Prefer CoreML (.mlpackage) on macOS for Neural Engine acceleration
-DETECTION_PREFER_COREML = True
+# Prefer CoreML (.mlpackage) on macOS for Neural Engine acceleration.
+# Disabled by default: CoreML + MPS coexistence causes SIGSEGV with
+# ultralytics 8.3+ / coremltools 9.0 / PyTorch 2.8. PyTorch MPS with
+# batch inference is faster overall (MobileCLIP also gets MPS).
+DETECTION_PREFER_COREML = False
 
 # --- Age/Gender ---
 
@@ -171,9 +174,10 @@ BATCH_COORDINATOR_MAX_SIZE = 32
 BATCH_COORDINATOR_MAX_WAIT_MS = 50
 # Enable/disable batch coordinator for ML inference (set False to use per-item inference)
 BATCH_COORDINATOR_ENABLED = True
-# Enable YOLO batch inference (requires CoreML model exported with dynamic=True nms=False)
-# Disabled by default: dynamic=True CoreML export causes SIGSEGV on coremltools 9.0 + PyTorch 2.8
-YOLO_BATCH_ENABLED = False
+# Enable YOLO batch inference via BatchCoordinator.
+# Works with PyTorch MPS backend (DETECTION_PREFER_COREML=False).
+# CoreML dynamic batch export causes SIGSEGV (coremltools 9.0 + PyTorch 2.8).
+YOLO_BATCH_ENABLED = True
 # Enable experimental InsightFace batch embedding (disabled by default — ONNX CoreML EP may crash)
 INSIGHTFACE_BATCH_ENABLED = False
 

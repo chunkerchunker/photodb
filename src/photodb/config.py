@@ -59,9 +59,6 @@ DETECTION_PREFER_COREML = False
 MIVOLO_MODEL_PATH = "models/mivolo_d1.pth.tar"
 # Force CPU-only MiVOLO inference
 MIVOLO_FORCE_CPU = False
-# Minimum IoU to match a MiVOLO prediction to a YOLO detection
-AGE_GENDER_MIN_IOU = 0.3
-
 # --- Embeddings ---
 
 # InsightFace model pack name (buffalo_l = ArcFace ResNet-100)

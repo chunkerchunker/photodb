@@ -20,55 +20,43 @@ class TestGetProviders:
 
     def test_get_providers_selects_coreml_on_macos(self):
         """Verify CoreML provider is selected on macOS when available."""
-        with patch("onnxruntime.get_available_providers") as mock_providers:
-            mock_providers.return_value = [
+        from src.photodb.utils.embedding_extractor import _get_providers
+
+        with patch("src.photodb.utils.embedding_extractor.ort.get_available_providers") as mock_p:
+            mock_p.return_value = [
                 "CoreMLExecutionProvider",
                 "CUDAExecutionProvider",
                 "CPUExecutionProvider",
             ]
-            # Reimport to get fresh function with mocked ort
-            import importlib
-            import src.photodb.utils.embedding_extractor as mod
-
-            importlib.reload(mod)
-
             with patch.object(sys, "platform", "darwin"):
-                providers = mod._get_providers()
+                providers = _get_providers()
 
-                # CoreML should be first on macOS
                 assert providers[0] == "CoreMLExecutionProvider"
                 assert "CPUExecutionProvider" in providers
 
     def test_get_providers_selects_cuda_when_available(self):
         """Verify CUDA provider is selected when CoreML not available."""
-        with patch("onnxruntime.get_available_providers") as mock_providers:
-            mock_providers.return_value = [
+        from src.photodb.utils.embedding_extractor import _get_providers
+
+        with patch("src.photodb.utils.embedding_extractor.ort.get_available_providers") as mock_p:
+            mock_p.return_value = [
                 "CUDAExecutionProvider",
                 "CPUExecutionProvider",
             ]
-            import importlib
-            import src.photodb.utils.embedding_extractor as mod
-
-            importlib.reload(mod)
-
             with patch.object(sys, "platform", "linux"):
-                providers = mod._get_providers()
+                providers = _get_providers()
 
-                # CUDA should be first when CoreML not available
                 assert providers[0] == "CUDAExecutionProvider"
                 assert "CPUExecutionProvider" in providers
 
     def test_get_providers_falls_back_to_cpu(self):
         """Verify CPU fallback when no GPU available."""
-        with patch("onnxruntime.get_available_providers") as mock_providers:
-            mock_providers.return_value = ["CPUExecutionProvider"]
-            import importlib
-            import src.photodb.utils.embedding_extractor as mod
+        from src.photodb.utils.embedding_extractor import _get_providers
 
-            importlib.reload(mod)
-
+        with patch("src.photodb.utils.embedding_extractor.ort.get_available_providers") as mock_p:
+            mock_p.return_value = ["CPUExecutionProvider"]
             with patch.object(sys, "platform", "linux"):
-                providers = mod._get_providers()
+                providers = _get_providers()
 
                 assert providers == ["CPUExecutionProvider"]
 

@@ -997,7 +997,15 @@ class MaintenanceUtilities:
                 )
                 continue
 
-            self._link_group_to_person(group_list, cluster_map, collection_id, results)
+            resulting_pid = self._link_group_to_person(group_list, cluster_map, collection_id, results)
+
+            # Update cluster_map so subsequent groups see current person_id values.
+            # Without this, a later group may reference a person that was deleted
+            # by merge_persons in an earlier group.
+            if resulting_pid is not None:
+                for cid in group_list:
+                    if cid in cluster_map:
+                        cluster_map[cid]["person_id"] = resulting_pid
 
         return results
 
@@ -1046,8 +1054,13 @@ class MaintenanceUtilities:
         cluster_map: Dict[int, Dict[str, Any]],
         collection_id: int,
         results: Dict[str, int],
-    ) -> None:
-        """Link a group of clusters to a single person, creating or merging as needed."""
+    ) -> int | None:
+        """Link a group of clusters to a single person, creating or merging as needed.
+
+        Returns:
+            The person_id all clusters in the group are now linked to, or None if
+            no action was taken.
+        """
         # Collect existing person_ids from the group
         person_ids: Dict[int, List[int]] = {}  # person_id -> [cluster_ids]
         unlinked: List[int] = []
@@ -1061,6 +1074,8 @@ class MaintenanceUtilities:
             else:
                 unlinked.append(cid)
 
+        resulting_pid: int | None = None
+
         if not person_ids:
             # No cluster has a person — create a new one
             person = Person.create(collection_id=collection_id, first_name="Unknown", auto_created=True)
@@ -1069,6 +1084,7 @@ class MaintenanceUtilities:
             linked = self.repo.link_clusters_to_person(group, person.id, collection_id)
             results["persons_created"] += 1
             results["clusters_linked"] += linked
+            resulting_pid = person.id
             logger.info(
                 f"Created person {person.id} and linked {linked} clusters: {group}"
             )
@@ -1080,6 +1096,7 @@ class MaintenanceUtilities:
                 linked = self.repo.link_clusters_to_person(unlinked, pid, collection_id)
                 results["clusters_linked"] += linked
                 logger.info(f"Linked {linked} clusters to existing person {pid}: {unlinked}")
+            resulting_pid = pid
 
         else:
             # Multiple person_ids — merge into the best one
@@ -1100,11 +1117,20 @@ class MaintenanceUtilities:
                 logger.info(
                     f"Merged person {remove_pid} into {keep_pid} ({moved} clusters moved)"
                 )
+                # merge_persons deletes remove_pid and moves ALL its clusters
+                # in the DB. Update cluster_map globally so later groups don't
+                # reference a deleted person.
+                for info in cluster_map.values():
+                    if info["person_id"] == remove_pid:
+                        info["person_id"] = keep_pid
 
             if unlinked:
                 linked = self.repo.link_clusters_to_person(unlinked, keep_pid, collection_id)
                 results["clusters_linked"] += linked
                 logger.info(f"Linked {linked} unlinked clusters to person {keep_pid}")
+            resulting_pid = keep_pid
+
+        return resulting_pid
 
     def run_daily_maintenance(self) -> Dict[str, int]:
         """

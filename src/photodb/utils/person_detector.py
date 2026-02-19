@@ -1,5 +1,5 @@
 """
-Person detection using YOLO for face+body detection and InsightFace for embeddings.
+Person detection using YOLO for face+body detection and ArcFace for embeddings.
 
 Supports CoreML on macOS for faster inference via Neural Engine.
 """
@@ -70,7 +70,7 @@ def _get_coreml_path(pt_model_path: str) -> Optional[str]:
 
 
 class PersonDetector:
-    """Detect faces and bodies in images using YOLO, extract face embeddings with InsightFace.
+    """Detect faces and bodies in images using YOLO, extract face embeddings with ArcFace.
 
     On macOS, automatically uses CoreML (.mlpackage) if available for 5x faster
     inference via the Neural Engine. CoreML is also thread-safe, unlike MPS.
@@ -142,7 +142,7 @@ class PersonDetector:
             self._yolo_device = self.device
             logger.info(f"PersonDetector using PyTorch on {self.device}")
 
-        # Load InsightFace embedding model (ONNX-based)
+        # Load ArcFace embedding model (ONNX Runtime)
         # Uses CoreML on macOS, CUDA on Linux, with CPU fallback
         self.embedding_extractor = EmbeddingExtractor()
 
@@ -195,7 +195,7 @@ class PersonDetector:
         extract face embeddings.
 
         Called from worker threads after batch YOLO inference. On macOS, wraps in
-        autorelease pool for InsightFace ONNX/CoreML embedding extraction.
+        autorelease pool for ArcFace ONNX/CoreML embedding extraction.
 
         Args:
             img: PIL Image (must be open and RGB).

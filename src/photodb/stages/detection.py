@@ -1,5 +1,5 @@
 """
-Detection stage: Face and body detection using PersonDetector (YOLO + InsightFace).
+Detection stage: Face and body detection using PersonDetector (YOLO + ArcFace).
 """
 
 from pathlib import Path
@@ -229,5 +229,5 @@ class DetectionStage(BaseStage):
             body_bbox_width=body_bbox_width,
             body_bbox_height=body_bbox_height,
             body_confidence=body_confidence,
-            detector_model="YOLO+InsightFace",
+            detector_model="YOLO+ArcFace",
         )

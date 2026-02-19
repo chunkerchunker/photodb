@@ -244,7 +244,7 @@ class TestPersonDetectorUnit:
         embedding = mock_detector.extract_embedding(img, bbox)
 
         assert isinstance(embedding, list)
-        assert len(embedding) == 512  # InsightFace ArcFace embedding dimension
+        assert len(embedding) == 512  # ArcFace embedding dimension
         assert all(isinstance(x, float) for x in embedding)
 
     def test_device_auto_detection_cpu_fallback(self, mock_yolo, mock_embedding_extractor):

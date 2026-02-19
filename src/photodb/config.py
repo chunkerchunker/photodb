@@ -61,9 +61,9 @@ MIVOLO_MODEL_PATH = "models/mivolo_d1.pth.tar"
 MIVOLO_FORCE_CPU = False
 # --- Embeddings ---
 
-# InsightFace model pack name (buffalo_l = ArcFace ResNet-100)
+# ArcFace model pack name (buffalo_l = ArcFace ResNet-50)
 EMBEDDING_MODEL_NAME = "buffalo_l"
-# Root directory for InsightFace model downloads
+# Root directory for ArcFace model files
 EMBEDDING_MODEL_ROOT = _os.path.expanduser("~/.insightface/models")
 # Padding ratio added around face bbox before ArcFace cropping
 FACE_CROP_PADDING = 0.2
@@ -173,8 +173,8 @@ BATCH_COORDINATOR_ENABLED = True
 # Works with PyTorch MPS backend (DETECTION_PREFER_COREML=False).
 # CoreML dynamic batch export causes SIGSEGV (coremltools 9.0 + PyTorch 2.8).
 YOLO_BATCH_ENABLED = True
-# Enable experimental InsightFace batch embedding (disabled by default — ONNX CoreML EP may crash)
-INSIGHTFACE_BATCH_ENABLED = False
+# Enable experimental ArcFace batch embedding (disabled by default — ONNX CoreML EP may crash)
+ARCFACE_BATCH_ENABLED = False
 
 # --- Connection Pool ---
 

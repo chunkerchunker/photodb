@@ -85,7 +85,7 @@ class ImageHandler:
             raise ValueError(f"Unsupported format: {file_path.suffix}")
 
         try:
-            image = pyvips.Image.new_from_file(str(file_path), access="sequential")
+            image = pyvips.Image.new_from_file(str(file_path))
 
             # Check for decompression bomb
             if image.width * image.height > cls.MAX_PIXELS:

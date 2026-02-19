@@ -23,7 +23,8 @@ services:
       - "3000:3000"
     environment:
       DATABASE_URL: postgresql://photodb:${POSTGRES_PASSWORD}@db:5432/photodb
-      NODE_ENV: production
+      SESSION_SECRET: ${SESSION_SECRET:?Set SESSION_SECRET in .env}
+      # NODE_ENV: production  # Requires HTTPS for session cookies
     volumes:
       - /data/photos:/data/photos:ro
     depends_on:

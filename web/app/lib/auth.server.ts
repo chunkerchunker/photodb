@@ -4,7 +4,7 @@ import { type AppUser, getUserById, getUserByUsername, updateUserPasswordHash } 
 
 const SESSION_COOKIE_NAME = "photodb_session";
 const SESSION_TTL_DAYS = 30;
-const SESSION_COOKIE_SECURE = process.env.NODE_ENV === "production";
+const SESSION_COOKIE_SECURE = process.env.REQUIRE_HTTPS === "true";
 const SESSION_SECRET = process.env.SESSION_SECRET || "dev-session-secret";
 if (process.env.NODE_ENV === "production" && !process.env.SESSION_SECRET) {
   throw new Error("SESSION_SECRET must be set in production");

@@ -34,17 +34,21 @@ from pathlib import Path
 from concurrent.futures import ThreadPoolExecutor, as_completed
 import threading
 
-import pillow_heif
-from PIL import Image, ImageOps
+if sys.platform == "darwin":
+    _fallback = os.environ.get("DYLD_FALLBACK_LIBRARY_PATH", "")
+    _brew_paths = "/opt/homebrew/lib:/usr/local/lib"
+    if _brew_paths not in _fallback:
+        os.environ["DYLD_FALLBACK_LIBRARY_PATH"] = (
+            f"{_brew_paths}:{_fallback}" if _fallback else _brew_paths
+        )
+
+import pyvips
 import psycopg
 from psycopg.rows import dict_row
 from dotenv import load_dotenv
 
 # Load environment variables
 load_dotenv()
-
-# Register HEIF opener for HEIC support
-pillow_heif.register_heif_opener()
 
 # Thread-local storage for database connections
 _thread_local = threading.local()
@@ -145,24 +149,11 @@ def process_photo(
         output_dir.mkdir(parents=True, exist_ok=True)
 
         # Open and convert image
-        with Image.open(source_path) as img:
-            # Apply EXIF orientation
-            img = ImageOps.exif_transpose(img)
-
-            # Convert to RGB if needed (WebP doesn't support all modes)
-            if img.mode in ("RGBA", "LA"):
-                # Keep alpha for RGBA
-                pass
-            elif img.mode != "RGB":
-                img = img.convert("RGB")
-
-            # Save as WebP
-            img.save(
-                output_path,
-                "WEBP",
-                quality=quality,
-                method=6,  # Best compression method
-            )
+        img = pyvips.Image.new_from_file(str(source_path), access="sequential")
+        img = img.autorot()
+        if img.hasalpha():
+            img = img.flatten(background=[255, 255, 255])
+        img.webpsave(str(output_path), Q=quality)
 
         # Update database
         conn = get_thread_connection()

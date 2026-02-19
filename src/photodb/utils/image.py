@@ -1,16 +1,43 @@
-from pathlib import Path
-from typing import Optional, Tuple, Dict, Any
-from PIL import Image, ImageOps
-from pillow_heif import register_heif_opener
 import logging
 import os
+import sys
+from pathlib import Path
+from typing import Any, Dict, Optional, Tuple
+
+# macOS: ensure Homebrew's libvips is discoverable by cffi's dlopen
+if sys.platform == "darwin":
+    _fallback = os.environ.get("DYLD_FALLBACK_LIBRARY_PATH", "")
+    _brew_paths = "/opt/homebrew/lib:/usr/local/lib"
+    if _brew_paths not in _fallback:
+        os.environ["DYLD_FALLBACK_LIBRARY_PATH"] = (
+            f"{_brew_paths}:{_fallback}" if _fallback else _brew_paths
+        )
+
+import pyvips  # noqa: E402  (must come after library-path fix)
 
 from .. import config as defaults
 
-# Register HEIF opener with Pillow
-register_heif_opener()
-
 logger = logging.getLogger(__name__)
+
+# Map vips-loader names to canonical format strings
+_LOADER_FORMAT_MAP: Dict[str, str] = {
+    "jpegload": "JPEG",
+    "jpegload_buffer": "JPEG",
+    "pngload": "PNG",
+    "pngload_buffer": "PNG",
+    "webpload": "WEBP",
+    "webpload_buffer": "WEBP",
+    "heifload": "HEIF",
+    "heifload_buffer": "HEIF",
+    "tiffload": "TIFF",
+    "tiffload_buffer": "TIFF",
+    "gifload": "GIF",
+    "gifload_buffer": "GIF",
+    "ppmload": "PPM",
+    "ppmload_buffer": "PPM",
+    "magickload": "MAGICK",
+    "magickload_buffer": "MAGICK",
+}
 
 
 class ImageHandler:
@@ -38,62 +65,52 @@ class ImageHandler:
         return file_path.suffix.lower() in cls.SUPPORTED_FORMATS
 
     @classmethod
-    def open_image(cls, file_path: Path) -> Image.Image:
+    def open_image(cls, file_path: Path) -> pyvips.Image:
         """
         Open an image file with proper format handling.
 
-        IMPORTANT: The returned image MUST be closed after use to prevent file handle leaks!
-        Use image.close() or a context manager.
+        pyvips uses reference counting -- no explicit close() needed.
 
         Args:
             file_path: Path to the image file
 
         Returns:
-            PIL Image object (caller must close it!)
+            pyvips.Image object
 
         Raises:
-            ValueError: If format is not supported
+            ValueError: If format is not supported or image is too large
             IOError: If file cannot be read
         """
         if not cls.is_supported(file_path):
             raise ValueError(f"Unsupported format: {file_path.suffix}")
 
         try:
-            # Set PIL's max image pixels to our limit
-            Image.MAX_IMAGE_PIXELS = cls.MAX_PIXELS
+            image = pyvips.Image.new_from_file(str(file_path), access="sequential")
 
-            image = Image.open(file_path)
-
-            # Load image data immediately to allow closing the file
-            image.load()
-
-            # Check for decompression bomb (redundant but explicit)
+            # Check for decompression bomb
             if image.width * image.height > cls.MAX_PIXELS:
-                image.close()
                 raise ValueError(f"Image too large: {image.width}x{image.height}")
 
-            # Convert RGBA to RGB if needed (for JPEG compatibility)
-            if image.mode in ("RGBA", "LA", "P"):
-                # Create white background
-                background = Image.new("RGB", image.size, (255, 255, 255))
-                if image.mode == "P":
-                    converted = image.convert("RGBA")
-                    image.close()
-                    image = converted
-                background.paste(image, mask=image.split()[-1] if "A" in image.mode else None)
-                if image != background:
-                    image.close()
-                image = background
-            elif image.mode not in ("RGB", "L"):
-                converted = image.convert("RGB")
-                image.close()
-                image = converted
+            # Flatten alpha channel onto white background
+            if image.hasalpha():
+                image = image.flatten(background=[255, 255, 255])
+
+            # Convert to sRGB if needed (e.g. CMYK, Lab)
+            interpretation = image.interpretation
+            if interpretation not in ("srgb", "b-w", "rgb", "multiband"):
+                image = image.colourspace("srgb")
+
+            # Cast to 8-bit unsigned if needed
+            if image.format != "uchar":
+                image = image.cast("uchar")
 
             return image
 
-        except Image.DecompressionBombError as e:
-            logger.error(f"Decompression bomb detected in {file_path}: {e}")
-            raise ValueError("Image too large: potential decompression bomb")
+        except pyvips.Error as e:
+            logger.error(f"Failed to open image {file_path}: {e}")
+            raise IOError(f"Failed to open image {file_path}: {e}")
+        except ValueError:
+            raise
         except Exception as e:
             logger.error(f"Failed to open image {file_path}: {e}")
             raise
@@ -101,19 +118,37 @@ class ImageHandler:
     @classmethod
     def get_image_info(cls, file_path: Path) -> Dict[str, Any]:
         """
-        Get basic information about an image without fully loading it.
+        Get basic information about an image without fully decoding it.
 
         Returns:
-            Dictionary with width, height, format, mode
+            Dictionary with width, height, format, mode, size_bytes
         """
-        with Image.open(file_path) as img:
-            return {
-                "width": img.width,
-                "height": img.height,
-                "format": img.format,
-                "mode": img.mode,
-                "size_bytes": file_path.stat().st_size,
-            }
+        image = pyvips.Image.new_from_file(str(file_path), access="sequential")
+
+        # Derive format from the vips loader name
+        loader = image.get("vips-loader") if image.get_typeof("vips-loader") else None
+        fmt = _LOADER_FORMAT_MAP.get(loader, loader) if loader else None
+
+        # Derive a Pillow-compatible mode string
+        bands = image.bands
+        has_alpha = image.hasalpha()
+        interpretation = image.interpretation
+        if interpretation == "b-w":
+            mode = "LA" if has_alpha else "L"
+        elif bands == 4 and has_alpha:
+            mode = "RGBA"
+        elif bands == 3:
+            mode = "RGB"
+        else:
+            mode = "RGB"
+
+        return {
+            "width": image.width,
+            "height": image.height,
+            "format": fmt,
+            "mode": mode,
+            "size_bytes": file_path.stat().st_size,
+        }
 
     @classmethod
     def calculate_resize_dimensions(
@@ -176,131 +211,85 @@ class ImageHandler:
         return None
 
     @classmethod
-    def resize_image(cls, image: Image.Image, target_size: Tuple[int, int]) -> Image.Image:
+    def resize_image(cls, image: pyvips.Image, target_size: Tuple[int, int]) -> pyvips.Image:
         """
-        Resize image to target dimensions maintaining aspect ratio.
+        Resize image to target dimensions using Lanczos3.
 
         Args:
-            image: PIL Image object
+            image: pyvips.Image object
             target_size: Target (width, height)
 
         Returns:
-            Resized PIL Image
+            Resized pyvips.Image
         """
-        # Use high-quality Lanczos resampling
-        resized = image.resize(target_size, Image.Resampling.LANCZOS)
-        return resized
+        target_width, target_height = target_size
+        h_scale = target_width / image.width
+        v_scale = target_height / image.height
+        return image.resize(h_scale, vscale=v_scale, kernel="lanczos3")
 
     @classmethod
-    def _apply_exif_orientation(cls, image: Image.Image, original_path: Path) -> Image.Image:
+    def autorotate(cls, image: pyvips.Image) -> pyvips.Image:
         """
-        Apply EXIF orientation correction to an image.
+        Apply EXIF orientation and strip the orientation tag.
 
         Args:
-            image: PIL Image object to transform
-            original_path: Path to original file for EXIF data
+            image: pyvips.Image object
 
         Returns:
-            Transformed image (may be same object if no transformation needed)
+            Rotated pyvips.Image (may be the same object if no rotation needed)
         """
-        try:
-            with Image.open(original_path) as original:
-                # Check if EXIF orientation would change the image
-                corrected = ImageOps.exif_transpose(original)
-
-                if corrected is not original:
-                    exif = original.getexif()
-                    orientation = exif.get(0x0112) if exif else None
-
-                    if orientation and orientation != 1:
-                        original_image = image
-
-                        # Apply the same transformation that exif_transpose would do
-                        if orientation == 2:  # Flip horizontal
-                            image = image.transpose(Image.Transpose.FLIP_LEFT_RIGHT)
-                        elif orientation == 3:  # 180°
-                            image = image.rotate(180, expand=True)
-                        elif orientation == 4:  # Flip vertical
-                            image = image.transpose(Image.Transpose.FLIP_TOP_BOTTOM)
-                        elif orientation == 5:  # Transpose (flip + 90° CW)
-                            image = image.transpose(Image.Transpose.TRANSPOSE)
-                        elif orientation == 6:  # 90° CCW
-                            image = image.rotate(-90, expand=True)
-                        elif orientation == 7:  # Transverse (flip + 90° CCW)
-                            image = image.transpose(Image.Transpose.TRANSVERSE)
-                        elif orientation == 8:  # 90° CW
-                            image = image.rotate(90, expand=True)
-
-                        if image is not original_image:
-                            original_image.close()
-                            logger.debug(f"Applied EXIF orientation {orientation}")
-
-                corrected.close()
-
-        except Exception as e:
-            logger.debug(f"Could not apply EXIF orientation: {e}")
-
-        return image
-
-    @classmethod
-    def save_as_png(
-        cls,
-        image: Image.Image,
-        output_path: Path,
-        optimize: bool = True,
-        original_path: Optional[Path] = None,
-    ) -> None:
-        """
-        Save image as PNG with optimization and EXIF orientation correction.
-
-        Args:
-            image: PIL Image object
-            output_path: Path to save PNG
-            optimize: Whether to optimize file size
-            original_path: Path to original file for EXIF data (optional)
-        """
-        output_path.parent.mkdir(parents=True, exist_ok=True)
-
-        if original_path:
-            image = cls._apply_exif_orientation(image, original_path)
-
-        save_kwargs = {"format": "PNG", "optimize": optimize}
-
-        # Add compression for RGB images
-        if image.mode == "RGB":
-            save_kwargs["compress_level"] = defaults.PNG_COMPRESS_LEVEL
-
-        image.save(output_path, **save_kwargs)
-        logger.debug(f"Saved image to {output_path}")
+        return image.autorot()
 
     @classmethod
     def save_as_webp(
         cls,
-        image: Image.Image,
+        image: pyvips.Image,
         output_path: Path,
         quality: int = 95,
         original_path: Optional[Path] = None,
     ) -> None:
         """
-        Save image as WebP with lossy compression and EXIF orientation correction.
+        Save image as WebP with lossy compression.
+
+        The original_path parameter is kept for API compatibility but ignored.
+        Callers should apply rotation via autorotate() before calling this.
 
         Args:
-            image: PIL Image object
+            image: pyvips.Image object
             output_path: Path to save WebP
-            quality: WebP quality (0-100, default 95 for high quality lossy)
-            original_path: Path to original file for EXIF data (optional)
+            quality: WebP quality (0-100, default 95)
+            original_path: Ignored (kept for API compat)
         """
         output_path.parent.mkdir(parents=True, exist_ok=True)
 
-        if original_path:
-            image = cls._apply_exif_orientation(image, original_path)
+        # Strip alpha if present (lossy WebP should be opaque)
+        if image.hasalpha():
+            image = image.flatten(background=[255, 255, 255])
 
-        # Ensure RGB mode for WebP (no alpha for lossy)
-        if image.mode != "RGB":
-            converted = image.convert("RGB")
-            if converted is not image:
-                image.close()
-            image = converted
-
-        image.save(output_path, format="WEBP", quality=quality, method=defaults.WEBP_METHOD)
+        image.webpsave(str(output_path), Q=quality, effort=defaults.WEBP_METHOD)
         logger.debug(f"Saved WebP image to {output_path}")
+
+    @classmethod
+    def save_as_png(
+        cls,
+        image: pyvips.Image,
+        output_path: Path,
+        optimize: bool = True,
+        original_path: Optional[Path] = None,
+    ) -> None:
+        """
+        Save image as PNG.
+
+        The original_path parameter is kept for API compatibility but ignored.
+        Callers should apply rotation via autorotate() before calling this.
+
+        Args:
+            image: pyvips.Image object
+            output_path: Path to save PNG
+            optimize: Ignored (pyvips always optimizes)
+            original_path: Ignored (kept for API compat)
+        """
+        output_path.parent.mkdir(parents=True, exist_ok=True)
+
+        image.pngsave(str(output_path), compression=defaults.PNG_COMPRESS_LEVEL)
+        logger.debug(f"Saved image to {output_path}")

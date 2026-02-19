@@ -1,16 +1,18 @@
 """
 Tests for PersonDetector utility.
 
-Uses YOLO for face+body detection and InsightFace for embeddings.
+Uses YOLO for face+body detection and ArcFace (ONNX Runtime) for embeddings.
 """
 
 import os
-import pytest
 import tempfile
 from pathlib import Path
-from PIL import Image
-from unittest.mock import patch, MagicMock
+from unittest.mock import MagicMock, patch
+
+import numpy as np
+import pytest
 import torch
+from PIL import Image
 
 
 class TestPersonDetectorUnit:
@@ -53,6 +55,7 @@ class TestPersonDetectorUnit:
         mock_extractor = MagicMock()
         # Return a 512-dim embedding list
         mock_extractor.extract.return_value = [0.1] * 512
+        mock_extractor.get_feat.return_value = np.random.randn(1, 512).astype(np.float32)
         return mock_extractor
 
     @pytest.fixture

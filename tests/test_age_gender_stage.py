@@ -641,7 +641,9 @@ class TestMiVOLOPredictorUnit:
 
     def test_predictor_gracefully_handles_import_error(self):
         """Test that MiVOLOPredictor works when MiVOLO is not installed."""
-        with patch.dict("sys.modules", {"mivolo": None, "mivolo.model": None, "mivolo.model.mi_volo": None}):
+        with patch.dict(
+            "sys.modules", {"mivolo": None, "mivolo.model": None, "mivolo.model.mi_volo": None}
+        ):
             from src.photodb.stages.age_gender import MiVOLOPredictor
 
             predictor = MiVOLOPredictor(
@@ -654,7 +656,9 @@ class TestMiVOLOPredictorUnit:
 
     def test_predictor_available_flag(self):
         """Test that _available flag is set correctly."""
-        with patch.dict("sys.modules", {"mivolo": None, "mivolo.model": None, "mivolo.model.mi_volo": None}):
+        with patch.dict(
+            "sys.modules", {"mivolo": None, "mivolo.model": None, "mivolo.model.mi_volo": None}
+        ):
             from src.photodb.stages.age_gender import MiVOLOPredictor
 
             predictor = MiVOLOPredictor(
@@ -666,7 +670,9 @@ class TestMiVOLOPredictorUnit:
 
     def test_predictor_has_no_thread_lock(self):
         """Test that predictor does not have a threading lock (YOLO removed)."""
-        with patch.dict("sys.modules", {"mivolo": None, "mivolo.model": None, "mivolo.model.mi_volo": None}):
+        with patch.dict(
+            "sys.modules", {"mivolo": None, "mivolo.model": None, "mivolo.model.mi_volo": None}
+        ):
             from src.photodb.stages.age_gender import MiVOLOPredictor
 
             predictor = MiVOLOPredictor(
@@ -726,14 +732,16 @@ class TestMiVOLOThreadSafety:
     @pytest.fixture
     def sample_images(self, tmp_path):
         """Create multiple sample test images with synthetic detections."""
-        import cv2
         import numpy as np
+        from PIL import Image as PILImage
 
         images = []
         for i in range(4):
             img = np.random.randint(0, 255, (480, 640, 3), dtype=np.uint8)
             path = tmp_path / f"test_{i}.jpg"
-            cv2.imwrite(str(path), img)
+            # Convert BGR numpy to RGB PIL and save
+            pil_img = PILImage.fromarray(img[:, :, ::-1])  # BGR->RGB
+            pil_img.save(str(path), "JPEG")
             images.append(str(path))
         return images
 
@@ -743,13 +751,17 @@ class TestMiVOLOThreadSafety:
 
         If results are inconsistent across runs, the lock needs to be re-added.
         """
-        import cv2
         import concurrent.futures
+
+        import numpy as np
+        from PIL import Image as PILImage
+
         from src.photodb.stages.age_gender import MiVOLOPredictor
 
         def run_prediction(image_path):
             """Run prediction and return results for comparison."""
-            img = cv2.imread(image_path)
+            pil_img = PILImage.open(image_path)
+            img = np.array(pil_img.convert("RGB"))[:, :, ::-1]  # RGB->BGR
             from src.photodb.database.models import PersonDetection
 
             # Create a synthetic detection covering the whole image
@@ -786,9 +798,7 @@ class TestMiVOLOThreadSafety:
         inconsistent = 0
         for _ in range(5):
             with concurrent.futures.ThreadPoolExecutor(max_workers=4) as executor:
-                futures = {
-                    executor.submit(run_prediction, path): path for path in sample_images
-                }
+                futures = {executor.submit(run_prediction, path): path for path in sample_images}
                 for future in concurrent.futures.as_completed(futures):
                     path = futures[future]
                     result = future.result()

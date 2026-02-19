@@ -1,20 +1,27 @@
-"""Integration tests for InsightFace embedding extraction."""
+"""Integration tests for ArcFace embedding extraction via ONNX Runtime."""
+
+from pathlib import Path
 
 import numpy as np
 import pytest
 from PIL import Image
 
-# Skip if insightface not installed
-pytest.importorskip("insightface")
+ARCFACE_MODEL = Path.home() / ".insightface/models/buffalo_l/w600k_r50.onnx"
+
+pytestmark = pytest.mark.skipif(
+    not ARCFACE_MODEL.exists(),
+    reason="ArcFace model not available. Run ./scripts/download_models.sh",
+)
 
 
-class TestInsightFaceIntegration:
-    """Integration tests requiring actual InsightFace models."""
+class TestArcFaceIntegration:
+    """Integration tests requiring actual ArcFace ONNX model."""
 
     @pytest.fixture
     def real_extractor(self):
-        """Create a real EmbeddingExtractor (downloads model if needed)."""
+        """Create a real EmbeddingExtractor (requires model on disk)."""
         from photodb.utils.embedding_extractor import EmbeddingExtractor
+
         return EmbeddingExtractor()
 
     @pytest.fixture

@@ -34,6 +34,7 @@ class DetectionStage(BaseStage):
         self.faces_output_dir = (
             Path(self.config.get("IMG_PATH", "./photos/processed")) / FACES_SUBDIR
         )
+        self.yolo_batch_coordinator = None  # Set externally for cross-photo batching
         logger.debug(f"DetectionStage initialized with device: {self.detector.device}")
 
     def process_photo(self, photo: Photo, file_path: Path) -> bool:
@@ -65,7 +66,18 @@ class DetectionStage(BaseStage):
                 self.repository.delete_detections_for_photo(photo_id)
 
             # Run detection using PersonDetector
-            result = self.detector.detect(str(normalized_path))
+            if self.yolo_batch_coordinator is not None:
+                # Batch mode: submit image to coordinator, parse result
+                img_for_yolo = Image.open(normalized_path)
+                if img_for_yolo.mode != "RGB":
+                    img_for_yolo = img_for_yolo.convert("RGB")
+                try:
+                    yolo_result = self.yolo_batch_coordinator.submit(img_for_yolo).result()
+                    result = self.detector.parse_yolo_result(img_for_yolo, yolo_result)
+                finally:
+                    img_for_yolo.close()
+            else:
+                result = self.detector.detect(str(normalized_path))
 
             if result["status"] == "error":
                 logger.error(

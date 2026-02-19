@@ -61,9 +61,13 @@ def _load_model():
         _model_name = model_name
 
         # Select device
+        # NOTE: MPS cannot be used when CoreML YOLO is also loaded in the same
+        # process — ultralytics 8.3+ CoreML loading corrupts state such that
+        # subsequent MPS operations cause SIGSEGV. Force CPU on macOS when
+        # CoreML detection is preferred. (coremltools 9.0 + PyTorch 2.8)
         if torch.cuda.is_available():
             _device = "cuda"
-        elif torch.backends.mps.is_available():
+        elif torch.backends.mps.is_available() and not _config.DETECTION_PREFER_COREML:
             _device = "mps"
         else:
             _device = "cpu"
@@ -207,6 +211,90 @@ class MobileCLIPAnalyzer:
             return self.encode_face(face_crop)
         finally:
             image.close()
+
+    def preprocess_image(self, image_path: Union[str, Path]) -> torch.Tensor:
+        """Preprocess an image for batch encoding (no inference).
+
+        Returns preprocessed tensor of shape (1, C, H, W) on model device.
+        Use with BatchCoordinator: submit this tensor, get back normalized embedding.
+        """
+        self._ensure_loaded()
+        assert self._preprocess is not None
+        image = Image.open(image_path).convert("RGB")
+        try:
+            return self._preprocess(image).unsqueeze(0).to(self._device)  # type: ignore[union-attr]
+        finally:
+            image.close()
+
+    def preprocess_face_crop(self, image_path: Union[str, Path], bbox: dict) -> torch.Tensor:
+        """Preprocess a face crop for batch encoding (no inference).
+
+        Returns preprocessed tensor of shape (1, C, H, W) on model device.
+        Use with BatchCoordinator: submit this tensor, get back normalized embedding.
+        """
+        self._ensure_loaded()
+        assert self._preprocess is not None
+        image = Image.open(image_path).convert("RGB")
+        try:
+            x1 = max(0, int(bbox["x1"]))
+            y1 = max(0, int(bbox["y1"]))
+            x2 = min(image.width, int(bbox["x2"]))
+            y2 = min(image.height, int(bbox["y2"]))
+            face_crop = image.crop((x1, y1, x2, y2))
+            return self._preprocess(face_crop).unsqueeze(0).to(self._device)  # type: ignore[union-attr]
+        finally:
+            image.close()
+
+    def preprocess_face_crops_batch(
+        self, image_path: Union[str, Path], bboxes: List[dict]
+    ) -> List[torch.Tensor]:
+        """Preprocess multiple face crops from one image (no inference).
+
+        Opens the image once and preprocesses all face crops, avoiding the
+        per-face file open/close overhead of calling preprocess_face_crop repeatedly.
+
+        Args:
+            image_path: Path to full image.
+            bboxes: List of bounding boxes with x1, y1, x2, y2.
+
+        Returns:
+            List of preprocessed tensors, each of shape (1, C, H, W) on model device.
+        """
+        if not bboxes:
+            return []
+        self._ensure_loaded()
+        assert self._preprocess is not None
+        image = Image.open(image_path).convert("RGB")
+        try:
+            tensors = []
+            for bbox in bboxes:
+                x1 = max(0, int(bbox["x1"]))
+                y1 = max(0, int(bbox["y1"]))
+                x2 = min(image.width, int(bbox["x2"]))
+                y2 = min(image.height, int(bbox["y2"]))
+                face_crop = image.crop((x1, y1, x2, y2))
+                tensors.append(
+                    self._preprocess(face_crop).unsqueeze(0).to(self._device)  # type: ignore[union-attr]
+                )
+            return tensors
+        finally:
+            image.close()
+
+    def batch_encode(self, batch_tensor: torch.Tensor) -> torch.Tensor:
+        """Encode a batch of preprocessed images/faces.
+
+        Args:
+            batch_tensor: Preprocessed tensor of shape (N, C, H, W).
+
+        Returns:
+            Normalized embeddings tensor of shape (N, 512).
+        """
+        self._ensure_loaded()
+        assert self._model is not None
+        with torch.no_grad():
+            embeddings = self._model.encode_image(batch_tensor)
+            embeddings = embeddings / embeddings.norm(dim=-1, keepdim=True)
+        return embeddings
 
     def encode_faces_batch(
         self,

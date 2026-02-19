@@ -10,6 +10,8 @@ import sys
 from pathlib import Path
 from typing import List
 
+import torch
+
 from .base import BaseStage
 from .. import config as defaults
 from ..database.models import (
@@ -55,6 +57,9 @@ class SceneAnalysisStage(BaseStage):
         # Load category configs
         self.scene_categories = repository.get_prompt_categories(target="scene")
         self.face_categories = repository.get_prompt_categories(target="face")
+
+        self.image_batch_coordinator = None  # Set externally for cross-photo batching
+        self.face_batch_coordinator = None  # Set externally for cross-photo face batching
 
         logger.info(
             f"SceneAnalysisStage initialized: "
@@ -108,7 +113,11 @@ class SceneAnalysisStage(BaseStage):
                     ]
 
             # 2. Encode image with MobileCLIP
-            image_embedding = self.analyzer.encode_image(str(normalized_path))
+            if self.image_batch_coordinator is not None:
+                preprocessed = self.analyzer.preprocess_image(str(normalized_path))
+                image_embedding = self.image_batch_coordinator.submit(preprocessed).result()
+            else:
+                image_embedding = self.analyzer.encode_image(str(normalized_path))
 
             # 3. Classify against all scene categories
             all_photo_tags: List[PhotoTag] = []
@@ -209,7 +218,18 @@ class SceneAnalysisStage(BaseStage):
             )
 
         # Batch encode faces
-        face_embeddings = self.analyzer.encode_faces_batch(str(image_path), bboxes)
+        if self.face_batch_coordinator is not None:
+            # Cross-photo batching: preprocess all crops from this image at once
+            # (opens image file once), then submit each to the coordinator
+            preprocessed_list = self.analyzer.preprocess_face_crops_batch(
+                str(image_path), bboxes
+            )
+            face_futures = []
+            for preprocessed in preprocessed_list:
+                face_futures.append(self.face_batch_coordinator.submit(preprocessed))
+            face_embeddings = torch.cat([f.result() for f in face_futures], dim=0)
+        else:
+            face_embeddings = self.analyzer.encode_faces_batch(str(image_path), bboxes)
 
         if face_embeddings.shape[0] == 0:
             return

@@ -162,6 +162,123 @@ class PersonDetector:
         finally:
             dummy.close()
 
+    def run_yolo(self, images: list) -> list:
+        """Run YOLO detection on a batch of PIL images.
+
+        This is the inference function used by BatchCoordinator for batched detection.
+        Runs on the BatchCoordinator's background thread, so we need an autorelease pool
+        on macOS to drain CoreML ObjC objects (IOSurfaces, CIImages).
+
+        Args:
+            images: List of PIL.Image.Image objects.
+
+        Returns:
+            List of ultralytics Results objects, one per input image.
+        """
+        if sys.platform == "darwin":
+            with objc.autorelease_pool():
+                return self._run_yolo_impl(images)
+        else:
+            return self._run_yolo_impl(images)
+
+    def _run_yolo_impl(self, images: list) -> list:
+        """Internal YOLO batch inference."""
+        if self.using_coreml:
+            return self.model(images, conf=self.min_confidence, verbose=False)
+        else:
+            return self.model(
+                images, conf=self.min_confidence, device=self._yolo_device, verbose=False
+            )
+
+    def parse_yolo_result(self, img: Image.Image, yolo_result) -> Dict[str, Any]:
+        """Parse a YOLO detection result and extract embeddings.
+
+        Takes a pre-computed YOLO Result (from run_yolo batch) and processes it
+        the same way as _detect_impl: parse detections, match faces to bodies,
+        extract face embeddings.
+
+        Called from worker threads after batch YOLO inference. On macOS, wraps in
+        autorelease pool for InsightFace ONNX/CoreML embedding extraction.
+
+        Args:
+            img: PIL Image (must be open and RGB).
+            yolo_result: A single ultralytics Results object.
+
+        Returns:
+            Dict matching the format of detect(): {status, detections, image_dimensions}
+        """
+        if sys.platform == "darwin":
+            with objc.autorelease_pool():
+                return self._parse_yolo_result_impl(img, yolo_result)
+        else:
+            return self._parse_yolo_result_impl(img, yolo_result)
+
+    def _parse_yolo_result_impl(self, img: Image.Image, yolo_result) -> Dict[str, Any]:
+        """Internal parse implementation."""
+        try:
+            img_width, img_height = img.size
+
+            faces = []
+            bodies = []
+
+            if yolo_result.boxes is not None and len(yolo_result.boxes) > 0:
+                for box in yolo_result.boxes:
+                    cls_id = int(box.cls[0].item())
+                    conf = float(box.conf[0].item())
+                    xyxy = box.xyxy[0].cpu().numpy()
+
+                    detection = {
+                        "bbox": {
+                            "x1": float(xyxy[0]),
+                            "y1": float(xyxy[1]),
+                            "x2": float(xyxy[2]),
+                            "y2": float(xyxy[3]),
+                            "width": float(xyxy[2] - xyxy[0]),
+                            "height": float(xyxy[3] - xyxy[1]),
+                        },
+                        "confidence": conf,
+                        "class_id": cls_id,
+                    }
+
+                    if cls_id == self.FACE_CLASS_ID:
+                        faces.append(detection)
+                    elif cls_id == self.PERSON_CLASS_ID:
+                        bodies.append(detection)
+
+            if not faces and not bodies:
+                return {
+                    "status": "no_detections",
+                    "detections": [],
+                    "image_dimensions": {"width": img_width, "height": img_height},
+                }
+
+            matched_detections = self._match_faces_to_bodies(faces, bodies)
+
+            # Extract embeddings for faces
+            for detection in matched_detections:
+                if detection["face"] is not None:
+                    try:
+                        embedding = self.extract_embedding(img, detection["face"]["bbox"])
+                        detection["face"]["embedding"] = embedding
+                        detection["face"]["embedding_norm"] = float(np.linalg.norm(embedding))
+                    except Exception:
+                        detection["face"]["embedding"] = None
+                        detection["face"]["embedding_norm"] = None
+
+            return {
+                "status": "success",
+                "detections": matched_detections,
+                "image_dimensions": {"width": img_width, "height": img_height},
+            }
+
+        except Exception as e:
+            return {
+                "status": "error",
+                "detections": [],
+                "image_dimensions": {"width": 0, "height": 0},
+                "error": str(e),
+            }
+
     def detect(self, image_path: str) -> Dict[str, Any]:
         """
         Detect faces and bodies in an image.

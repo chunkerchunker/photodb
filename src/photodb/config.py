@@ -163,6 +163,20 @@ BATCH_CHECK_INTERVAL = 300
 # Directory for batch request JSONL files
 BATCH_REQUESTS_PATH = "./batch_requests"
 
+# --- Batch Coordinator ---
+
+# Maximum number of items per batched inference call
+BATCH_COORDINATOR_MAX_SIZE = 32
+# Maximum milliseconds to wait for a batch to fill before processing
+BATCH_COORDINATOR_MAX_WAIT_MS = 50
+# Enable/disable batch coordinator for ML inference (set False to use per-item inference)
+BATCH_COORDINATOR_ENABLED = True
+# Enable YOLO batch inference (requires CoreML model exported with dynamic=True nms=False)
+# Disabled by default: dynamic=True CoreML export causes SIGSEGV on coremltools 9.0 + PyTorch 2.8
+YOLO_BATCH_ENABLED = False
+# Enable experimental InsightFace batch embedding (disabled by default — ONNX CoreML EP may crash)
+INSIGHTFACE_BATCH_ENABLED = False
+
 # --- Connection Pool ---
 
 # Minimum idle connections kept in the PostgreSQL pool

@@ -13,6 +13,8 @@ from ..stages.metadata import MetadataStage
 from ..stages.detection import DetectionStage
 from ..stages.age_gender import AgeGenderStage
 from ..stages.scene_analysis import SceneAnalysisStage
+from ..utils.batch_coordinator import BatchCoordinator
+from .. import config as defaults
 
 logger = logging.getLogger(__name__)
 
@@ -76,9 +78,10 @@ class LocalProcessor(BaseProcessor):
             self.stages["normalize"] = NormalizeStage(repository, config)
         if "metadata" in stages_to_create:
             self.stages["metadata"] = MetadataStage(repository, config)
-        if "detection" in stages_to_create:
-            self.stages["detection"] = DetectionStage(repository, config)
-            self._shared_detector = self.stages["detection"].detector
+        # IMPORTANT: detection (CoreML YOLO) must be initialized LAST.
+        # Loading a CoreML model via coremltools/ultralytics corrupts internal state
+        # such that any subsequent torch.load / model creation causes SIGSEGV.
+        # (coremltools 9.0, PyTorch 2.8, Apple Silicon)
         if "age_gender" in stages_to_create:
             self.stages["age_gender"] = AgeGenderStage(repository, config)
             self._shared_mivolo = self.stages["age_gender"].predictor
@@ -87,9 +90,61 @@ class LocalProcessor(BaseProcessor):
             self._shared_scene_analyzer = self.stages["scene_analysis"].analyzer
             self._shared_prompt_cache = self.stages["scene_analysis"].prompt_cache
             self._shared_apple_classifier = self.stages["scene_analysis"].apple_classifier
+        if "detection" in stages_to_create:
+            self.stages["detection"] = DetectionStage(repository, config)
+            self._shared_detector = self.stages["detection"].detector
+
+        # Create batch coordinators for ML inference when parallel > 1
+        self._batch_coordinators: list[BatchCoordinator] = []
+        self._yolo_coordinator = None
+        self._clip_image_coordinator = None
+        self._clip_face_coordinator = None
+
+        if parallel > 1 and defaults.BATCH_COORDINATOR_ENABLED:
+            max_size = defaults.BATCH_COORDINATOR_MAX_SIZE
+            wait_ms = defaults.BATCH_COORDINATOR_MAX_WAIT_MS
+
+            if (
+                "detection" in stages_to_create
+                and self._shared_detector is not None
+                and defaults.YOLO_BATCH_ENABLED
+            ):
+                self._yolo_coordinator = BatchCoordinator(
+                    inference_fn=self._shared_detector.run_yolo,
+                    max_batch_size=max_size,
+                    max_wait_ms=wait_ms,
+                )
+                self._batch_coordinators.append(self._yolo_coordinator)
+                self.stages["detection"].yolo_batch_coordinator = self._yolo_coordinator
+                logger.info("YOLO batch coordinator enabled")
+
+            if "scene_analysis" in stages_to_create and self._shared_scene_analyzer is not None:
+                self._clip_image_coordinator = BatchCoordinator(
+                    inference_fn=self._shared_scene_analyzer.batch_encode,
+                    max_batch_size=max_size,
+                    max_wait_ms=wait_ms,
+                )
+                self._clip_face_coordinator = BatchCoordinator(
+                    inference_fn=self._shared_scene_analyzer.batch_encode,
+                    max_batch_size=max_size,
+                    max_wait_ms=wait_ms,
+                )
+                self._batch_coordinators.extend(
+                    [self._clip_image_coordinator, self._clip_face_coordinator]
+                )
+                self.stages["scene_analysis"].image_batch_coordinator = (
+                    self._clip_image_coordinator
+                )
+                self.stages["scene_analysis"].face_batch_coordinator = (
+                    self._clip_face_coordinator
+                )
+                logger.info("MobileCLIP batch coordinators enabled (image + face)")
 
     def close(self):
-        """Clean up resources, including connection pool."""
+        """Clean up resources, including batch coordinators and connection pool."""
+        for coordinator in self._batch_coordinators:
+            coordinator.close()
+        self._batch_coordinators.clear()
         if self.connection_pool:
             self.connection_pool.close_all()
 
@@ -287,6 +342,7 @@ class LocalProcessor(BaseProcessor):
                     detection_stage.collection_id = self.collection_id
                     detection_stage.detector = self._shared_detector  # Reuse shared model
                     detection_stage.faces_output_dir = self.stages["detection"].faces_output_dir
+                    detection_stage.yolo_batch_coordinator = self._yolo_coordinator
                     pooled_stages["detection"] = detection_stage
                 if "age_gender" in stages_list:
                     assert self._shared_mivolo is not None  # Loaded in __init__
@@ -310,6 +366,8 @@ class LocalProcessor(BaseProcessor):
                     scene_stage.apple_classifier = self._shared_apple_classifier
                     scene_stage.scene_categories = self.stages["scene_analysis"].scene_categories
                     scene_stage.face_categories = self.stages["scene_analysis"].face_categories
+                    scene_stage.image_batch_coordinator = self._clip_image_coordinator
+                    scene_stage.face_batch_coordinator = self._clip_face_coordinator
                     pooled_stages["scene_analysis"] = scene_stage
 
                 # Process with pooled stages
@@ -444,6 +502,32 @@ class LocalProcessor(BaseProcessor):
                         lines.append(
                             f"  {sname}: {count} photos, {avg:.2f}s avg/photo"
                         )
+            # Log batch coordinator stats
+            if self._yolo_coordinator is not None:
+                stats = self._yolo_coordinator.stats
+                if stats["batches_processed"] > 0:
+                    lines.append(
+                        f"  YOLO batch coordinator: {stats['batches_processed']} batches,"
+                        f" {stats['items_processed']} items,"
+                        f" {stats['avg_batch_size']:.1f} avg batch size"
+                    )
+            if self._clip_image_coordinator is not None:
+                stats = self._clip_image_coordinator.stats
+                if stats["batches_processed"] > 0:
+                    lines.append(
+                        f"  CLIP image batch coordinator: {stats['batches_processed']} batches,"
+                        f" {stats['items_processed']} items,"
+                        f" {stats['avg_batch_size']:.1f} avg batch size"
+                    )
+            if self._clip_face_coordinator is not None:
+                stats = self._clip_face_coordinator.stats
+                if stats["batches_processed"] > 0:
+                    lines.append(
+                        f"  CLIP face batch coordinator: {stats['batches_processed']} batches,"
+                        f" {stats['items_processed']} items,"
+                        f" {stats['avg_batch_size']:.1f} avg batch size"
+                    )
+
             logger.warning("\n".join(lines))
 
         result.success = result.failed == 0

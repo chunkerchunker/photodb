@@ -27,3 +27,6 @@
 
 @capture-import *args:
   uv run python scripts/import_capture_order.py {{args}}
+
+@test *args:
+  uv run pytest {{args}}

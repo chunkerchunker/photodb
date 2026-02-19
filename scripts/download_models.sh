@@ -110,6 +110,10 @@ if [ ! -f "$ARCFACE_MODEL" ]; then
     curl -L "https://github.com/deepinsight/insightface/releases/download/v0.7/buffalo_l.zip" -o /tmp/buffalo_l.zip
     unzip -o /tmp/buffalo_l.zip -d "$HOME/.insightface/models/buffalo_l/"
     rm /tmp/buffalo_l.zip
+    if [ ! -f "$ARCFACE_MODEL" ]; then
+        echo "ERROR: Expected model not found at $ARCFACE_MODEL after extraction"
+        exit 1
+    fi
     echo "ArcFace model extracted to $(dirname "$ARCFACE_MODEL")"
 else
     echo "ArcFace w600k_r50.onnx already exists, skipping..."

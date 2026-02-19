@@ -201,6 +201,7 @@ Detects faces and bodies using YOLOv8x, extracts face embeddings for clustering.
 
 - YOLOv8x person_face model for unified face+body detection
 - Face-to-body matching via spatial containment algorithm
+- **Batch inference via BatchCoordinator** when `--parallel > 1` (PyTorch MPS)
 - PyTorch with auto device detection (MPS/CUDA/CPU)
 - `DETECTION_FORCE_CPU=true` for CPU fallback
 - L2-normalized embeddings for cosine similarity
@@ -262,7 +263,7 @@ See [`docs/prompt_strategy.md`](prompt_strategy.md) for details on prompt ensemb
 
 - Apple Vision runs via `pyobjc` with `objc.autorelease_pool()` for thread safety
 - MobileCLIP embeddings are cached per-category in `PromptCache` for fast repeated classification
-- Face crops are batch-encoded for efficiency
+- **Batch inference via BatchCoordinator** when `--parallel > 1`: separate coordinators for image and face embeddings
 - Both classifiers warm up at stage initialization to avoid cold-start latency
 
 **Output**: SceneAnalysis record + PhotoTag records (scene) + DetectionTag records (faces) + AnalysisOutput records (raw model outputs)
@@ -720,6 +721,13 @@ RESIZE_SCALE=1.0                   # Image resize multiplier
 DETECTION_MODEL_PATH=models/yolov8x_person_face.pt
 DETECTION_MIN_CONFIDENCE=0.5       # Detection confidence threshold
 DETECTION_FORCE_CPU=false          # Force CPU for detection
+DETECTION_PREFER_COREML=false      # Use CoreML instead of PyTorch MPS (macOS)
+YOLO_BATCH_ENABLED=true            # Enable YOLO batch inference via BatchCoordinator
+
+# Batch ML Inference (applies when --parallel > 1)
+BATCH_COORDINATOR_ENABLED=true     # Enable/disable batch coordinators
+BATCH_COORDINATOR_MAX_SIZE=32      # Max items per batch
+BATCH_COORDINATOR_MAX_WAIT_MS=50   # Max wait for batch formation (ms)
 
 # Age/Gender Stage (MiVOLO)
 MIVOLO_MODEL_PATH=models/mivolo_d1.pth.tar
@@ -751,6 +759,92 @@ BATCH_CHECK_INTERVAL=300           # Seconds between status checks
 # Logging
 LOG_LEVEL=INFO
 ```
+
+## Batch ML Inference
+
+### BatchCoordinator
+
+**File**: `src/photodb/utils/batch_coordinator.py`
+
+When processing photos in parallel (`--parallel N`), individual worker threads would each make separate GPU calls for ML inference. The `BatchCoordinator` collects these requests from worker threads, batches them together, runs a single batched inference call, and distributes results back via `Future` objects. This amortizes per-call overhead (GPU kernel launch, model dispatch) across many inputs.
+
+```
+Worker Thread 1 ──submit(img1)──→ ┌──────────────────┐
+Worker Thread 2 ──submit(img2)──→ │  BatchCoordinator │──batch([img1,img2,img3])──→ GPU
+Worker Thread 3 ──submit(img3)──→ │  (daemon thread)  │
+                                  └──────────────────┘
+                  future.result() ←── split results ←── batched output
+```
+
+**How it works**:
+
+1. A background daemon thread blocks on a queue waiting for items
+2. When the first item arrives, it collects more items up to `max_batch_size` or `max_wait_ms`
+3. Items are combined into a batch (tensor via `torch.cat`, list via concatenation, or scalar list)
+4. The `inference_fn` runs on the batch
+5. Results are split back (via `torch.split` with tracked per-item sizes) and distributed to callers' futures
+6. On macOS, inference is wrapped in `objc.autorelease_pool()` to drain Metal/MPS ObjC objects
+
+**Three coordinators** are created when `--parallel > 1`:
+
+| Coordinator | Inference Function | Batch Mode | Used By |
+|---|---|---|---|
+| `yolo` | `PersonDetector.run_yolo` | scalar (list of PIL images) | Detection stage |
+| `clip_image` | `MobileCLIPAnalyzer.batch_encode` | tensor (`torch.cat` on `(1,C,H,W)` tensors) | Scene analysis (image embeddings) |
+| `clip_face` | `MobileCLIPAnalyzer.batch_encode` | tensor (`torch.cat` on `(1,C,H,W)` tensors) | Scene analysis (face crop embeddings) |
+
+**Configuration** (in `config.py`):
+
+- `BATCH_COORDINATOR_ENABLED`: Enable/disable batch coordinators (default: `True`)
+- `BATCH_COORDINATOR_MAX_SIZE`: Maximum batch size (default: `32`)
+- `BATCH_COORDINATOR_MAX_WAIT_MS`: Max wait time for batch formation (default: `50`)
+- `YOLO_BATCH_ENABLED`: Enable YOLO batch inference (default: `True`)
+- `DETECTION_PREFER_COREML`: Use CoreML instead of PyTorch MPS (default: `False`). CoreML is incompatible with batch coordinators — the guard prevents creating YOLO batch coordinator when CoreML is active.
+
+### Pipeline Stage Ordering
+
+Stages are ordered for optimal batch utilization:
+
+```
+detection → scene_analysis → age_gender
+```
+
+**Why this order matters**: Detection produces a burst of work that feeds directly into scene_analysis's batch coordinators. If age_gender (which is serialized with a thread lock) ran between them, it would throttle the burst into a trickle, producing small, inefficient batches for scene_analysis. Putting the serial stage last means it doesn't matter that it's slow — there's nothing after it waiting for batches.
+
+**Init order** is separate from processing order:
+
+```
+age_gender → scene_analysis → detection (init)
+detection → scene_analysis → age_gender (processing)
+```
+
+Detection (YOLO) must initialize last because CoreML model loading (when used as fallback) corrupts Metal/CoreGraphics state, causing SIGSEGV in any model loaded after it.
+
+### Performance Results (Apple M1 Max)
+
+| Configuration | 83 photos | Notes |
+|---|---|---|
+| CoreML YOLO + MobileCLIP on CPU | 159s | Old default |
+| PyTorch YOLO on MPS + MobileCLIP on MPS (batch) | 33s | **4.8x faster** — current default |
+
+MobileCLIP on MPS vs CPU alone is 7x faster for scene_analysis.
+
+### Recommended --parallel Values
+
+| Pipeline | Recommended | Rationale |
+|---|---|---|
+| Full pipeline (all stages) | 40–50 | Enough to keep batch coordinators fed; age_gender serialization doesn't block other workers |
+| Detection + scene_analysis only | 40–60 | Both stages batch well |
+| Normalize + metadata only | 100–200 | I/O bound, no GPU contention |
+
+### macOS Native Library Ordering
+
+On Apple Silicon, loading certain native libraries before PyTorch MPS initialization corrupts Metal/CoreGraphics state, causing SIGSEGV. Known problematic libraries:
+
+- **CoreML** (via coremltools/ultralytics): Fixed by loading YOLO model last in init order
+- **libvips** (via pyvips/cffi): Fixed by lazy-importing pyvips inside ImageHandler methods
+
+The general pattern: any native library that initializes Metal or CoreGraphics must load **after** PyTorch MPS. Use lazy imports for these libraries.
 
 ## Performance Considerations
 
@@ -808,11 +902,15 @@ photodb/
 │   ├── models/
 │   │   └── photo_analysis.py  # Pydantic LLM response schema
 │   └── utils/
-│       ├── exif.py            # EXIF extraction
-│       ├── image.py           # Image handling
-│       ├── person_detector.py # YOLO + InsightFace
-│       ├── age_gender_aggregator.py  # Person-level aggregation
-│       └── maintenance.py     # Cluster maintenance
+│       ├── batch_coordinator.py     # ML inference batching
+│       ├── exif.py                  # EXIF extraction
+│       ├── image.py                 # Image handling
+│       ├── mobileclip_analyzer.py   # MobileCLIP-S2 encoder
+│       ├── person_detector.py       # YOLO + InsightFace
+│       ├── age_gender_aggregator.py # Person-level aggregation
+│       ├── embedding_extractor.py   # InsightFace face embeddings
+│       ├── timm_compat.py           # timm 0.8→1.0 shim for MiVOLO
+│       └── maintenance.py           # Cluster maintenance
 ├── prompts/
 │   └── system_prompt.md       # LLM system prompt
 ├── schema.sql                 # Database schema

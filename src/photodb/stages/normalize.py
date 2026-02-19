@@ -85,5 +85,5 @@ class NormalizeStage(BaseStage):
         finally:
             if med_image is not None and med_image is not image:
                 med_image.close()
-            if image:
+            if image is not None:
                 image.close()

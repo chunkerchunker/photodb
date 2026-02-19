@@ -115,10 +115,7 @@ class ImageHandler:
         """
         image = cls.open_image(file_path)
         try:
-            oriented = ImageOps.exif_transpose(image)
-            if oriented is not image:
-                image.close()
-                image = oriented
+            ImageOps.exif_transpose(image, in_place=True)
         except Exception as e:
             logger.debug(f"Could not apply EXIF orientation: {e}")
         return image
@@ -234,11 +231,13 @@ class ImageHandler:
         output_path.parent.mkdir(parents=True, exist_ok=True)
 
         # Ensure RGB mode for WebP (no alpha for lossy)
+        # Do NOT close the input image — caller owns its lifecycle
         if image.mode != "RGB":
             converted = image.convert("RGB")
-            if converted is not image:
-                image.close()
-            image = converted
+            converted.save(output_path, format="WEBP", quality=quality, method=defaults.WEBP_METHOD)
+            converted.close()
+            logger.debug(f"Saved WebP image to {output_path}")
+            return
 
         image.save(output_path, format="WEBP", quality=quality, method=defaults.WEBP_METHOD)
         logger.debug(f"Saved WebP image to {output_path}")

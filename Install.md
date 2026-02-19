@@ -8,7 +8,7 @@
 brew bundle
 ```
 
-This installs from the `Brewfile`: git, just, node, pnpm, uv, PostgreSQL 18, pgvector, vips, jq.
+This installs from the `Brewfile`: git, just, node, pnpm, uv, PostgreSQL 18, pgvector, jq.
 
 ## 2. Install Python dependencies
 

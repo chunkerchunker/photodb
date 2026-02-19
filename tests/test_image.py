@@ -1,9 +1,8 @@
 import pytest
 from pathlib import Path
-from PIL import Image  # Only used for creating test fixture files
+from PIL import Image
 import tempfile
-from src.photodb.utils.image import ImageHandler  # must come first: sets DYLD_FALLBACK_LIBRARY_PATH
-import pyvips  # noqa: E402
+from src.photodb.utils.image import ImageHandler
 
 
 class TestImageHandler:
@@ -15,7 +14,7 @@ class TestImageHandler:
 
     @pytest.fixture
     def sample_image(self, temp_dir):
-        """Create a sample test image (100x100 red JPEG)."""
+        """Create a sample test image."""
         img_path = temp_dir / "test.jpg"
         img = Image.new("RGB", (100, 100), color="red")
         img.save(img_path, "JPEG")
@@ -23,7 +22,7 @@ class TestImageHandler:
 
     @pytest.fixture
     def sample_rgba_image(self, temp_dir):
-        """Create a sample RGBA image (100x100 semi-transparent red PNG)."""
+        """Create a sample RGBA image."""
         img_path = temp_dir / "test_rgba.png"
         img = Image.new("RGBA", (100, 100), color=(255, 0, 0, 128))
         img.save(img_path, "PNG")
@@ -46,11 +45,9 @@ class TestImageHandler:
     def test_open_image(self, sample_image):
         """Test opening an image file."""
         img = ImageHandler.open_image(sample_image)
-        assert isinstance(img, pyvips.Image)
-        assert img.bands == 3
-        assert not img.hasalpha()
-        assert img.width == 100
-        assert img.height == 100
+        assert isinstance(img, Image.Image)
+        assert img.mode == "RGB"
+        assert img.size == (100, 100)
 
     def test_open_image_unsupported(self, temp_dir):
         """Test opening unsupported file format."""
@@ -61,20 +58,19 @@ class TestImageHandler:
             ImageHandler.open_image(txt_file)
 
     def test_open_image_rgba_conversion(self, sample_rgba_image):
-        """Test RGBA to RGB conversion (alpha flattened onto white)."""
+        """Test RGBA to RGB conversion."""
         img = ImageHandler.open_image(sample_rgba_image)
-        assert not img.hasalpha()
-        assert img.bands == 3
-        assert img.width == 100
-        assert img.height == 100
+        assert img.mode == "RGB"
+        # Should have white background where alpha was transparent
+        assert img.size == (100, 100)
 
     def test_open_image_decompression_bomb(self, temp_dir):
         """Test protection against decompression bombs."""
         # Create a fake large image
         img_path = temp_dir / "large.jpg"
-        # 15000 x 12000 = 180 megapixels > 178_956_970 limit
+        # Create image just over the limit
         width = 15000
-        height = 12000
+        height = 12000  # 180 megapixels > 179 megapixel limit
         img = Image.new("RGB", (width, height))
         img.save(img_path, "JPEG")
 
@@ -123,9 +119,8 @@ class TestImageHandler:
         """Test image resizing."""
         img = ImageHandler.open_image(sample_image)
         resized = ImageHandler.resize_image(img, (50, 50))
-        assert resized.width == 50
-        assert resized.height == 50
-        assert resized.bands == img.bands
+        assert resized.size == (50, 50)
+        assert resized.mode == img.mode
 
     def test_save_as_png(self, sample_image, temp_dir):
         """Test saving image as PNG."""
@@ -135,12 +130,10 @@ class TestImageHandler:
         ImageHandler.save_as_png(img, output_path, optimize=True)
 
         assert output_path.exists()
-        # Verify it's a valid PNG by re-reading with pyvips
-        saved = pyvips.Image.new_from_file(str(output_path))
-        assert saved.width == img.width
-        assert saved.height == img.height
-        loader = saved.get("vips-loader")
-        assert loader == "pngload"
+        # Verify it's a PNG
+        with Image.open(output_path) as saved_img:
+            assert saved_img.format == "PNG"
+            assert saved_img.size == img.size
 
     def test_save_as_png_creates_directory(self, sample_image, temp_dir):
         """Test that save_as_png creates parent directories."""
@@ -152,62 +145,25 @@ class TestImageHandler:
         assert output_path.exists()
         assert output_path.parent.exists()
 
-    def test_save_as_webp(self, sample_image, temp_dir):
-        """Test saving image as WebP."""
-        img = ImageHandler.open_image(sample_image)
-        output_path = temp_dir / "output.webp"
-
-        ImageHandler.save_as_webp(img, output_path, quality=95)
-
-        assert output_path.exists()
-        assert output_path.stat().st_size > 0
-        # Verify it's a valid WebP by re-reading with pyvips
-        saved = pyvips.Image.new_from_file(str(output_path))
-        assert saved.width == img.width
-        assert saved.height == img.height
-        loader = saved.get("vips-loader")
-        assert loader == "webpload"
-
-    def test_save_creates_directory(self, sample_image, temp_dir):
-        """Test that save_as_webp creates parent directories."""
-        img = ImageHandler.open_image(sample_image)
-        output_path = temp_dir / "nested" / "deep" / "output.webp"
-
-        ImageHandler.save_as_webp(img, output_path, quality=95)
-
-        assert output_path.exists()
-        assert output_path.parent.exists()
-
-    def test_autorotate(self, sample_image):
-        """Test autorotate returns a valid image."""
-        img = ImageHandler.open_image(sample_image)
-        rotated = ImageHandler.autorotate(img)
-        assert isinstance(rotated, pyvips.Image)
-        assert rotated.width == img.width
-        assert rotated.height == img.height
-        assert rotated.bands == img.bands
-
     def test_mode_conversions(self, temp_dir):
         """Test various image mode conversions."""
-        # Test palette mode (GIF)
+        # Test palette mode
         img_path = temp_dir / "palette.gif"
         img = Image.new("P", (100, 100))
         img.save(img_path, "GIF")
         converted = ImageHandler.open_image(img_path)
-        assert converted.bands == 3
-        assert not converted.hasalpha()
+        assert converted.mode == "RGB"
 
         # Test LA mode (grayscale with alpha)
         img_path = temp_dir / "la.png"
         img = Image.new("LA", (100, 100))
         img.save(img_path, "PNG")
         converted = ImageHandler.open_image(img_path)
-        # Alpha should be flattened
-        assert not converted.hasalpha()
+        assert converted.mode == "RGB"
 
-        # Test L mode (grayscale) -- pyvips keeps as 1-band
+        # Test L mode (grayscale)
         img_path = temp_dir / "gray.jpg"
         img = Image.new("L", (100, 100))
         img.save(img_path, "JPEG")
         converted = ImageHandler.open_image(img_path)
-        assert converted.bands == 1
+        assert converted.mode == "L"  # L mode is kept as-is

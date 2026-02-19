@@ -138,7 +138,7 @@ psql $DATABASE_URL -f migrations/020_hdbscan_hierarchy.sql
 ### Model Setup
 
 ```bash
-./scripts/download_models.sh    # Downloads YOLOv8x + MiVOLO to models/
+./scripts/download_models.sh    # Downloads YOLOv8x + MiVOLO + ArcFace to models/
 ```
 
 ## Configuration
@@ -162,10 +162,10 @@ Environment variables (see `docs/DESIGN.md` for full list with defaults):
 - `MIVOLO_MODEL_PATH`: Path to MiVOLO checkpoint (default: `models/mivolo_d1.pth.tar`)
 - `MIVOLO_FORCE_CPU`: Force CPU mode (default: `false`)
 
-### Face Embeddings (InsightFace)
+### Face Embeddings (ArcFace)
 
-- `EMBEDDING_MODEL_NAME`: InsightFace model pack (default: `buffalo_l`)
-- `EMBEDDING_MODEL_ROOT`: Custom model directory (default: `~/.insightface/models`)
+- `EMBEDDING_MODEL_NAME`: ArcFace model pack name (default: `buffalo_l`)
+- `EMBEDDING_MODEL_ROOT`: ArcFace model directory (default: `~/.insightface/models`)
 
 ### Clustering
 
@@ -208,7 +208,7 @@ Always import `timm_compat` before importing mivolo to apply the patches.
 
 1. **opencv-python**: No wheels for Python 3.13t (free-threaded)
 
-Use standard Python 3.13. InsightFace (ONNX Runtime), MiVOLO, and CoreML detection are already thread-safe.
+Use standard Python 3.13. ArcFace (ONNX Runtime), MiVOLO, and CoreML detection are already thread-safe.
 
 ## Performance Considerations
 

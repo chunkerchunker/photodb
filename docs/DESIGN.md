@@ -193,7 +193,7 @@ Detects faces and bodies using YOLOv8x, extracts face embeddings for clustering.
 2. Run YOLOv8x person_face model (detects both faces and bodies)
 3. Match faces to bodies based on spatial containment
 4. Filter by confidence threshold (default: 0.5)
-5. Extract 512-dimensional InsightFace embeddings for faces (ArcFace buffalo_l)
+5. Extract 512-dimensional ArcFace embeddings for faces (buffalo_l via ONNX Runtime)
 6. Store person_detection records with face and body bounding boxes
 7. Save face embeddings in pgvector format
 
@@ -908,9 +908,9 @@ photodb/
 │       ├── exif.py                  # EXIF extraction
 │       ├── image.py                 # Image handling
 │       ├── mobileclip_analyzer.py   # MobileCLIP-S2 encoder
-│       ├── person_detector.py       # YOLO + InsightFace
+│       ├── person_detector.py       # YOLO + ArcFace
 │       ├── age_gender_aggregator.py # Person-level aggregation
-│       ├── embedding_extractor.py   # InsightFace face embeddings
+│       ├── embedding_extractor.py   # ArcFace face embeddings (ONNX Runtime)
 │       ├── timm_compat.py           # timm 0.8→1.0 shim for MiVOLO
 │       └── maintenance.py           # Cluster maintenance
 ├── prompts/

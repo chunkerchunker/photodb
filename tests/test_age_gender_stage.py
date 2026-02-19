@@ -6,12 +6,38 @@ for existing person detections. Pre-computed bounding boxes from the detection s
 are passed directly to MiVOLO, eliminating redundant YOLO detection and IoU matching.
 """
 
+import contextlib
+import sys
 import pytest
 import tempfile
 from pathlib import Path
 from PIL import Image
 from unittest.mock import patch, MagicMock
 from datetime import datetime, timezone
+
+_SENTINEL = object()
+
+
+@contextlib.contextmanager
+def mock_mivolo_missing():
+    """Block mivolo imports without using patch.dict on sys.modules.
+
+    patch.dict("sys.modules", ...) saves/restores the ENTIRE dict, removing any
+    modules imported as side effects (including yaml's C extension, which can't
+    survive being unloaded). This helper only touches the mivolo keys.
+    """
+    keys = ["mivolo", "mivolo.model", "mivolo.model.mi_volo"]
+    saved = {k: sys.modules.get(k, _SENTINEL) for k in keys}
+    for k in keys:
+        sys.modules[k] = None
+    try:
+        yield
+    finally:
+        for k in keys:
+            if saved[k] is _SENTINEL:
+                sys.modules.pop(k, None)
+            else:
+                sys.modules[k] = saved[k]
 
 
 class TestAgeGenderStageUnit:
@@ -641,9 +667,7 @@ class TestMiVOLOPredictorUnit:
 
     def test_predictor_gracefully_handles_import_error(self):
         """Test that MiVOLOPredictor works when MiVOLO is not installed."""
-        with patch.dict(
-            "sys.modules", {"mivolo": None, "mivolo.model": None, "mivolo.model.mi_volo": None}
-        ):
+        with mock_mivolo_missing():
             from src.photodb.stages.age_gender import MiVOLOPredictor
 
             predictor = MiVOLOPredictor(
@@ -656,9 +680,7 @@ class TestMiVOLOPredictorUnit:
 
     def test_predictor_available_flag(self):
         """Test that _available flag is set correctly."""
-        with patch.dict(
-            "sys.modules", {"mivolo": None, "mivolo.model": None, "mivolo.model.mi_volo": None}
-        ):
+        with mock_mivolo_missing():
             from src.photodb.stages.age_gender import MiVOLOPredictor
 
             predictor = MiVOLOPredictor(
@@ -670,9 +692,7 @@ class TestMiVOLOPredictorUnit:
 
     def test_predictor_has_no_thread_lock(self):
         """Test that predictor does not have a threading lock (YOLO removed)."""
-        with patch.dict(
-            "sys.modules", {"mivolo": None, "mivolo.model": None, "mivolo.model.mi_volo": None}
-        ):
+        with mock_mivolo_missing():
             from src.photodb.stages.age_gender import MiVOLOPredictor
 
             predictor = MiVOLOPredictor(

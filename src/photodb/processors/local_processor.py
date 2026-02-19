@@ -108,6 +108,7 @@ class LocalProcessor(BaseProcessor):
                 "detection" in stages_to_create
                 and self._shared_detector is not None
                 and defaults.YOLO_BATCH_ENABLED
+                and not self._shared_detector.using_coreml
             ):
                 self._yolo_coordinator = BatchCoordinator(
                     inference_fn=self._shared_detector.run_yolo,

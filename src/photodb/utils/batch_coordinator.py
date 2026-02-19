@@ -275,7 +275,11 @@ class BatchCoordinator:
         if mode == "scalar" and isinstance(results, (list, tuple)):
             return list(results)
 
-        # Fallback: try indexing
+        # Fallback: try indexing (ignores sizes — may produce wrong results)
+        logger.warning(
+            "[%s] _split_results fallback: mode=%s, result type=%s — splitting by index",
+            self._name, mode, type(results).__name__,
+        )
         return [results[i] for i in range(count)]
 
     @staticmethod

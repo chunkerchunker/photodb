@@ -6,48 +6,44 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 PhotoDB is a personal photo indexing pipeline built with Python and PostgreSQL. It processes photos through multiple stages in a parallel, distributed architecture designed for high throughput with hundreds of concurrent workers.
 
-Detailed processing design in `docs/DESIGN.md`.
+See `docs/DESIGN.md` for detailed processing pipeline design, database schema, and algorithm documentation.
 
 ### Key Components
 
-- **CLI**: Two separate executables
-  - `process-local` (`src/photodb/cli_local.py`): Local photo processing (normalize, metadata extraction)
+- **CLI**: Three executables
+  - `process-local` (`src/photodb/cli_local.py`): Local photo processing (normalize, metadata, detection, age/gender, scene analysis)
   - `enrich-photos` (`src/photodb/cli_enrich.py`): Remote LLM-based enrichment with batch processing
-- **Processors (`src/photodb/processors.py`)**: Orchestrates parallel photo processing using ThreadPoolExecutor
+  - `photodb-maintenance` (`src/photodb/cli_maintenance.py`): Periodic cluster optimization and system health
+- **Processors (`src/photodb/processors/`)**: Orchestrates parallel photo processing using ThreadPoolExecutor
+  - `base_processor.py`: Common processing logic
+  - `local_processor.py`: Local stage orchestration
+  - `batch_processor.py`: Batch enrichment orchestration
 - **Stages (`src/photodb/stages/`)**: Processing pipeline stages (normalize, metadata, detection, age_gender, scene_analysis, enrich) plus standalone clustering
   - All stages inherit from `BaseStage` (`src/photodb/stages/base.py`)
-  - Each stage handles a specific aspect: file normalization, metadata extraction, person/face detection, age/gender estimation, scene/sentiment analysis, enrichment
   - Clustering is run separately via `scripts/bootstrap_clusters.py` after batch imports
-- **Database Layer**: PostgreSQL-based with connection pooling
+- **Database Layer**: PostgreSQL with pgvector, connection pooling
   - Models (`src/photodb/database/models.py`): Photo, ProcessingStatus, Metadata entities
-  - Repository (`src/photodb/database/pg_repository.py`): Data access layer
-  - Connection Pool (`src/photodb/database/pg_connection.py`): Manages concurrent database connections
+  - Repository (`src/photodb/database/repository.py`): Data access layer
+  - Connection Pool (`src/photodb/database/connection.py`): Manages concurrent database connections
+- **Web UI** (`web/`): React Router v7 + Vite + Tailwind frontend for browsing and managing photos
 - **Utilities**: EXIF processing, image handling, validation, logging
 
 ### Processing Pipeline
 
-Photos flow through stages sequentially but can be processed in parallel. The pipeline is split into local and remote processing:
-
-**Local Processing (`process-local`):**
+Photos flow through stages sequentially but can be processed in parallel:
 
 1. **Normalize**: File organization and path standardization
 2. **Metadata**: EXIF extraction and metadata parsing
-3. **Detection**: YOLO-based face and body detection using YOLOv8x person_face model
-4. **Age/Gender**: MiVOLO-based age and gender estimation from detected faces
-5. **Scene Analysis**: Apple Vision scene taxonomy (macOS) and prompt-based tagging with MobileCLIP
+3. **Detection**: YOLO face/body detection (CoreML on macOS)
+4. **Age/Gender**: MiVOLO estimation from detected faces
+5. **Scene Analysis**: Apple Vision taxonomy + MobileCLIP prompt tagging
+6. **Clustering**: HDBSCAN face clustering (run separately after batch imports)
+7. **Cluster Grouping**: Auto-association of similar clusters into persons (weekly maintenance)
+8. **Enrich**: LLM-based analysis via batch processing
 
-**Clustering (separate from pipeline):**
-- Run via `scripts/bootstrap_clusters.py` after importing batches of photos
-- Not included in the normal `process-local` pipeline since clustering should operate on complete datasets
+Each stage is idempotent, tracks processing status per photo, and supports force reprocessing.
 
-**Remote Processing (`enrich-photos`):**
-7. **Enrich**: LLM-based analysis and enrichment using batch processing
-
-Each stage tracks its processing status per photo, allowing for granular recovery and reprocessing.
-
-Each stage should be idempotent and support force reprocessing
-
-All paths should handle both absolute and relative configurations
+All paths should handle both absolute and relative configurations.
 
 ## Development Commands
 
@@ -63,54 +59,44 @@ uv run <command>           # Run command in project environment
 
 ### Running the Application
 
+Common tasks have `just` shortcuts (see `.justfile`):
+
+```bash
+just local /path/to/photos --parallel 4    # Run local pipeline
+just cluster <collection_id>               # Run HDBSCAN bootstrap clustering
+just group-clusters <collection_id>        # Auto-associate clusters to persons
+just daily                                 # Daily maintenance
+just weekly                                # Weekly maintenance
+just capture-import --order-id 123         # Import from Capture system
+```
+
 #### Local Photo Processing
 
 ```bash
-# Basic usage
 uv run process-local /path/to/photos
-
-# With parallel processing (recommended for local stages)
-uv run process-local /path/to/photos --parallel 500
-
-# Specific stage only (normalize, metadata, detection, age_gender, scene_analysis)
-uv run process-local /path/to/photos --stage metadata
-
-# Run detection stage only (face/body detection)
-uv run process-local /path/to/photos --stage detection
-
-# Run age/gender estimation only
-uv run process-local /path/to/photos --stage age_gender
-
-# Run scene analysis (taxonomy + prompt tagging)
-uv run process-local /path/to/photos --stage scene_analysis
-
-# Force reprocessing
-uv run process-local /path/to/photos --force
-
-# Dry run to see what would be processed
+uv run process-local /path/to/photos --parallel 5
+uv run process-local /path/to/photos --stage metadata   # specific stage
+uv run process-local /path/to/photos --force             # force reprocessing
 uv run process-local /path/to/photos --dry-run
 ```
 
 #### Remote Enrichment Processing
 
 ```bash
-# Basic usage (processes in batches)
 uv run enrich-photos /path/to/photos
-
-# Force reprocessing
-uv run enrich-photos /path/to/photos --force
-
-# Check status of running batches
-uv run enrich-photos --check-batches
-
-# Check and wait for batch completion
 uv run enrich-photos --check-batches --wait
-
-# Retry failed enrichment
 uv run enrich-photos /path/to/photos --retry-failed
-
-# Disable batch mode (process one at a time)
 uv run enrich-photos /path/to/photos --no-batch
+```
+
+#### Maintenance
+
+```bash
+uv run photodb-maintenance daily
+uv run photodb-maintenance weekly
+uv run photodb-maintenance auto-associate --collection-id 1
+uv run photodb-maintenance check-staleness
+uv run photodb-maintenance health
 ```
 
 ### Testing
@@ -118,8 +104,8 @@ uv run enrich-photos /path/to/photos --no-batch
 ```bash
 uv run pytest                    # Run all tests
 uv run pytest tests/test_*.py    # Run specific test file
-uv run pytest -v                # Verbose output
-uv run pytest --cov             # With coverage
+uv run pytest -v                 # Verbose output
+uv run pytest --cov              # With coverage
 ```
 
 ### Linting, Formatting, Type Checking
@@ -129,6 +115,7 @@ uv run ruff format              # Format code (line length: 100)
 uv run ruff check               # Lint code
 uv run ruff check --fix         # Auto-fix linting issues
 uv run pyright check            # Type check code
+cd web && pnpm check            # Web frontend (Biome)
 ```
 
 ### Database Setup
@@ -136,218 +123,102 @@ uv run pyright check            # Type check code
 PostgreSQL is required. See `POSTGRESQL_SETUP.md` for detailed setup instructions.
 
 ```bash
-# Create database
 createdb photodb
-
-# Set environment variable
 export DATABASE_URL="postgresql://localhost/photodb"
-
-# Or add to .env file
-echo "DATABASE_URL=postgresql://localhost/photodb" >> .env
 ```
 
 #### Database Migrations
 
-For existing databases, run migrations to add new tables:
-
 ```bash
-# Add person detection tables (required for detection and age_gender stages)
 psql $DATABASE_URL -f migrations/005_add_person_detection.sql
-
-# Add HDBSCAN hierarchy support (required for clustering stage)
+psql $DATABASE_URL -f migrations/006_add_scene_analysis.sql
 psql $DATABASE_URL -f migrations/020_hdbscan_hierarchy.sql
 ```
 
 ### Model Setup
 
-The detection and age/gender stages require pre-trained model files. Download them using:
-
 ```bash
-./scripts/download_models.sh
+./scripts/download_models.sh    # Downloads YOLOv8x + MiVOLO to models/
 ```
-
-This downloads:
-- YOLOv8x person_face model for face/body detection
-- MiVOLO model for age/gender estimation
-
-Models are saved to the `models/` directory by default.
 
 ## Configuration
 
-The application uses environment variables and optional config files:
+Environment variables (see `docs/DESIGN.md` for full list with defaults):
 
 - `DATABASE_URL`: PostgreSQL connection string (required)
-- `INGEST_PATH`: Default path for photo ingestion (default: `./photos/raw`)
+- `INGEST_PATH`: Source photos path (default: `./photos/raw`)
 - `IMG_PATH`: Processed photos output path (default: `./photos/processed`)
 - `LOG_LEVEL`: Logging verbosity (default: `INFO`)
 - `LOG_FILE`: Log file path (default: `./logs/photodb.log`)
-- `LLM_PROVIDER`: LLM provider - `anthropic` (default) or `bedrock` for AWS Bedrock
-- `LLM_API_KEY` or `ANTHROPIC_API_KEY`: API key for Anthropic (not needed for Bedrock)
-- `BEDROCK_MODEL_ID`: Bedrock model ID (default: `anthropic.claude-3-5-sonnet-20241022-v2:0`)
-- `AWS_REGION`: AWS region for Bedrock (default: `us-east-1`)
-- `AWS_PROFILE`: Optional AWS profile name for Bedrock
-- `BATCH_SIZE`: Number of photos per LLM batch (default: `100`)
-- `MIN_BATCH_SIZE`: Minimum batch size for enrich processing (default: `10`) - batches smaller than this will be skipped
-- `MIN_FACE_SIZE_PX`: Minimum face size in pixels for clustering (default: `50`) - faces smaller than this are excluded from clustering
-- `MIN_FACE_CONFIDENCE`: Minimum face detection confidence for clustering (default: `0.9`) - faces with lower confidence are excluded from clustering
 
-### Detection Stage Configuration
+### Detection
 
 - `DETECTION_MODEL_PATH`: Path to YOLOv8x person_face model (default: `models/yolov8x_person_face.pt`)
-- `DETECTION_FORCE_CPU`: Force CPU mode for detection (default: `false`)
-- `DETECTION_MIN_CONFIDENCE`: Minimum detection confidence threshold (default: `0.5`)
+- `DETECTION_FORCE_CPU`: Force CPU mode (default: `false`)
+- `DETECTION_MIN_CONFIDENCE`: Confidence threshold (default: `0.5`)
 
-**CoreML Support (macOS):** On macOS, the detector automatically uses CoreML (`.mlpackage`) if available, providing 5x faster inference via the Neural Engine. CoreML is also thread-safe, enabling parallel processing. The download script automatically exports the CoreML model on macOS.
-
-### Age/Gender Stage Configuration
+### Age/Gender (MiVOLO)
 
 - `MIVOLO_MODEL_PATH`: Path to MiVOLO checkpoint (default: `models/mivolo_d1.pth.tar`)
-- `MIVOLO_FORCE_CPU`: Force CPU mode for MiVOLO inference (default: `false`)
+- `MIVOLO_FORCE_CPU`: Force CPU mode (default: `false`)
 
-**Thread Safety:** MiVOLO inference is serialized with a lock. Testing showed that without serialization:
-1. MiVOLO's internal YOLO detector lazy-initializes on first use, causing race conditions when multiple threads call `recognize()` simultaneously
-2. Even after initialization, concurrent inference produces inconsistent results (same image returns different prediction counts)
+### Face Embeddings (InsightFace)
+
+- `EMBEDDING_MODEL_NAME`: InsightFace model pack (default: `buffalo_l`)
+- `EMBEDDING_MODEL_ROOT`: Custom model directory (default: `~/.insightface/models`)
+
+### Clustering
+
+- `HDBSCAN_MIN_CLUSTER_SIZE`: Minimum faces to form a cluster (default: `3`)
+- `HDBSCAN_MIN_SAMPLES`: Core point requirement (default: `2`)
+- `CLUSTERING_THRESHOLD`: Fallback distance threshold (default: `0.45`)
+- `PERSON_ASSOCIATION_THRESHOLD`: Cosine distance for cluster auto-grouping (default: `0.8`)
+
+### Scene Analysis
+
+- `CLIP_MODEL_NAME`: CLIP model (default: `MobileCLIP-S2`)
+- `CLIP_PRETRAINED`: Pretrained weights (default: `datacompdr`)
+
+Seed prompts with `uv run python scripts/seed_prompts.py`. Recompute embeddings after model changes with `--recompute-embeddings`.
+
+### LLM Enrichment
+
+- `LLM_PROVIDER`: `anthropic` (default) or `bedrock`
+- `ANTHROPIC_API_KEY`: API key for Anthropic
+- `BEDROCK_MODEL_ID`: Bedrock model ID (default: `anthropic.claude-3-5-sonnet-20241022-v2:0`)
+- `AWS_REGION`: AWS region for Bedrock (default: `us-east-1`)
+- `BATCH_SIZE`: Photos per LLM batch (default: `100`)
+- `MIN_BATCH_SIZE`: Minimum batch size (default: `10`)
+
+## Important Gotchas
+
+### MiVOLO Thread Safety
+
+MiVOLO inference is serialized with a lock. Without serialization:
+
+1. Internal YOLO detector lazy-initializes on first use, causing race conditions with concurrent `recognize()` calls
+2. Concurrent inference produces inconsistent results (same image returns different prediction counts)
 
 *Tested with mivolo 0.6.0.dev0 (git HEAD) on 2026-02-01. Future versions may fix these issues.*
 
-**timm Compatibility:** MiVOLO was written for timm 0.8.x but we use timm 1.0.x for MobileCLIP-S2's FastViT backbone. A compatibility shim (`src/photodb/utils/timm_compat.py`) patches:
+### timm Compatibility
+
+MiVOLO was written for timm 0.8.x but we use timm 1.0.x for MobileCLIP-S2's FastViT backbone. A compatibility shim (`src/photodb/utils/timm_compat.py`) patches:
+
 1. `remap_checkpoint()` → `remap_state_dict()` (API renamed in timm 0.9+)
 2. `split_model_name_tag()` (removed in timm 0.9+)
 3. `MiVOLOModel.__init__()` (VOLO class added `pos_drop_rate` parameter in timm 0.9+)
 
 Always import `timm_compat` before importing mivolo to apply the patches.
 
-### Face Embedding Configuration
-
-- `EMBEDDING_MODEL_NAME`: InsightFace model pack name (default: `buffalo_l`)
-- `EMBEDDING_MODEL_ROOT`: Custom model directory (default: `~/.insightface/models`)
-
-**Hardware Acceleration:**
-- **macOS:** Uses CoreML via ONNX Runtime for Neural Engine acceleration (thread-safe)
-- **CUDA:** Uses CUDA via ONNX Runtime for GPU acceleration
-- **CPU:** Falls back to CPU if no accelerators available
-
-**Model Location:** InsightFace models auto-download to `~/.insightface/models/` on first use.
-
-### Clustering Stage Configuration
-
-The clustering stage uses HDBSCAN with two-tier incremental assignment:
-- **Bootstrap phase**: HDBSCAN identifies stable clusters and builds hierarchical condensed tree
-- **Incremental phase**: New faces are assigned using approximate_predict (tier 1) and epsilon-ball fallback (tier 2)
-
-**Configuration:**
-- `HDBSCAN_MIN_CLUSTER_SIZE`: Minimum faces to form a cluster (default: `3`)
-- `HDBSCAN_MIN_SAMPLES`: Core point requirement for HDBSCAN (default: `2`)
-- `CLUSTERING_THRESHOLD`: Fallback distance threshold for clusters without epsilon (default: `0.45`)
-
-**Epsilon Calculation:**
-Each cluster's epsilon is derived from its `lambda_birth` value in the HDBSCAN condensed tree:
-```
-epsilon = 1 / lambda_birth
-```
-This makes epsilon hierarchically consistent with HDBSCAN's density-based structure. Higher λ (denser clusters) results in smaller epsilon (tighter assignment threshold).
-
-**HDBSCAN Run Persistence:**
-Each bootstrap run is stored in the `hdbscan_run` table with:
-- Pickled condensed tree (used for approximate_predict)
-- Pickled clusterer object (for metadata and diagnostics)
-- Bootstrap parameters (min_cluster_size, min_samples)
-- Run statistics (total_embeddings, clusters_created)
-
-Clusters reference their parent run via `hdbscan_run_id` and store hierarchy metadata (lambda_birth, persistence).
-
-**Staleness Detection:**
-Check if clusters need re-bootstrapping due to significant changes:
-```bash
-uv run photodb-maintenance check-staleness
-```
-
-**Bootstrap Clustering:**
-To run HDBSCAN bootstrap on existing embeddings (run after batch photo imports):
-```bash
-uv run python scripts/bootstrap_clusters.py --dry-run  # Preview changes
-uv run python scripts/bootstrap_clusters.py            # Run bootstrap
-```
-
-**Database Migration:**
-For existing databases, run the migration for HDBSCAN hierarchy support:
-```bash
-psql $DATABASE_URL -f migrations/020_hdbscan_hierarchy.sql
-```
-
-**How it works:**
-1. HDBSCAN runs on all embeddings to build hierarchical condensed tree
-2. Clusters store lambda_birth (for epsilon) and persistence (stability metric)
-3. Condensed tree and clusterer are pickled and stored in `hdbscan_run` table
-4. New faces use approximate_predict for hierarchically consistent assignment
-5. Fallback to epsilon-ball assignment if approximate_predict returns -1 (outlier)
-6. Manual assignments (`cluster_status = 'manual'`) and verified clusters are preserved
-
-**Metal/MPS GPU Acceleration (Apple Silicon):**
-On Apple Silicon Macs, HDBSCAN bootstrap uses Metal/MPS for ~8x faster clustering:
-- GPU-accelerated k-NN search via PyTorch MPS
-- Sparse graph reduces MST complexity from O(n²) to O(n×k)
-- Automatically falls back to CPU if MPS unavailable
-- Validated with ARI > 0.97 (nearly identical results to CPU)
-
-**Person-Cluster Relationship:**
-- A Person can have multiple clusters (e.g., same person at different ages)
-- Clusters are linked to a Person via `cluster.person_id`
-- Users assign clusters to persons directly via the web UI
-- Cannot-link constraints prevent faces from being assigned to forbidden clusters
-
-**Constraints:**
-- `cannot_link`: Prevents a face from being assigned to a cluster (checked during incremental clustering)
-- No must-link table - identity linking is done directly via person_id
-
-### Scene Analysis Stage Configuration
-
-- `CLIP_MODEL_NAME`: CLIP model to use (default: `MobileCLIP-S2`)
-- `CLIP_PRETRAINED`: Pretrained weights source (default: `datacompdr`)
-
-The scene analysis stage provides two features:
-
-1. **Apple Vision Scene Taxonomy (macOS only):** Uses Apple's Vision framework to classify scenes with 1303 built-in labels. Returns top-k labels with confidence scores.
-
-2. **Prompt-based Tagging:** Uses MobileCLIP to match images and face crops against configurable text prompts for semantic tagging.
-
-#### Prompt Management
-
-Prompts are stored in the database and organized into categories:
-- **Face categories:** `face_emotion`, `face_expression`, `face_gaze`
-- **Scene categories:** `scene_mood`, `scene_setting`, `scene_activity`, `scene_time`, `scene_weather`, `scene_social`
-
-To seed initial prompts:
-```bash
-uv run python scripts/seed_prompts.py
-```
-
-To recompute embeddings after model changes:
-```bash
-uv run python scripts/seed_prompts.py --recompute-embeddings
-```
-
-To add custom prompts, insert rows into the `prompt_embedding` table with the appropriate `category_id` and run the seed script with `--recompute-embeddings` to compute the embeddings.
-
-#### Database Migration
-
-For existing databases, run the migration to add scene analysis tables:
-```bash
-psql $DATABASE_URL -f migrations/006_add_scene_analysis.sql
-```
-
 ### Free-threaded Python
 
 **Not currently usable** due to two blockers:
 
-1. **opencv-python**: MiVOLO depends on opencv-python, which has no wheels for Python 3.13t (free-threaded). This is a build/packaging issue that may be resolved in future opencv releases.
+1. **opencv-python**: No wheels for Python 3.13t (free-threaded)
+2. **MiVOLO thread safety**: Must be serialized regardless (see above)
 
-2. **MiVOLO thread safety**: Even if opencv were available, MiVOLO inference must be serialized (see above), so free-threaded Python wouldn't improve throughput for the age/gender stage.
-
-Use standard Python 3.13 for now. The detection stage uses CoreML which is already thread-safe and parallel.
-
-Note: InsightFace (face embeddings) uses ONNX Runtime which is thread-safe, so it would
-benefit from free-threaded Python once the opencv blocker is resolved.
+Use standard Python 3.13. InsightFace (ONNX Runtime) and CoreML detection are already thread-safe.
 
 ## Performance Considerations
 

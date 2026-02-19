@@ -157,13 +157,20 @@ class LocalProcessor(BaseProcessor):
         self.close()
 
     def _get_stages(self, stage: str) -> List[str]:
-        """Get list of stages to run (normalize, metadata, detection, age_gender, scene_analysis)."""
+        """Get list of stages to run.
+
+        Order matters for throughput: scene_analysis runs before age_gender so
+        that the burst of workers exiting the detection batch coordinator feeds
+        directly into the scene_analysis batch coordinator (big batches, good
+        GPU utilization).  If age_gender ran first, its serial lock would
+        convert the burst into a trickle, starving scene_analysis batches.
+        """
         all_stages = [
             "normalize",
             "metadata",
             "detection",
-            "age_gender",
             "scene_analysis",
+            "age_gender",
         ]
 
         if stage == "all":

@@ -99,6 +99,31 @@ class ImageHandler:
             raise
 
     @classmethod
+    def open_and_orient(cls, file_path: Path) -> Image.Image:
+        """
+        Open an image and apply EXIF orientation correction.
+
+        Combines open_image() + exif_transpose() in one step. The returned
+        image has rotation baked in and the EXIF orientation tag stripped.
+        Dimensions reflect the final oriented size.
+
+        Args:
+            file_path: Path to the image file
+
+        Returns:
+            PIL Image object with EXIF orientation applied (caller must close it!)
+        """
+        image = cls.open_image(file_path)
+        try:
+            oriented = ImageOps.exif_transpose(image)
+            if oriented is not image:
+                image.close()
+                image = oriented
+        except Exception as e:
+            logger.debug(f"Could not apply EXIF orientation: {e}")
+        return image
+
+    @classmethod
     def get_image_info(cls, file_path: Path) -> Dict[str, Any]:
         """
         Get basic information about an image without fully loading it.

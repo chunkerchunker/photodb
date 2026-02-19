@@ -167,3 +167,35 @@ class TestImageHandler:
         img.save(img_path, "JPEG")
         converted = ImageHandler.open_image(img_path)
         assert converted.mode == "L"  # L mode is kept as-is
+
+    def test_open_and_orient(self, sample_image):
+        """Test open_and_orient returns correctly oriented image."""
+        img = ImageHandler.open_and_orient(sample_image)
+        assert isinstance(img, Image.Image)
+        assert img.mode == "RGB"
+        assert img.size == (100, 100)
+
+    def test_open_and_orient_unsupported(self, temp_dir):
+        """Test open_and_orient rejects unsupported formats."""
+        txt_file = temp_dir / "test.txt"
+        txt_file.write_text("not an image")
+        with pytest.raises(ValueError, match="Unsupported format"):
+            ImageHandler.open_and_orient(txt_file)
+
+    def test_open_and_orient_exif_rotation(self, temp_dir):
+        """Test that EXIF orientation is applied and tag stripped."""
+        import piexif
+
+        # Create a 100x200 image with EXIF orientation 6 (90° CCW rotation)
+        img_path = temp_dir / "rotated.jpg"
+        img = Image.new("RGB", (100, 200), color="red")
+        exif_dict = {"0th": {piexif.ImageIFD.Orientation: 6}}
+        exif_bytes = piexif.dump(exif_dict)
+        img.save(img_path, "JPEG", exif=exif_bytes)
+
+        result = ImageHandler.open_and_orient(img_path)
+        # After 90° CCW rotation, 100x200 becomes 200x100
+        assert result.size == (200, 100)
+        # EXIF orientation tag should be stripped
+        exif = result.getexif()
+        assert exif.get(0x0112) in (None, 1)

@@ -46,7 +46,7 @@ export function DeletePersonDialog({
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="max-w-sm">
         <DialogHeader>
-          <DialogTitle>Delete Person</DialogTitle>
+          <DialogTitle>Remove All Clusters</DialogTitle>
           <DialogDescription>
             This will unlink all {clusterCount} cluster{clusterCount !== 1 ? "s" : ""} from{" "}
             <span className="font-medium text-gray-700">{personName}</span>. The clusters and their photos will not be
@@ -61,12 +61,12 @@ export function DeletePersonDialog({
             {isSubmitting ? (
               <>
                 <Loader2 className="h-4 w-4 mr-1 animate-spin" />
-                Deleting...
+                Removing...
               </>
             ) : (
               <>
                 <Trash2 className="h-4 w-4 mr-1" />
-                Delete
+                Remove All
               </>
             )}
           </Button>

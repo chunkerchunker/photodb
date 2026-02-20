@@ -219,6 +219,19 @@ CREATE INDEX IF NOT EXISTS idx_batch_job_status ON batch_job(status);
 
 CREATE INDEX IF NOT EXISTS idx_batch_job_submitted_at ON batch_job(submitted_at);
 
+-- Add llm_analysis.batch_id FK after batch_job exists
+DO $$
+BEGIN
+    IF NOT EXISTS (
+        SELECT 1 FROM pg_constraint WHERE conname = 'llm_analysis_batch_id_fk'
+    ) THEN
+        ALTER TABLE llm_analysis
+            ADD CONSTRAINT llm_analysis_batch_id_fk
+            FOREIGN KEY (batch_id) REFERENCES batch_job(provider_batch_id) ON DELETE SET NULL;
+    END IF;
+END;
+$$;
+
 -- People table: Named individuals that can appear in photos (whether detected or manually assigned)
 CREATE TABLE IF NOT EXISTS person(
     id bigserial PRIMARY KEY,
@@ -356,7 +369,7 @@ CREATE TABLE IF NOT EXISTS "cluster"(
     representative_detection_id bigint REFERENCES person_detection(id) ON DELETE SET NULL,
     centroid VECTOR(512),
     medoid_detection_id bigint REFERENCES person_detection(id) ON DELETE SET NULL,
-    person_id bigint REFERENCES person(id) ON DELETE SET NULL,
+    person_id bigint,
     -- Verification status to protect human-verified clusters
     verified boolean DEFAULT false,
     verified_at timestamptz DEFAULT NULL,
@@ -448,10 +461,10 @@ WHERE face_count > 0 AND (hidden = false OR hidden IS NULL);
 
 -- Cluster-Person cannot-link (records when user explicitly removes cluster from person)
 CREATE TABLE IF NOT EXISTS cluster_person_cannot_link (
-    id SERIAL PRIMARY KEY,
-    cluster_id INTEGER NOT NULL REFERENCES cluster(id) ON DELETE CASCADE,
-    person_id INTEGER NOT NULL REFERENCES person(id) ON DELETE CASCADE,
-    collection_id INTEGER NOT NULL REFERENCES collection(id) ON DELETE CASCADE,
+    id bigserial PRIMARY KEY,
+    cluster_id bigint NOT NULL REFERENCES cluster(id) ON DELETE CASCADE,
+    person_id bigint NOT NULL REFERENCES person(id) ON DELETE CASCADE,
+    collection_id bigint NOT NULL REFERENCES collection(id) ON DELETE CASCADE,
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     UNIQUE (cluster_id, person_id)  -- one constraint per cluster-person pair
 );

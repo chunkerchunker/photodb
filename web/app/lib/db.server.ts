@@ -1,5 +1,6 @@
 import path from "node:path";
 import dotenv from "dotenv";
+import type { PoolClient } from "pg";
 import { Pool } from "pg";
 
 // Load environment variables from .env file
@@ -2988,77 +2989,86 @@ export async function getPersonPartnerships(_collectionId: number, personId: str
   return result.rows;
 }
 
+const VALID_PARENT_ROLES = new Set(["mother", "father", "parent"]);
+function sanitizeParentRole(role: string): string {
+  return VALID_PARENT_ROLES.has(role) ? role : "parent";
+}
+
+async function withTransaction<T>(fn: (client: PoolClient) => Promise<T>): Promise<T> {
+  const client = await pool.connect();
+  try {
+    await client.query("BEGIN");
+    const result = await fn(client);
+    await client.query("COMMIT");
+    return result;
+  } catch (e) {
+    await client.query("ROLLBACK");
+    throw e;
+  } finally {
+    client.release();
+  }
+}
+
 export async function addPersonParent(
   _collectionId: number,
   personId: string,
   parentId: string,
   parentRole: string = "parent",
 ): Promise<{ success: boolean }> {
-  // Check existing parent count before inserting
-  const existing = await pool.query(
-    `SELECT parent_id FROM person_parent WHERE person_id = $1::int`,
-    [personId],
-  );
-  const existingParentIds = existing.rows.map((r: { parent_id: number }) => r.parent_id);
-
-  await pool.query(
-    `INSERT INTO person_parent (person_id, parent_id, parent_role, source)
-     VALUES ($1::int, $2::int, $3, 'user')
-     ON CONFLICT (person_id, parent_id) DO UPDATE SET parent_role = $3`,
-    [personId, parentId, parentRole],
-  );
-
-  // If this is the 2nd parent, auto-create a partnership between the two parents
-  if (existingParentIds.length === 1 && !existingParentIds.includes(Number(parentId))) {
-    const otherParentId = existingParentIds[0];
-    const p1 = Math.min(Number(parentId), otherParentId);
-    const p2 = Math.max(Number(parentId), otherParentId);
-    await pool.query(
-      `INSERT INTO person_partnership (person1_id, person2_id, partnership_type, is_current)
-       VALUES ($1, $2, 'partner', true)
-       ON CONFLICT (person1_id, person2_id, COALESCE(start_year, 0)) DO NOTHING`,
-      [p1, p2],
+  const role = sanitizeParentRole(parentRole);
+  return withTransaction(async (client) => {
+    // Check existing parent count before inserting
+    const existing = await client.query(
+      `SELECT parent_id FROM person_parent WHERE person_id = $1::int`,
+      [personId],
     );
-  }
+    const existingParentIds = existing.rows.map((r: { parent_id: number }) => r.parent_id);
 
-  // Also link this parent to personId's existing siblings (people who share the same parents)
-  const siblings = await pool.query(
-    `SELECT DISTINCT p2.person_id FROM person_parent p1
-     JOIN person_parent p2 ON p1.parent_id = p2.parent_id
-     WHERE p1.person_id = $1::int AND p2.person_id != $1::int`,
-    [personId],
-  );
-  for (const row of siblings.rows) {
-    await pool.query(
+    await client.query(
       `INSERT INTO person_parent (person_id, parent_id, parent_role, source)
-       VALUES ($1, $2::int, $3, 'user')
-       ON CONFLICT (person_id, parent_id) DO NOTHING`,
-      [row.person_id, parentId, parentRole],
+       VALUES ($1::int, $2::int, $3, 'user')
+       ON CONFLICT (person_id, parent_id) DO UPDATE SET parent_role = $3`,
+      [personId, parentId, role],
     );
-  }
-  await pool.query(`SELECT refresh_genealogy_closures()`);
-  return { success: true };
+
+    // If this is the 2nd parent, auto-create a partnership between the two parents
+    if (existingParentIds.length === 1 && !existingParentIds.includes(Number(parentId))) {
+      const otherParentId = existingParentIds[0];
+      const p1 = Math.min(Number(parentId), otherParentId);
+      const p2 = Math.max(Number(parentId), otherParentId);
+      await client.query(
+        `INSERT INTO person_partnership (person1_id, person2_id, partnership_type, is_current)
+         VALUES ($1, $2, 'partner', true)
+         ON CONFLICT (person1_id, person2_id, COALESCE(start_year, 0)) DO NOTHING`,
+        [p1, p2],
+      );
+    }
+
+    // Also link this parent to personId's existing siblings (bulk insert)
+    await client.query(
+      `INSERT INTO person_parent (person_id, parent_id, parent_role, source)
+       SELECT DISTINCT p2.person_id, $2::int, $3, 'user'
+       FROM person_parent p1
+       JOIN person_parent p2 ON p1.parent_id = p2.parent_id
+       WHERE p1.person_id = $1::int AND p2.person_id != $1::int
+       ON CONFLICT (person_id, parent_id) DO NOTHING`,
+      [personId, parentId, role],
+    );
+
+    await client.query(`SELECT refresh_genealogy_closures()`);
+    return { success: true };
+  });
 }
 
 export async function removePersonParent(personId: string, parentId: string): Promise<{ success: boolean }> {
-  await pool.query(`DELETE FROM person_parent WHERE person_id = $1::int AND parent_id = $2::int`, [personId, parentId]);
-
-  // Also remove parentId's partner(s)' parent links to personId
-  const partners = await pool.query(
-    `SELECT person1_id, person2_id FROM person_partnership
-     WHERE person1_id = $1::int OR person2_id = $1::int`,
-    [parentId],
-  );
-  for (const row of partners.rows) {
-    const partnerId = Number(row.person1_id) === Number(parentId) ? row.person2_id : row.person1_id;
-    await pool.query(
-      `DELETE FROM person_parent WHERE person_id = $1::int AND parent_id = $2`,
-      [personId, partnerId],
+  return withTransaction(async (client) => {
+    await client.query(
+      `DELETE FROM person_parent WHERE person_id = $1::int AND parent_id = $2::int`,
+      [personId, parentId],
     );
-  }
-
-  await pool.query(`SELECT refresh_genealogy_closures()`);
-  return { success: true };
+    await client.query(`SELECT refresh_genealogy_closures()`);
+    return { success: true };
+  });
 }
 
 export async function addPersonPartnership(
@@ -3068,79 +3078,80 @@ export async function addPersonPartnership(
 ): Promise<{ success: boolean }> {
   const p1 = Math.min(Number(personId), Number(partnerId));
   const p2 = Math.max(Number(personId), Number(partnerId));
-  await pool.query(
-    `INSERT INTO person_partnership (person1_id, person2_id, partnership_type, is_current)
-     VALUES ($1, $2, $3, true)
-     ON CONFLICT (person1_id, person2_id, COALESCE(start_year, 0)) DO UPDATE SET partnership_type = $3`,
-    [p1, p2, partnershipType],
-  );
-
-  // Also link partner as parent to center person's existing children
-  const children = await pool.query(
-    `SELECT person_id FROM person_parent WHERE parent_id = $1::int`,
-    [personId],
-  );
-  for (const row of children.rows) {
-    await pool.query(
-      `INSERT INTO person_parent (person_id, parent_id, parent_role, source)
-       VALUES ($1, $2::int, 'parent', 'user')
-       ON CONFLICT (person_id, parent_id) DO NOTHING`,
-      [row.person_id, partnerId],
+  return withTransaction(async (client) => {
+    await client.query(
+      `INSERT INTO person_partnership (person1_id, person2_id, partnership_type, is_current)
+       VALUES ($1, $2, $3, true)
+       ON CONFLICT (person1_id, person2_id, COALESCE(start_year, 0)) DO UPDATE SET partnership_type = $3`,
+      [p1, p2, partnershipType],
     );
-  }
 
-  await pool.query(`SELECT refresh_genealogy_closures()`);
-  return { success: true };
+    // Also link partner as parent to center person's existing children (bulk insert)
+    await client.query(
+      `INSERT INTO person_parent (person_id, parent_id, parent_role, source)
+       SELECT person_id, $2::int, 'parent', 'user'
+       FROM person_parent WHERE parent_id = $1::int
+       ON CONFLICT (person_id, parent_id) DO NOTHING`,
+      [personId, partnerId],
+    );
+
+    await client.query(`SELECT refresh_genealogy_closures()`);
+    return { success: true };
+  });
 }
 
 export async function removePersonPartnership(personId: string, partnerId: string): Promise<{ success: boolean }> {
   const p1 = Math.min(Number(personId), Number(partnerId));
   const p2 = Math.max(Number(personId), Number(partnerId));
-
-  // Remove partner's parent links to center person's children
-  const children = await pool.query(
-    `SELECT person_id FROM person_parent WHERE parent_id = $1::int`,
-    [personId],
-  );
-  for (const row of children.rows) {
-    await pool.query(
-      `DELETE FROM person_parent WHERE person_id = $1 AND parent_id = $2::int`,
-      [row.person_id, partnerId],
+  return withTransaction(async (client) => {
+    // Remove partner's parent links to center person's children (bulk delete)
+    await client.query(
+      `DELETE FROM person_parent
+       WHERE parent_id = $2::int
+         AND person_id IN (SELECT person_id FROM person_parent WHERE parent_id = $1::int)`,
+      [personId, partnerId],
     );
-  }
 
-  await pool.query(`DELETE FROM person_partnership WHERE person1_id = $1 AND person2_id = $2`, [p1, p2]);
-  await pool.query(`SELECT refresh_genealogy_closures()`);
-  return { success: true };
+    await client.query(
+      `DELETE FROM person_partnership WHERE person1_id = $1 AND person2_id = $2`,
+      [p1, p2],
+    );
+    await client.query(`SELECT refresh_genealogy_closures()`);
+    return { success: true };
+  });
 }
 
 export async function addPersonChild(
-  collectionId: number,
+  _collectionId: number,
   parentId: string,
   childId: string,
   parentRole: string = "parent",
 ): Promise<{ success: boolean }> {
-  // Add the parent→child link (reuses addPersonParent which handles sibling cascading)
-  await addPersonParent(collectionId, childId, parentId, parentRole);
-
-  // Also link child to center person's current partner(s) as parent
-  const partners = await pool.query(
-    `SELECT person1_id, person2_id FROM person_partnership
-     WHERE person1_id = $1::int OR person2_id = $1::int`,
-    [parentId],
-  );
-  for (const row of partners.rows) {
-    const partnerId = Number(row.person1_id) === Number(parentId) ? row.person2_id : row.person1_id;
-    await pool.query(
+  const role = sanitizeParentRole(parentRole);
+  return withTransaction(async (client) => {
+    // Add parent→child link
+    await client.query(
       `INSERT INTO person_parent (person_id, parent_id, parent_role, source)
-       VALUES ($1::int, $2, $3, 'user')
-       ON CONFLICT (person_id, parent_id) DO NOTHING`,
-      [childId, partnerId, parentRole],
+       VALUES ($1::int, $2::int, $3, 'user')
+       ON CONFLICT (person_id, parent_id) DO UPDATE SET parent_role = $3`,
+      [childId, parentId, role],
     );
-  }
 
-  await pool.query(`SELECT refresh_genealogy_closures()`);
-  return { success: true };
+    // Also link child to parent's current partner(s) as parent (bulk insert)
+    await client.query(
+      `INSERT INTO person_parent (person_id, parent_id, parent_role, source)
+       SELECT $1::int,
+              CASE WHEN person1_id = $2::int THEN person2_id ELSE person1_id END,
+              $3, 'user'
+       FROM person_partnership
+       WHERE person1_id = $2::int OR person2_id = $2::int
+       ON CONFLICT (person_id, parent_id) DO NOTHING`,
+      [childId, parentId, role],
+    );
+
+    await client.query(`SELECT refresh_genealogy_closures()`);
+    return { success: true };
+  });
 }
 
 export async function createPlaceholderPerson(
@@ -3163,55 +3174,64 @@ export async function addPersonSibling(
   personId: string,
   siblingId: string,
 ): Promise<{ success: boolean }> {
-  // Link the sibling to all of personId's existing parents
-  const existingParents = await pool.query(
-    `SELECT parent_id, parent_role FROM person_parent WHERE person_id = $1::int`,
-    [personId],
-  );
-  for (const row of existingParents.rows) {
-    await pool.query(
-      `INSERT INTO person_parent (person_id, parent_id, parent_role, source)
-       VALUES ($1::int, $2, $3, 'user')
-       ON CONFLICT (person_id, parent_id) DO NOTHING`,
-      [siblingId, row.parent_id, row.parent_role],
+  return withTransaction(async (client) => {
+    // Check if personId has parents
+    const existingParents = await client.query(
+      `SELECT count(*) as cnt FROM person_parent WHERE person_id = $1::int`,
+      [personId],
     );
-  }
-  // If personId has no parents, copy siblingId's parents to personId instead
-  if (existingParents.rows.length === 0) {
-    const siblingParents = await pool.query(
-      `SELECT parent_id, parent_role FROM person_parent WHERE person_id = $1::int`,
-      [siblingId],
-    );
-    for (const row of siblingParents.rows) {
-      await pool.query(
+    const personHasParents = Number(existingParents.rows[0].cnt) > 0;
+
+    if (personHasParents) {
+      // Link siblingId to all of personId's existing parents (bulk insert)
+      await client.query(
         `INSERT INTO person_parent (person_id, parent_id, parent_role, source)
-         VALUES ($1::int, $2, $3, 'user')
+         SELECT $2::int, parent_id, parent_role, 'user'
+         FROM person_parent WHERE person_id = $1::int
          ON CONFLICT (person_id, parent_id) DO NOTHING`,
-        [personId, row.parent_id, row.parent_role],
+        [personId, siblingId],
       );
+    } else {
+      // Check if siblingId has parents — copy them to personId
+      const siblingHasParents = await client.query(
+        `SELECT count(*) as cnt FROM person_parent WHERE person_id = $1::int`,
+        [siblingId],
+      );
+      if (Number(siblingHasParents.rows[0].cnt) > 0) {
+        await client.query(
+          `INSERT INTO person_parent (person_id, parent_id, parent_role, source)
+           SELECT $2::int, parent_id, parent_role, 'user'
+           FROM person_parent WHERE person_id = $1::int
+           ON CONFLICT (person_id, parent_id) DO NOTHING`,
+          [siblingId, personId],
+        );
+      }
+      // If neither has parents, the sibling link has no effect — the user
+      // needs to add parents first for the relationship to be visible.
     }
-  }
-  await pool.query(`SELECT refresh_genealogy_closures()`);
-  return { success: true };
+
+    await client.query(`SELECT refresh_genealogy_closures()`);
+    return { success: true };
+  });
 }
 
 export async function removePersonSibling(
   personId: string,
   siblingId: string,
 ): Promise<{ success: boolean }> {
-  // Find shared parents and remove the sibling's links to them
-  const shared = await pool.query(
-    `SELECT p1.parent_id FROM person_parent p1
-     JOIN person_parent p2 ON p1.parent_id = p2.parent_id
-     WHERE p1.person_id = $1::int AND p2.person_id = $2::int`,
-    [personId, siblingId],
-  );
-  for (const row of shared.rows) {
-    await pool.query(
-      `DELETE FROM person_parent WHERE person_id = $1::int AND parent_id = $2`,
-      [siblingId, row.parent_id],
+  return withTransaction(async (client) => {
+    // Remove sibling's links to shared parents (bulk delete)
+    await client.query(
+      `DELETE FROM person_parent
+       WHERE person_id = $2::int
+         AND parent_id IN (
+           SELECT p1.parent_id FROM person_parent p1
+           JOIN person_parent p2 ON p1.parent_id = p2.parent_id
+           WHERE p1.person_id = $1::int AND p2.person_id = $2::int
+         )`,
+      [personId, siblingId],
     );
-  }
-  await pool.query(`SELECT refresh_genealogy_closures()`);
-  return { success: true };
+    await client.query(`SELECT refresh_genealogy_closures()`);
+    return { success: true };
+  });
 }

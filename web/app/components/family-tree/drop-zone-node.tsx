@@ -1,6 +1,7 @@
-import { Handle, type NodeProps, Position } from "@xyflow/react";
+import type { NodeProps } from "@xyflow/react";
 import { Plus } from "lucide-react";
 import { useState } from "react";
+import { InvisibleHandles } from "./invisible-handles";
 
 export interface DropZoneNodeData {
   label: string;
@@ -38,10 +39,7 @@ export function DropZoneNode({ data }: NodeProps) {
     >
       <Plus className={`w-6 h-6 ${isOver ? "text-blue-400" : "text-gray-500"}`} />
       <span className={`text-xs mt-1 ${isOver ? "text-blue-400" : "text-gray-500"}`}>{d.label}</span>
-      <Handle type="target" position={Position.Top} className="!opacity-0 !w-0 !h-0 !min-w-0 !min-h-0 !border-0" />
-      <Handle type="source" position={Position.Bottom} className="!opacity-0 !w-0 !h-0 !min-w-0 !min-h-0 !border-0" />
-      <Handle id="left" type="target" position={Position.Left} className="!opacity-0 !w-0 !h-0 !min-w-0 !min-h-0 !border-0" />
-      <Handle id="right" type="source" position={Position.Right} className="!opacity-0 !w-0 !h-0 !min-w-0 !min-h-0 !border-0" />
+      <InvisibleHandles />
     </div>
   );
 }

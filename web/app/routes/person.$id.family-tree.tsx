@@ -61,7 +61,7 @@ export async function loader({ request, params }: Route.LoaderArgs) {
   if (!familyIds.includes(Number(personId))) familyIds.push(Number(personId));
   const allParentLinks = await getFamilyParentLinks(familyIds);
 
-  return { person, familyMembers, centerParents, allParentLinks, partnerships, persons, collectionId };
+  return { person, familyMembers, centerParents, allParentLinks, partnerships, persons };
 }
 
 function GenerationLabels({ generations }: { generations: GenerationInfo[] }) {
@@ -97,8 +97,10 @@ function FamilyTreeCanvas({ loaderData }: Route.ComponentProps) {
   const [searchQuery, setSearchQuery] = useState("");
 
   // Revalidate loader data after mutation completes
+  const prevFetcherData = useRef(fetcher.data);
   useEffect(() => {
-    if (fetcher.state === "idle" && fetcher.data) {
+    if (fetcher.state === "idle" && fetcher.data && fetcher.data !== prevFetcherData.current) {
+      prevFetcherData.current = fetcher.data;
       revalidator.revalidate();
     }
   }, [fetcher.state, fetcher.data, revalidator]);

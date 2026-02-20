@@ -21,6 +21,7 @@
     "@react-router/node": "^7.13.0",
     "@react-router/serve": "^7.13.0",
     "@types/three": "^0.182.0",
+    "@xyflow/react": "^12.10.1",
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
     "dotenv": "^17.2.3",

@@ -58,6 +58,7 @@ export default [
   // People - Wall Views
   route("people/wall", "routes/people.wall.tsx"),
   route("person/:id/wall", "routes/person.$id.wall.tsx"),
+  route("person/:id/family-tree", "routes/person.$id.family-tree.tsx"),
 
   // People - Hidden
   route("people/hidden", "routes/people.hidden.tsx"),

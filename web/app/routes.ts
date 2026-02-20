@@ -94,6 +94,8 @@ export default [
   route("api/person/:id/add-parent", "routes/api.person.$id.add-parent.tsx"),
   route("api/person/:id/add-child", "routes/api.person.$id.add-child.tsx"),
   route("api/person/:id/add-partner", "routes/api.person.$id.add-partner.tsx"),
+  route("api/person/:id/add-sibling", "routes/api.person.$id.add-sibling.tsx"),
   route("api/person/:id/remove-parent", "routes/api.person.$id.remove-parent.tsx"),
   route("api/person/:id/remove-partner", "routes/api.person.$id.remove-partner.tsx"),
+  route("api/person/:id/remove-sibling", "routes/api.person.$id.remove-sibling.tsx"),
 ] satisfies RouteConfig;

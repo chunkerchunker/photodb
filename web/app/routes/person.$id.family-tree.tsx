@@ -2,20 +2,25 @@ import {
   Background,
   Controls,
   MiniMap,
+  Panel,
   ReactFlow,
   ReactFlowProvider,
   useEdgesState,
   useNodesState,
+  useReactFlow,
+  useViewport,
 } from "@xyflow/react";
-import { useCallback, useMemo, useState } from "react";
-import { Link, useFetcher, useNavigate } from "react-router";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { Link, useFetcher, useNavigate, useRevalidator } from "react-router";
 import "@xyflow/react/dist/style.css";
 import { Search } from "lucide-react";
 import { DropZoneNode } from "~/components/family-tree/drop-zone-node";
 import { PersonNode } from "~/components/family-tree/person-node";
 import { PlaceholderNode } from "~/components/family-tree/placeholder-node";
+import { type GenerationInfo, H_GAP, NODE_H, NODE_W, V_GAP } from "~/lib/family-tree-layout";
 import { requireCollectionId } from "~/lib/auth.server";
 import {
+  getFamilyParentLinks,
   getFamilyTree,
   getPersonById,
   getPersonParents,
@@ -44,14 +49,38 @@ export async function loader({ request, params }: Route.LoaderArgs) {
     throw new Response("Person not found", { status: 404 });
   }
 
-  const [familyMembers, parents, partnerships, persons] = await Promise.all([
+  const [familyMembers, centerParents, partnerships, persons] = await Promise.all([
     getFamilyTree(collectionId, personId, 3),
     getPersonParents(collectionId, personId),
     getPersonPartnerships(collectionId, personId),
     getPersonsForCollection(collectionId),
   ]);
 
-  return { person, familyMembers, parents, partnerships, persons, collectionId };
+  // Get all parent-child links among family members for edge drawing
+  const familyIds = familyMembers.map((fm) => Number(fm.person_id));
+  if (!familyIds.includes(Number(personId))) familyIds.push(Number(personId));
+  const allParentLinks = await getFamilyParentLinks(familyIds);
+
+  return { person, familyMembers, centerParents, allParentLinks, partnerships, persons, collectionId };
+}
+
+function GenerationLabels({ generations }: { generations: GenerationInfo[] }) {
+  const { y: vy, zoom } = useViewport();
+  return (
+    <Panel position="top-left" className="pointer-events-none !m-0 !p-0" style={{ zIndex: 1 }}>
+      <div className="relative">
+        {generations.map((g) => (
+          <div
+            key={g.gen}
+            className="absolute left-3 text-xs font-medium text-gray-500 whitespace-nowrap select-none"
+            style={{ top: g.y * zoom + vy - 20 * zoom }}
+          >
+            {g.label}
+          </div>
+        ))}
+      </div>
+    </Panel>
+  );
 }
 
 const nodeTypes = {
@@ -61,10 +90,18 @@ const nodeTypes = {
 };
 
 function FamilyTreeCanvas({ loaderData }: Route.ComponentProps) {
-  const { person, familyMembers, parents, partnerships, persons } = loaderData;
+  const { person, familyMembers, centerParents, allParentLinks, partnerships, persons } = loaderData;
   const navigate = useNavigate();
   const fetcher = useFetcher();
+  const revalidator = useRevalidator();
   const [searchQuery, setSearchQuery] = useState("");
+
+  // Revalidate loader data after mutation completes
+  useEffect(() => {
+    if (fetcher.state === "idle" && fetcher.data) {
+      revalidator.revalidate();
+    }
+  }, [fetcher.state, fetcher.data, revalidator]);
 
   const handleRecenter = useCallback(
     (personId: number) => {
@@ -75,43 +112,233 @@ function FamilyTreeCanvas({ loaderData }: Route.ComponentProps) {
 
   const handleDrop = useCallback(
     (droppedPersonId: number, relationshipType: string, targetPersonId: number) => {
-      const action =
-        relationshipType === "parent"
-          ? `/api/person/${targetPersonId}/add-parent`
-          : relationshipType === "child"
-            ? `/api/person/${targetPersonId}/add-child`
-            : `/api/person/${targetPersonId}/add-partner`;
+      const actionMap: Record<string, string> = {
+        parent: `/api/person/${targetPersonId}/add-parent`,
+        child: `/api/person/${targetPersonId}/add-child`,
+        partner: `/api/person/${targetPersonId}/add-partner`,
+        sibling: `/api/person/${targetPersonId}/add-sibling`,
+      };
+      const action = actionMap[relationshipType] ?? `/api/person/${targetPersonId}/add-parent`;
 
       fetcher.submit({ relatedPersonId: String(droppedPersonId), role: relationshipType }, { method: "post", action });
     },
     [fetcher],
   );
 
-  const { nodes: initialNodes, edges: initialEdges } = useMemo(() => {
+  const handleRemoveRelationship = useCallback(
+    (relatedPersonId: number, relation: string) => {
+      const centerId = Number(person.id);
+      if (relation === "parent" || relation === "grandparent" || relation.includes("parent")) {
+        fetcher.submit(
+          { parentId: String(relatedPersonId) },
+          { method: "post", action: `/api/person/${centerId}/remove-parent` },
+        );
+      } else if (relation === "child" || relation === "grandchild" || relation.includes("child")) {
+        fetcher.submit(
+          { parentId: String(centerId) },
+          { method: "post", action: `/api/person/${relatedPersonId}/remove-parent` },
+        );
+      } else if (relation === "partner" || relation === "spouse" || relation === "married") {
+        fetcher.submit(
+          { partnerId: String(relatedPersonId) },
+          { method: "post", action: `/api/person/${centerId}/remove-partner` },
+        );
+      } else if (relation.includes("sibling")) {
+        fetcher.submit(
+          { siblingId: String(relatedPersonId) },
+          { method: "post", action: `/api/person/${centerId}/remove-sibling` },
+        );
+      }
+    },
+    [fetcher, person.id],
+  );
+
+  const { nodes: initialNodes, edges: initialEdges, generations } = useMemo(() => {
     const layout = computeFamilyTreeLayout({
       centerId: Number(person.id),
+      centerName: person.person_name || `Person ${person.id}`,
+      centerDetectionId: person.detection_id ?? null,
       familyMembers,
-      parents,
+      parents: allParentLinks,
+      centerParentCount: centerParents.length,
       partnerships,
     });
     for (const node of layout.nodes) {
       if (node.type === "person" || node.type === "placeholder") {
-        (node.data as Record<string, unknown>).onRecenter = handleRecenter;
+        const d = node.data as Record<string, unknown>;
+        d.onRecenter = handleRecenter;
+        d.onRemoveRelationship = handleRemoveRelationship;
+        d.centerId = Number(person.id);
       }
       if (node.type === "dropZone") {
         (node.data as Record<string, unknown>).onDrop = handleDrop;
       }
     }
     return layout;
-  }, [person.id, familyMembers, parents, partnerships, handleRecenter, handleDrop]);
+  }, [person.id, familyMembers, centerParents, allParentLinks, partnerships, handleRecenter, handleDrop, handleRemoveRelationship]);
 
-  const [nodes, , onNodesChange] = useNodesState(initialNodes);
-  const [edges, , onEdgesChange] = useEdgesState(initialEdges);
+  const [nodes, setNodes, onNodesChange] = useNodesState(initialNodes);
+  const [edges, setEdges, onEdgesChange] = useEdgesState(initialEdges);
+
+  // Reset nodes/edges when loader data changes (after revalidation)
+  useEffect(() => {
+    setNodes(initialNodes);
+    setEdges(initialEdges);
+  }, [initialNodes, initialEdges, setNodes, setEdges]);
+
+  // Dynamic drop zones: appear when dragging over parent row (2+ parents) or partner area (1+ partners)
+  const reactFlow = useReactFlow();
+  const extraParentDropRef = useRef(false);
+  const extraPartnerDropRef = useRef(false);
+  const centerParentCount = centerParents.length;
+  const parentRowY = -1 * (NODE_H + V_GAP);
+  const extraParentDropId = `drop-parent-extra-${person.id}`;
+  const extraPartnerDropId = `drop-partner-extra-${person.id}`;
+  const hasPartner = partnerships.some(
+    (p) => Number(p.person1_id) === Number(person.id) || Number(p.person2_id) === Number(person.id),
+  );
+
+  const handleCanvasDragOver = useCallback(
+    (e: React.DragEvent) => {
+      const pos = reactFlow.screenToFlowPosition({ x: e.clientX, y: e.clientY });
+
+      // Dynamic parent drop zone
+      if (centerParentCount >= 2) {
+        const inParentRow = pos.y >= parentRowY - NODE_H && pos.y <= parentRowY + NODE_H * 2;
+        if (inParentRow && !extraParentDropRef.current) {
+          extraParentDropRef.current = true;
+          setNodes((prev) => {
+            if (prev.some((n) => n.id === extraParentDropId)) return prev;
+            const parentNodes = prev.filter((n) => n.position.y === parentRowY);
+            const dropX =
+              parentNodes.length > 0
+                ? Math.max(...parentNodes.map((n) => n.position.x)) + NODE_W + H_GAP
+                : 0;
+            return [
+              ...prev,
+              {
+                id: extraParentDropId,
+                type: "dropZone",
+                position: { x: dropX, y: parentRowY },
+                data: {
+                  label: "Add parent",
+                  relationshipType: "parent",
+                  targetPersonId: Number(person.id),
+                  onDrop: handleDrop,
+                },
+              },
+            ];
+          });
+          setEdges((prev) => {
+            const edgeId = `drop-edge-${extraParentDropId}`;
+            if (prev.some((e) => e.id === edgeId)) return prev;
+            return [
+              ...prev,
+              {
+                id: edgeId,
+                source: extraParentDropId,
+                target: `person-${person.id}`,
+                type: "smoothstep",
+                style: { stroke: "#6b7280", strokeWidth: 1, strokeDasharray: "6 4" },
+              },
+            ];
+          });
+        } else if (!inParentRow && extraParentDropRef.current) {
+          extraParentDropRef.current = false;
+          setNodes((prev) => prev.filter((n) => n.id !== extraParentDropId));
+          setEdges((prev) => prev.filter((e) => e.id !== `drop-edge-${extraParentDropId}`));
+        }
+      }
+
+      // Dynamic partner drop zone
+      if (hasPartner) {
+        const inGen0Row = pos.y >= -NODE_H && pos.y <= NODE_H * 2;
+        const centerX = -NODE_W / 2;
+        const toRight = pos.x > centerX + NODE_W;
+        if (inGen0Row && toRight && !extraPartnerDropRef.current) {
+          extraPartnerDropRef.current = true;
+          setNodes((prev) => {
+            if (prev.some((n) => n.id === extraPartnerDropId)) return prev;
+            const gen0Nodes = prev.filter(
+              (n) => n.position.y === 0 && n.id !== `drop-sibling-${person.id}`,
+            );
+            const dropX =
+              gen0Nodes.length > 0
+                ? Math.max(...gen0Nodes.map((n) => n.position.x)) + NODE_W + H_GAP
+                : NODE_W + H_GAP;
+            return [
+              ...prev,
+              {
+                id: extraPartnerDropId,
+                type: "dropZone",
+                position: { x: dropX, y: 0 },
+                data: {
+                  label: "Add partner",
+                  relationshipType: "partner",
+                  targetPersonId: Number(person.id),
+                  onDrop: handleDrop,
+                },
+              },
+            ];
+          });
+          setEdges((prev) => {
+            const edgeId = `drop-edge-${extraPartnerDropId}`;
+            if (prev.some((e) => e.id === edgeId)) return prev;
+            return [
+              ...prev,
+              {
+                id: edgeId,
+                source: `person-${person.id}`,
+                sourceHandle: "right",
+                target: extraPartnerDropId,
+                targetHandle: "left",
+                type: "straight",
+                style: { stroke: "#6b7280", strokeWidth: 1, strokeDasharray: "6 4" },
+              },
+            ];
+          });
+        } else if ((!inGen0Row || !toRight) && extraPartnerDropRef.current) {
+          extraPartnerDropRef.current = false;
+          setNodes((prev) => prev.filter((n) => n.id !== extraPartnerDropId));
+          setEdges((prev) => prev.filter((e) => e.id !== `drop-edge-${extraPartnerDropId}`));
+        }
+      }
+    },
+    [
+      centerParentCount,
+      hasPartner,
+      reactFlow,
+      parentRowY,
+      extraParentDropId,
+      extraPartnerDropId,
+      person.id,
+      handleDrop,
+      setNodes,
+      setEdges,
+    ],
+  );
+
+  const handleCanvasDragLeave = useCallback(() => {
+    if (extraParentDropRef.current) {
+      extraParentDropRef.current = false;
+      setNodes((prev) => prev.filter((n) => n.id !== extraParentDropId));
+      setEdges((prev) => prev.filter((e) => e.id !== `drop-edge-${extraParentDropId}`));
+    }
+    if (extraPartnerDropRef.current) {
+      extraPartnerDropRef.current = false;
+      setNodes((prev) => prev.filter((n) => n.id !== extraPartnerDropId));
+      setEdges((prev) => prev.filter((e) => e.id !== `drop-edge-${extraPartnerDropId}`));
+    }
+  }, [extraParentDropId, extraPartnerDropId, setNodes, setEdges]);
 
   const filteredPersons = useMemo(() => {
+    const treeIds = new Set(familyMembers.map((fm) => Number(fm.person_id)));
+    treeIds.add(Number(person.id));
     const q = searchQuery.toLowerCase();
-    return persons.filter((p: (typeof persons)[number]) => p.person_name?.toLowerCase().includes(q));
-  }, [persons, searchQuery]);
+    return persons.filter(
+      (p: (typeof persons)[number]) => !treeIds.has(Number(p.id)) && p.person_name?.toLowerCase().includes(q),
+    );
+  }, [persons, searchQuery, familyMembers, person.id]);
 
   return (
     <div className="h-screen flex flex-col bg-gray-900">
@@ -141,7 +368,7 @@ function FamilyTreeCanvas({ loaderData }: Route.ComponentProps) {
 
       <div className="flex flex-1 min-h-0">
         {/* React Flow Canvas */}
-        <div className="flex-1">
+        <div className="flex-1" onDragOver={handleCanvasDragOver} onDragLeave={handleCanvasDragLeave}>
           <ReactFlow
             nodes={nodes}
             edges={edges}
@@ -150,6 +377,7 @@ function FamilyTreeCanvas({ loaderData }: Route.ComponentProps) {
             nodeTypes={nodeTypes}
             fitView
             fitViewOptions={{ padding: 0.3 }}
+            zoomOnDoubleClick={false}
             nodesDraggable={false}
             nodesConnectable={false}
             proOptions={{ hideAttribution: true }}
@@ -161,6 +389,7 @@ function FamilyTreeCanvas({ loaderData }: Route.ComponentProps) {
             />
             <Controls className="!bg-gray-800 !border-gray-700 !text-gray-300" />
             <Background color="#333" gap={32} />
+            <GenerationLabels generations={generations} />
           </ReactFlow>
         </div>
 

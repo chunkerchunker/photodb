@@ -1,4 +1,4 @@
-import { EyeOff, Link2, Loader2, Pencil, Search, Sparkles, Star, Trash2, Unlink, User, Users } from "lucide-react";
+import { EyeOff, GitFork, Link2, Loader2, Pencil, Search, Sparkles, Star, Trash2, Unlink, User, Users } from "lucide-react";
 import { useCallback, useEffect, useState } from "react";
 import { Link, useFetcher, useLocation, useNavigate, useRevalidator } from "react-router";
 import { Breadcrumb } from "~/components/breadcrumb";
@@ -246,6 +246,12 @@ export default function PersonDetailView({ loaderData }: Route.ComponentProps) {
           </div>
 
           <SecondaryControls variant="grid">
+            <Button variant="outline" size="sm" asChild>
+              <Link to={`/person/${person.id}/family-tree`}>
+                <GitFork className="h-4 w-4 mr-1" />
+                Family Tree
+              </Link>
+            </Button>
             {visibleClusters.length > 0 && (
               <Button variant="outline" size="sm" onClick={handleHideAll} disabled={isSubmitting}>
                 <EyeOff className="h-4 w-4 mr-1" />

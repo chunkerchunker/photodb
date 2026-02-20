@@ -12,6 +12,7 @@ import {
 } from "~/components/ui/dialog";
 import { Input } from "~/components/ui/input";
 import type { PersonForSelection } from "~/lib/db.server";
+import { subsequenceMatch } from "~/lib/utils";
 
 interface PersonSelectModalProps {
   open: boolean;
@@ -47,8 +48,7 @@ export function PersonSelectModal({
   // Filter persons by search
   const filteredPersons = useMemo(() => {
     if (!search.trim()) return persons;
-    const lower = search.toLowerCase();
-    return persons.filter((p) => p.person_name.toLowerCase().includes(lower));
+    return persons.filter((p) => subsequenceMatch(p.person_name, search));
   }, [persons, search]);
 
   // Reset state when modal opens

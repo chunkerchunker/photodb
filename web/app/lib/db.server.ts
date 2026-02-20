@@ -2,6 +2,7 @@ import path from "node:path";
 import dotenv from "dotenv";
 import type { PoolClient } from "pg";
 import { Pool } from "pg";
+import { toSubsequenceLikePattern } from "~/lib/utils";
 
 // Load environment variables from .env file
 dotenv.config({ path: path.join(process.cwd(), "..", ".env") });
@@ -1563,6 +1564,8 @@ export async function searchClusters(collectionId: number, query: string, exclud
   // Search persons (aggregated) and unassigned clusters.
   // Person results use their primary cluster ID as `id` for backward compatibility
   // with callers that pass `id` directly to the merge/link API.
+  // Name matching uses subsequence patterns (e.g. "jhn" matches "John").
+  const subseqPattern = query ? toSubsequenceLikePattern(query) : null;
   const searchQuery = `
     WITH source_person AS (
       SELECT person_id FROM cluster
@@ -1591,11 +1594,11 @@ export async function searchClusters(collectionId: number, query: string, exclud
       FROM person per
       LEFT JOIN cluster c ON c.person_id = per.id AND c.collection_id = $4
       WHERE per.collection_id = $4
-        AND ($1::text IS NULL
-             OR per.first_name ILIKE '%' || $1 || '%'
-             OR per.preferred_name ILIKE '%' || $1 || '%'
-             OR per.last_name ILIKE '%' || $1 || '%'
-             OR CONCAT(COALESCE(per.preferred_name, per.first_name), ' ', COALESCE(per.last_name, '')) ILIKE '%' || $1 || '%'
+        AND ($5::text IS NULL
+             OR per.first_name ILIKE $5
+             OR per.preferred_name ILIKE $5
+             OR per.last_name ILIKE $5
+             OR CONCAT(COALESCE(per.preferred_name, per.first_name), ' ', COALESCE(per.last_name, '')) ILIKE $5
              OR EXISTS (SELECT 1 FROM cluster c3
                         WHERE c3.person_id = per.id AND c3.collection_id = $4 AND c3.id::text = $1))
         AND ($2::text IS NULL OR per.id IS DISTINCT FROM (SELECT person_id FROM source_person))
@@ -1635,7 +1638,13 @@ export async function searchClusters(collectionId: number, query: string, exclud
     LIMIT $3
   `;
 
-  const result = await pool.query(searchQuery, [query || null, excludeClusterId || null, limit, collectionId]);
+  const result = await pool.query(searchQuery, [
+    query || null,
+    excludeClusterId || null,
+    limit,
+    collectionId,
+    subseqPattern,
+  ]);
   return result.rows;
 }
 
@@ -1806,8 +1815,8 @@ export async function linkClustersToSamePerson(collectionId: number, sourceClust
         targetCluster.representative_detection_id || sourceCluster.representative_detection_id || null;
 
       const createPersonResult = await client.query(
-        `INSERT INTO person (collection_id, first_name, representative_detection_id, created_at)
-         VALUES ($1, 'Unknown', $2, NOW()) RETURNING id`,
+        `INSERT INTO person (collection_id, representative_detection_id, auto_created, created_at)
+         VALUES ($1, $2, true, NOW()) RETURNING id`,
         [collectionId, representativeDetectionId],
       );
       personId = createPersonResult.rows[0].id;

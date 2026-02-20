@@ -14,6 +14,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Link, useFetcher, useNavigate, useRevalidator } from "react-router";
 import "@xyflow/react/dist/style.css";
 import { Search } from "lucide-react";
+import { subsequenceMatch } from "~/lib/utils";
 import { DropZoneNode } from "~/components/family-tree/drop-zone-node";
 import { PersonNode } from "~/components/family-tree/person-node";
 import { PlaceholderNode } from "~/components/family-tree/placeholder-node";
@@ -336,9 +337,9 @@ function FamilyTreeCanvas({ loaderData }: Route.ComponentProps) {
   const filteredPersons = useMemo(() => {
     const treeIds = new Set(familyMembers.map((fm) => Number(fm.person_id)));
     treeIds.add(Number(person.id));
-    const q = searchQuery.toLowerCase();
     return persons.filter(
-      (p: (typeof persons)[number]) => !treeIds.has(Number(p.id)) && p.person_name?.toLowerCase().includes(q),
+      (p: (typeof persons)[number]) =>
+        !treeIds.has(Number(p.id)) && (!searchQuery || subsequenceMatch(p.person_name ?? "", searchQuery)),
     );
   }, [persons, searchQuery, familyMembers, person.id]);
 

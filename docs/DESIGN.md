@@ -385,7 +385,7 @@ Automatically groups clusters into shared person records based on centroid simil
 2. **Complete-linkage grouping**: Builds groups of similar clusters using complete-linkage (not single-linkage) to prevent chaining. A cluster joins a group only if it is within threshold of **every** existing member. Pairs are processed in distance order (closest first).
 3. **Cannot-link filtering**: Before linking, clusters with `cluster_person_cannot_link` constraints to the group's candidate person are removed.
 4. **Person assignment**: For each group of 2+ clusters:
-   - **No existing person**: Creates a new auto-created person (`first_name='Unknown'`, `auto_created=true`) and links all clusters
+   - **No existing person**: Creates a new auto-created person (`auto_created=true`, no name) and links all clusters
    - **One existing person**: Links unlinked clusters to the existing person
    - **Multiple existing persons**: Merges into the best person (priority: verified clusters > most clusters > highest ID), then links remaining unlinked clusters
 

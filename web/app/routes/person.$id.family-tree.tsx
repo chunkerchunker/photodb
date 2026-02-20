@@ -11,13 +11,15 @@ import {
   useViewport,
 } from "@xyflow/react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Link, useFetcher, useNavigate, useRevalidator } from "react-router";
+import { useFetcher, useNavigate, useRevalidator } from "react-router";
 import "@xyflow/react/dist/style.css";
-import { Search } from "lucide-react";
+import { ChevronRight, Search } from "lucide-react";
 import { subsequenceMatch } from "~/lib/utils";
 import { DropZoneNode } from "~/components/family-tree/drop-zone-node";
+import { Header } from "~/components/header";
 import { PersonNode } from "~/components/family-tree/person-node";
 import { PlaceholderNode } from "~/components/family-tree/placeholder-node";
+import { useRootData } from "~/hooks/use-root-data";
 import { type GenerationInfo, H_GAP, NODE_H, NODE_W, V_GAP } from "~/lib/family-tree-layout";
 import { requireCollectionId } from "~/lib/auth.server";
 import {
@@ -93,9 +95,11 @@ const nodeTypes = {
 function FamilyTreeCanvas({ loaderData }: Route.ComponentProps) {
   const { person, familyMembers, centerParents, allParentLinks, partnerships, persons } = loaderData;
   const navigate = useNavigate();
+  const rootData = useRootData();
   const fetcher = useFetcher();
   const revalidator = useRevalidator();
   const [searchQuery, setSearchQuery] = useState("");
+  const [sidebarOpen, setSidebarOpen] = useState(true);
 
   // Revalidate loader data after mutation completes
   const prevFetcherData = useRef(fetcher.data);
@@ -344,32 +348,19 @@ function FamilyTreeCanvas({ loaderData }: Route.ComponentProps) {
   }, [persons, searchQuery, familyMembers, person.id]);
 
   return (
-    <div className="h-screen flex flex-col bg-gray-900">
-      {/* Header */}
-      <div className="h-14 bg-gray-950 flex items-center justify-between px-6 shrink-0">
-        <div className="flex items-center gap-2 text-sm text-gray-400">
-          <Link to="/people/grid" className="hover:text-gray-200">
-            People
-          </Link>
-          <span>/</span>
-          <Link to={`/person/${person.id}/grid`} className="hover:text-gray-200">
-            {person.person_name}
-          </Link>
-          <span>/</span>
-          <span className="text-gray-200">Family</span>
-        </div>
-        <div className="flex items-center gap-4 text-sm">
-          <Link to={`/person/${person.id}/grid`} className="text-gray-500 hover:text-gray-300">
-            Grid
-          </Link>
-          <Link to={`/person/${person.id}/wall`} className="text-gray-500 hover:text-gray-300">
-            Wall
-          </Link>
-          <span className="text-gray-200 font-medium">Family</span>
-        </div>
-      </div>
+    <div className="h-screen flex flex-col bg-gray-900 overflow-hidden">
+      <Header
+        user={rootData?.userAvatar}
+        isAdmin={rootData?.user?.isAdmin}
+        isImpersonating={rootData?.impersonation?.isImpersonating}
+        breadcrumbs={[
+          { label: "People", to: "/people" },
+          { label: person.person_name || `Person ${person.id}`, to: `/person/${person.id}/grid` },
+          { label: "Family" },
+        ]}
+      />
 
-      <div className="flex flex-1 min-h-0">
+      <div className="flex flex-1 min-h-0 pt-16 relative">
         {/* React Flow Canvas */}
         <div className="flex-1" onDragOver={handleCanvasDragOver} onDragLeave={handleCanvasDragLeave}>
           <ReactFlow
@@ -396,57 +387,83 @@ function FamilyTreeCanvas({ loaderData }: Route.ComponentProps) {
           </ReactFlow>
         </div>
 
+        {/* Right Sidebar Toggle (visible when collapsed) */}
+        <button
+          type="button"
+          onClick={() => setSidebarOpen(true)}
+          className={`absolute right-0 top-1/2 -translate-y-1/2 z-10 bg-gray-50 border border-r-0 border-gray-200 rounded-l-lg p-1.5 hover:bg-gray-100 transition-all duration-300 ${
+            sidebarOpen ? "opacity-0 pointer-events-none translate-x-2" : "opacity-100 translate-x-0"
+          }`}
+        >
+          <ChevronRight className="h-4 w-4 text-gray-500 rotate-180" />
+        </button>
+
         {/* Right Sidebar */}
-        <div className="w-[280px] bg-gray-50 flex flex-col shrink-0 border-l border-gray-200">
-          <div className="p-4 pb-2">
-            <h2 className="text-sm font-semibold text-gray-900 mb-3">People</h2>
-            <div className="relative">
-              <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
-              <input
-                type="text"
-                placeholder="Search people..."
-                value={searchQuery}
-                onChange={(e) => setSearchQuery(e.target.value)}
-                className="w-full pl-9 pr-3 py-2 text-sm bg-white border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
-              />
+        <div
+          className={`bg-gray-50 flex flex-col shrink-0 border-l border-gray-200 overflow-hidden transition-all duration-300 ease-in-out ${
+            sidebarOpen ? "w-70" : "w-0 border-l-0"
+          }`}
+        >
+          <div className="w-70 flex flex-col h-full">
+            <div className="p-4 pb-2">
+              <div className="flex items-center justify-between mb-3">
+                <h2 className="text-sm font-semibold text-gray-900">People</h2>
+                <button
+                  type="button"
+                  onClick={() => setSidebarOpen(false)}
+                  className="p-0.5 rounded hover:bg-gray-200 transition-colors"
+                >
+                  <ChevronRight className="h-4 w-4 text-gray-400" />
+                </button>
+              </div>
+              <div className="relative">
+                <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
+                <input
+                  type="text"
+                  placeholder="Search people..."
+                  value={searchQuery}
+                  onChange={(e) => setSearchQuery(e.target.value)}
+                  className="w-full pl-9 pr-3 py-2 text-sm bg-white border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+                />
+              </div>
             </div>
-          </div>
 
-          <ul className="flex-1 overflow-y-auto px-4 pb-4 space-y-1 list-none">
-            {filteredPersons.map((p) => (
-              <li
-                key={p.id}
-                draggable
-                onDragStart={(e) => {
-                  e.dataTransfer.setData("application/person-id", String(p.id));
-                  e.dataTransfer.effectAllowed = "move";
+            <ul className="flex-1 overflow-y-auto px-4 pb-4 space-y-1 list-none">
+              {filteredPersons.map((p) => (
+                <li
+                  key={p.id}
+                  draggable
+                  onDragStart={(e) => {
+                    e.dataTransfer.setData("application/person-id", String(p.id));
+                    e.dataTransfer.effectAllowed = "move";
+                  }}
+                  className="flex items-center gap-3 p-2 rounded-lg bg-white hover:bg-blue-50 cursor-grab active:cursor-grabbing transition-colors"
+                >
+                  {p.detection_id ? (
+                    <img
+                      src={`/api/face/${p.detection_id}`}
+                      alt={p.person_name}
+                      className="w-8 h-8 rounded-full object-cover shrink-0"
+                    />
+                  ) : (
+                    <div className="w-8 h-8 rounded-full bg-gray-300 shrink-0" />
+                  )}
+                  <span className="text-sm font-medium text-gray-900 truncate">{p.person_name}</span>
+                </li>
+              ))}
+            </ul>
+
+            <div className="p-4 pt-2 border-t border-gray-200">
+              <button
+                type="button"
+                onClick={() => {
+                  fetcher.submit({ name: "", gender: "U" }, { method: "post", action: "/api/person/create-placeholder" });
                 }}
-                className="flex items-center gap-3 p-2 rounded-lg bg-white hover:bg-blue-50 cursor-grab active:cursor-grabbing transition-colors"
+                className="w-full py-2 text-sm font-medium text-gray-500 border border-dashed border-gray-300 rounded-lg hover:border-gray-400 hover:text-gray-700 transition-colors"
               >
-                {p.detection_id ? (
-                  <img
-                    src={`/api/face/${p.detection_id}`}
-                    alt={p.person_name}
-                    className="w-8 h-8 rounded-full object-cover shrink-0"
-                  />
-                ) : (
-                  <div className="w-8 h-8 rounded-full bg-gray-300 shrink-0" />
-                )}
-                <span className="text-sm font-medium text-gray-900 truncate">{p.person_name}</span>
-              </li>
-            ))}
-          </ul>
-
-          <div className="p-4 pt-2 border-t border-gray-200">
-            <button
-              type="button"
-              onClick={() => {
-                fetcher.submit({ name: "", gender: "U" }, { method: "post", action: "/api/person/create-placeholder" });
-              }}
-              className="w-full py-2 text-sm font-medium text-gray-500 border border-dashed border-gray-300 rounded-lg hover:border-gray-400 hover:text-gray-700 transition-colors"
-            >
-              + New Placeholder Person
-            </button>
+                + New Placeholder Person
+              </button>
+            </div>
           </div>
         </div>
       </div>

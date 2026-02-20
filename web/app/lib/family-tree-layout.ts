@@ -195,9 +195,9 @@ export function computeFamilyTreeLayout(input: LayoutInput): {
     positionOf.set(Number(fm.person_id), x);
   }
 
-  // Gen 0 label
-  const gen0Label = GENERATION_LABELS[0] ?? "Generation 0";
-  generations.push({ gen: 0, label: gen0Label, y: gen0Y });
+  // Gen 0 label — use center person's first/preferred name
+  const centerFirstName = centerName.split(" ")[0] || centerName;
+  generations.push({ gen: 0, label: `${centerFirstName} + Siblings`, y: gen0Y });
 
   // --- Helper: position a non-gen-0 generation relative to the adjacent generation ---
   function positionGeneration(gen: number, adjacentGen: number) {

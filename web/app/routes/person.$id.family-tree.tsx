@@ -1,7 +1,6 @@
 import {
   Background,
   Controls,
-  MiniMap,
   Panel,
   ReactFlow,
   ReactFlowProvider,
@@ -14,13 +13,11 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useFetcher, useNavigate, useRevalidator } from "react-router";
 import "@xyflow/react/dist/style.css";
 import { ChevronRight, Search } from "lucide-react";
-import { subsequenceMatch } from "~/lib/utils";
 import { DropZoneNode } from "~/components/family-tree/drop-zone-node";
-import { Header } from "~/components/header";
 import { PersonNode } from "~/components/family-tree/person-node";
 import { PlaceholderNode } from "~/components/family-tree/placeholder-node";
+import { Header } from "~/components/header";
 import { useRootData } from "~/hooks/use-root-data";
-import { type GenerationInfo, H_GAP, NODE_H, NODE_W, V_GAP } from "~/lib/family-tree-layout";
 import { requireCollectionId } from "~/lib/auth.server";
 import {
   getFamilyParentLinks,
@@ -30,7 +27,8 @@ import {
   getPersonPartnerships,
   getPersonsForCollection,
 } from "~/lib/db.server";
-import { computeFamilyTreeLayout } from "~/lib/family-tree-layout";
+import { computeFamilyTreeLayout, type GenerationInfo, H_GAP, NODE_H, NODE_W, V_GAP } from "~/lib/family-tree-layout";
+import { subsequenceMatch } from "~/lib/utils";
 import type { Route } from "./+types/person.$id.family-tree";
 
 export function meta({ data }: Route.MetaArgs) {
@@ -160,7 +158,11 @@ function FamilyTreeCanvas({ loaderData }: Route.ComponentProps) {
     [fetcher, person.id],
   );
 
-  const { nodes: initialNodes, edges: initialEdges, generations } = useMemo(() => {
+  const {
+    nodes: layoutNodes,
+    edges: layoutEdges,
+    generations,
+  } = useMemo(() => {
     const layout = computeFamilyTreeLayout({
       centerId: Number(person.id),
       centerName: person.person_name || `Person ${person.id}`,
@@ -182,16 +184,39 @@ function FamilyTreeCanvas({ loaderData }: Route.ComponentProps) {
       }
     }
     return layout;
-  }, [person.id, familyMembers, centerParents, allParentLinks, partnerships, handleRecenter, handleDrop, handleRemoveRelationship]);
+  }, [
+    person.id,
+    person.person_name,
+    person.detection_id,
+    familyMembers,
+    centerParents,
+    allParentLinks,
+    partnerships,
+    handleRecenter,
+    handleDrop,
+    handleRemoveRelationship,
+  ]);
 
-  const [nodes, setNodes, onNodesChange] = useNodesState(initialNodes);
-  const [edges, setEdges, onEdgesChange] = useEdgesState(initialEdges);
+  // Separate drop zone nodes/edges — hidden until a drag starts
+  const regularNodes = useMemo(() => layoutNodes.filter((n) => n.type !== "dropZone"), [layoutNodes]);
+  const regularEdges = useMemo(() => layoutEdges.filter((e) => !e.id.startsWith("drop-edge-")), [layoutEdges]);
+  const dropZoneNodesRef = useRef(layoutNodes.filter((n) => n.type === "dropZone"));
+  const dropZoneEdgesRef = useRef(layoutEdges.filter((e) => e.id.startsWith("drop-edge-")));
+  useEffect(() => {
+    dropZoneNodesRef.current = layoutNodes.filter((n) => n.type === "dropZone");
+    dropZoneEdgesRef.current = layoutEdges.filter((e) => e.id.startsWith("drop-edge-"));
+  }, [layoutNodes, layoutEdges]);
+
+  const [nodes, setNodes, onNodesChange] = useNodesState(regularNodes);
+  const [edges, setEdges, onEdgesChange] = useEdgesState(regularEdges);
 
   // Reset nodes/edges when loader data changes (after revalidation)
+  const dragCounterRef = useRef(0);
   useEffect(() => {
-    setNodes(initialNodes);
-    setEdges(initialEdges);
-  }, [initialNodes, initialEdges, setNodes, setEdges]);
+    setNodes(regularNodes);
+    setEdges(regularEdges);
+    dragCounterRef.current = 0;
+  }, [regularNodes, regularEdges, setNodes, setEdges]);
 
   // Dynamic drop zones: appear when dragging over parent row (2+ parents) or partner area (1+ partners)
   const reactFlow = useReactFlow();
@@ -204,6 +229,15 @@ function FamilyTreeCanvas({ loaderData }: Route.ComponentProps) {
   const hasPartner = partnerships.some(
     (p) => Number(p.person1_id) === Number(person.id) || Number(p.person2_id) === Number(person.id),
   );
+
+  // Show drop zones when a person is dragged onto the canvas
+  const handleCanvasDragEnter = useCallback(() => {
+    dragCounterRef.current++;
+    if (dragCounterRef.current === 1) {
+      setNodes((prev) => [...prev.filter((n) => n.type !== "dropZone"), ...dropZoneNodesRef.current]);
+      setEdges((prev) => [...prev.filter((e) => !e.id.startsWith("drop-edge-")), ...dropZoneEdgesRef.current]);
+    }
+  }, [setNodes, setEdges]);
 
   const handleCanvasDragOver = useCallback(
     (e: React.DragEvent) => {
@@ -218,9 +252,7 @@ function FamilyTreeCanvas({ loaderData }: Route.ComponentProps) {
             if (prev.some((n) => n.id === extraParentDropId)) return prev;
             const parentNodes = prev.filter((n) => n.position.y === parentRowY);
             const dropX =
-              parentNodes.length > 0
-                ? Math.max(...parentNodes.map((n) => n.position.x)) + NODE_W + H_GAP
-                : 0;
+              parentNodes.length > 0 ? Math.max(...parentNodes.map((n) => n.position.x)) + NODE_W + H_GAP : 0;
             return [
               ...prev,
               {
@@ -266,13 +298,9 @@ function FamilyTreeCanvas({ loaderData }: Route.ComponentProps) {
           extraPartnerDropRef.current = true;
           setNodes((prev) => {
             if (prev.some((n) => n.id === extraPartnerDropId)) return prev;
-            const gen0Nodes = prev.filter(
-              (n) => n.position.y === 0 && n.id !== `drop-sibling-${person.id}`,
-            );
+            const gen0Nodes = prev.filter((n) => n.position.y === 0 && n.id !== `drop-sibling-${person.id}`);
             const dropX =
-              gen0Nodes.length > 0
-                ? Math.max(...gen0Nodes.map((n) => n.position.x)) + NODE_W + H_GAP
-                : NODE_W + H_GAP;
+              gen0Nodes.length > 0 ? Math.max(...gen0Nodes.map((n) => n.position.x)) + NODE_W + H_GAP : NODE_W + H_GAP;
             return [
               ...prev,
               {
@@ -326,17 +354,23 @@ function FamilyTreeCanvas({ loaderData }: Route.ComponentProps) {
   );
 
   const handleCanvasDragLeave = useCallback(() => {
-    if (extraParentDropRef.current) {
+    dragCounterRef.current--;
+    if (dragCounterRef.current <= 0) {
+      dragCounterRef.current = 0;
       extraParentDropRef.current = false;
-      setNodes((prev) => prev.filter((n) => n.id !== extraParentDropId));
-      setEdges((prev) => prev.filter((e) => e.id !== `drop-edge-${extraParentDropId}`));
-    }
-    if (extraPartnerDropRef.current) {
       extraPartnerDropRef.current = false;
-      setNodes((prev) => prev.filter((n) => n.id !== extraPartnerDropId));
-      setEdges((prev) => prev.filter((e) => e.id !== `drop-edge-${extraPartnerDropId}`));
+      setNodes((prev) => prev.filter((n) => n.type !== "dropZone"));
+      setEdges((prev) => prev.filter((e) => !e.id.startsWith("drop-edge-")));
     }
-  }, [extraParentDropId, extraPartnerDropId, setNodes, setEdges]);
+  }, [setNodes, setEdges]);
+
+  const handleCanvasDrop = useCallback(() => {
+    dragCounterRef.current = 0;
+    extraParentDropRef.current = false;
+    extraPartnerDropRef.current = false;
+    setNodes((prev) => prev.filter((n) => n.type !== "dropZone"));
+    setEdges((prev) => prev.filter((e) => !e.id.startsWith("drop-edge-")));
+  }, [setNodes, setEdges]);
 
   const filteredPersons = useMemo(() => {
     const treeIds = new Set(familyMembers.map((fm) => Number(fm.person_id)));
@@ -361,8 +395,14 @@ function FamilyTreeCanvas({ loaderData }: Route.ComponentProps) {
       />
 
       <div className="flex flex-1 min-h-0 pt-16 relative">
-        {/* React Flow Canvas */}
-        <div className="flex-1" onDragOver={handleCanvasDragOver} onDragLeave={handleCanvasDragLeave}>
+        {/* biome-ignore lint/a11y/noStaticElementInteractions: drag-drop target for family tree */}
+        <div
+          className="flex-1"
+          onDragEnter={handleCanvasDragEnter}
+          onDragOver={handleCanvasDragOver}
+          onDragLeave={handleCanvasDragLeave}
+          onDrop={handleCanvasDrop}
+        >
           <ReactFlow
             nodes={nodes}
             edges={edges}
@@ -376,12 +416,7 @@ function FamilyTreeCanvas({ loaderData }: Route.ComponentProps) {
             nodesConnectable={false}
             proOptions={{ hideAttribution: true }}
           >
-            <MiniMap
-              nodeColor={(n) => (n.type === "dropZone" ? "transparent" : "#6b7280")}
-              maskColor="rgba(0,0,0,0.7)"
-              className="!bg-gray-800/80 !border-gray-700"
-            />
-            <Controls className="!bg-gray-800 !border-gray-700 !text-gray-300" />
+            <Controls className="!bg-gray-800 !border-gray-700 !text-gray-300" showInteractive={false} />
             <Background color="#333" gap={32} />
             <GenerationLabels generations={generations} />
           </ReactFlow>
@@ -457,7 +492,10 @@ function FamilyTreeCanvas({ loaderData }: Route.ComponentProps) {
               <button
                 type="button"
                 onClick={() => {
-                  fetcher.submit({ name: "", gender: "U" }, { method: "post", action: "/api/person/create-placeholder" });
+                  fetcher.submit(
+                    { name: "", gender: "U" },
+                    { method: "post", action: "/api/person/create-placeholder" },
+                  );
                 }}
                 className="w-full py-2 text-sm font-medium text-gray-500 border border-dashed border-gray-300 rounded-lg hover:border-gray-400 hover:text-gray-700 transition-colors"
               >

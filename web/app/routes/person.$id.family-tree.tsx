@@ -13,6 +13,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useFetcher, useNavigate, useRevalidator } from "react-router";
 import "@xyflow/react/dist/style.css";
 import { ChevronRight, Search } from "lucide-react";
+import { ConnectorNode } from "~/components/family-tree/connector-node";
 import { DropZoneNode } from "~/components/family-tree/drop-zone-node";
 import { PersonNode } from "~/components/family-tree/person-node";
 import { PlaceholderNode } from "~/components/family-tree/placeholder-node";
@@ -88,6 +89,7 @@ const nodeTypes = {
   person: PersonNode,
   placeholder: PlaceholderNode,
   dropZone: DropZoneNode,
+  connector: ConnectorNode,
 };
 
 function FamilyTreeCanvas({ loaderData }: Route.ComponentProps) {

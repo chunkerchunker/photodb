@@ -328,30 +328,192 @@ export function computeFamilyTreeLayout(input: LayoutInput): {
     generations.push({ gen, label, y });
   }
 
-  // Create edges from parent relationships
+  // Build connector nodes for partnerships with shared children.
+  // Instead of separate parent→child edges, route through a midpoint on the partner line.
+  const edgeStyle = { stroke: "#6b7280", strokeWidth: 2 };
+  const replacedEdgeKeys = new Set<string>(); // "parentId-childId" keys to skip
+  const handledPartnershipKeys = new Set<string>(); // partnerships routed through connector
+
+  for (const p of partnerships) {
+    const p1 = Number(p.person1_id);
+    const p2 = Number(p.person2_id);
+    if (!memberIds.has(p1) || !memberIds.has(p2)) continue;
+    if (!positionOf.has(p1) || !positionOf.has(p2)) continue;
+
+    const p1Kids = new Set(childrenOf.get(p1) ?? []);
+    const sharedChildren = (childrenOf.get(p2) ?? []).filter((c) => p1Kids.has(c) && memberIds.has(c));
+    if (sharedChildren.length === 0) continue;
+
+    // Find the Y of the partners from their generation
+    const p1Gen = [...byGeneration.entries()].find(([, ms]) => ms.some((m) => Number(m.person_id) === p1))?.[0] ?? 0;
+    const partnerY = p1Gen * (NODE_H + V_GAP);
+
+    // Midpoint of the horizontal partner line (between right edge of p1 and left edge of p2)
+    const p1X = positionOf.get(p1) ?? 0;
+    const p2X = positionOf.get(p2) ?? 0;
+    const midX = (p1X + NODE_W + p2X) / 2;
+    const midY = partnerY + NODE_H / 2;
+
+    const connectorId = `connector-${p1}-${p2}`;
+    nodes.push({
+      id: connectorId,
+      type: "connector",
+      position: { x: midX - 1, y: midY - 1 },
+      data: {},
+      selectable: false,
+      focusable: false,
+    });
+
+    // Split the partner edge into two halves through the connector
+    edges.push({
+      id: `partner-${p1}-${p2}-L`,
+      source: `person-${p1}`,
+      sourceHandle: "right",
+      target: connectorId,
+      targetHandle: "left",
+      type: "straight",
+      style: edgeStyle,
+    });
+    edges.push({
+      id: `partner-${p1}-${p2}-R`,
+      source: connectorId,
+      sourceHandle: "right",
+      target: `person-${p2}`,
+      targetHandle: "left",
+      type: "straight",
+      style: edgeStyle,
+    });
+    handledPartnershipKeys.add(`${p1}-${p2}`);
+
+    // Route shared children from the connector instead of from each parent
+    for (const childId of sharedChildren) {
+      replacedEdgeKeys.add(`${p1}-${childId}`);
+      replacedEdgeKeys.add(`${p2}-${childId}`);
+      edges.push({
+        id: `connector-child-${connectorId}-${childId}`,
+        source: connectorId,
+        sourceHandle: "bottom",
+        target: `person-${childId}`,
+        type: "smoothstep",
+        style: edgeStyle,
+      });
+    }
+  }
+
+  // Detect implicit parent pairs: two parents who share children but aren't in the partnerships table.
+  // This handles cases like the center person's parents who are linked via parent records.
+  const implicitPairKeys = new Set<string>();
+  for (const [, parentIds] of parentsOf.entries()) {
+    const validParents = parentIds.filter((pid) => memberIds.has(pid) && positionOf.has(pid));
+    if (validParents.length === 2) {
+      const sorted = [...validParents].sort((a, b) => a - b);
+      const key = `${sorted[0]}-${sorted[1]}`;
+      if (
+        !handledPartnershipKeys.has(`${sorted[0]}-${sorted[1]}`) &&
+        !handledPartnershipKeys.has(`${sorted[1]}-${sorted[0]}`)
+      ) {
+        implicitPairKeys.add(key);
+      }
+    }
+  }
+
+  for (const pairKey of implicitPairKeys) {
+    const [id1, id2] = pairKey.split("-").map(Number);
+    const x1 = positionOf.get(id1) ?? 0;
+    const x2 = positionOf.get(id2) ?? 0;
+    const [leftId, rightId] = x1 <= x2 ? [id1, id2] : [id2, id1];
+    const leftX = Math.min(x1, x2);
+    const rightX = Math.max(x1, x2);
+
+    // Find shared children
+    const leftKids = new Set(childrenOf.get(leftId) ?? []);
+    const sharedChildren = (childrenOf.get(rightId) ?? []).filter((c) => leftKids.has(c) && memberIds.has(c));
+    if (sharedChildren.length === 0) continue;
+
+    // Find the generation Y from positioned nodes
+    const pairGen =
+      [...byGeneration.entries()].find(([, ms]) => ms.some((m) => Number(m.person_id) === leftId))?.[0] ?? 0;
+    const pairY = pairGen * (NODE_H + V_GAP);
+
+    // Midpoint between right edge of left parent and left edge of right parent
+    const midX = (leftX + NODE_W + rightX) / 2;
+    const midY = pairY + NODE_H / 2;
+
+    const connectorId = `connector-${leftId}-${rightId}`;
+    nodes.push({
+      id: connectorId,
+      type: "connector",
+      position: { x: midX - 1, y: midY - 1 },
+      data: {},
+      selectable: false,
+      focusable: false,
+    });
+
+    // Horizontal line through connector
+    edges.push({
+      id: `pair-${leftId}-${rightId}-L`,
+      source: `person-${leftId}`,
+      sourceHandle: "right",
+      target: connectorId,
+      targetHandle: "left",
+      type: "straight",
+      style: edgeStyle,
+    });
+    edges.push({
+      id: `pair-${leftId}-${rightId}-R`,
+      source: connectorId,
+      sourceHandle: "right",
+      target: `person-${rightId}`,
+      targetHandle: "left",
+      type: "straight",
+      style: edgeStyle,
+    });
+
+    // Route shared children from connector
+    for (const childId of sharedChildren) {
+      replacedEdgeKeys.add(`${leftId}-${childId}`);
+      replacedEdgeKeys.add(`${rightId}-${childId}`);
+      edges.push({
+        id: `connector-child-${connectorId}-${childId}`,
+        source: connectorId,
+        sourceHandle: "bottom",
+        target: `person-${childId}`,
+        type: "smoothstep",
+        style: edgeStyle,
+      });
+    }
+  }
+
+  // Create edges from parent relationships (skip ones routed through connectors)
   for (const p of parents) {
-    if (memberIds.has(Number(p.parent_id)) && memberIds.has(Number(p.person_id))) {
+    const parentId = Number(p.parent_id);
+    const childId = Number(p.person_id);
+    if (replacedEdgeKeys.has(`${parentId}-${childId}`)) continue;
+    if (memberIds.has(parentId) && memberIds.has(childId)) {
       edges.push({
         id: `parent-${p.parent_id}-${p.person_id}`,
         source: `person-${p.parent_id}`,
         target: `person-${p.person_id}`,
         type: "smoothstep",
-        style: { stroke: "#6b7280", strokeWidth: 2 },
+        style: edgeStyle,
       });
     }
   }
 
-  // Create edges for partnerships (horizontal)
+  // Create edges for partnerships not already handled by connectors
   for (const p of partnerships) {
-    if (memberIds.has(Number(p.person1_id)) && memberIds.has(Number(p.person2_id))) {
+    const p1 = Number(p.person1_id);
+    const p2 = Number(p.person2_id);
+    if (handledPartnershipKeys.has(`${p1}-${p2}`)) continue;
+    if (memberIds.has(p1) && memberIds.has(p2)) {
       edges.push({
         id: `partner-${p.person1_id}-${p.person2_id}`,
-        source: `person-${p.person1_id}`,
+        source: `person-${p1}`,
         sourceHandle: "right",
-        target: `person-${p.person2_id}`,
+        target: `person-${p2}`,
         targetHandle: "left",
         type: "straight",
-        style: { stroke: "#6b7280", strokeWidth: 2 },
+        style: edgeStyle,
       });
     }
   }

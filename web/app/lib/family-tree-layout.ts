@@ -1,4 +1,4 @@
-import type { Node, Edge } from "@xyflow/react";
+import type { Edge, Node } from "@xyflow/react";
 import type { FamilyMember, PersonParentRow, PersonPartnershipRow } from "./db.server";
 
 const NODE_W = 140;
@@ -26,7 +26,7 @@ export function computeFamilyTreeLayout(input: LayoutInput): {
   for (const fm of familyMembers) {
     const gen = fm.generation_offset;
     if (!byGeneration.has(gen)) byGeneration.set(gen, []);
-    byGeneration.get(gen)!.push(fm);
+    byGeneration.get(gen)?.push(fm);
   }
 
   // Build membership set for edge validation
@@ -36,7 +36,7 @@ export function computeFamilyTreeLayout(input: LayoutInput): {
   const sortedGens = [...byGeneration.keys()].sort((a, b) => a - b);
 
   for (const gen of sortedGens) {
-    const members = byGeneration.get(gen)!;
+    const members = byGeneration.get(gen) ?? [];
     const y = gen * (NODE_H + V_GAP);
     const totalWidth = members.length * NODE_W + (members.length - 1) * H_GAP;
     const startX = -totalWidth / 2;
@@ -97,13 +97,9 @@ export function computeFamilyTreeLayout(input: LayoutInput): {
     // Drop zone for missing parents (up to 2)
     if (centerParents.length < 2) {
       const parentGen = -1;
-      const existingParentNodes = nodes.filter(
-        (n) => n.position.y === parentGen * (NODE_H + V_GAP),
-      );
+      const existingParentNodes = nodes.filter((n) => n.position.y === parentGen * (NODE_H + V_GAP));
       const dropX =
-        existingParentNodes.length > 0
-          ? Math.max(...existingParentNodes.map((n) => n.position.x)) + NODE_W + H_GAP
-          : 0;
+        existingParentNodes.length > 0 ? Math.max(...existingParentNodes.map((n) => n.position.x)) + NODE_W + H_GAP : 0;
 
       nodes.push({
         id: `drop-parent-${centerId}`,
@@ -126,13 +122,9 @@ export function computeFamilyTreeLayout(input: LayoutInput): {
 
     // Drop zone for adding a child
     const childGen = 1;
-    const existingChildNodes = nodes.filter(
-      (n) => n.position.y === childGen * (NODE_H + V_GAP),
-    );
+    const existingChildNodes = nodes.filter((n) => n.position.y === childGen * (NODE_H + V_GAP));
     const childDropX =
-      existingChildNodes.length > 0
-        ? Math.max(...existingChildNodes.map((n) => n.position.x)) + NODE_W + H_GAP
-        : 0;
+      existingChildNodes.length > 0 ? Math.max(...existingChildNodes.map((n) => n.position.x)) + NODE_W + H_GAP : 0;
 
     nodes.push({
       id: `drop-child-${centerId}`,
@@ -153,9 +145,7 @@ export function computeFamilyTreeLayout(input: LayoutInput): {
     });
 
     // Drop zone for adding a partner (if none exists)
-    const hasPartner = partnerships.some(
-      (p) => p.person1_id === centerId || p.person2_id === centerId,
-    );
+    const hasPartner = partnerships.some((p) => p.person1_id === centerId || p.person2_id === centerId);
     if (!hasPartner) {
       const centerNode = nodes.find((n) => n.id === `person-${centerId}`);
       if (centerNode) {

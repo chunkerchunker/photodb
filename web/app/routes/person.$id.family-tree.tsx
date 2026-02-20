@@ -1,21 +1,19 @@
-import { useCallback, useMemo, useState } from "react";
-import { useNavigate, useFetcher, Link } from "react-router";
 import {
+  Background,
+  Controls,
+  MiniMap,
   ReactFlow,
   ReactFlowProvider,
-  MiniMap,
-  Controls,
-  Background,
-  useNodesState,
   useEdgesState,
-  useReactFlow,
+  useNodesState,
 } from "@xyflow/react";
+import { useCallback, useMemo, useState } from "react";
+import { Link, useFetcher, useNavigate } from "react-router";
 import "@xyflow/react/dist/style.css";
 import { Search } from "lucide-react";
+import { DropZoneNode } from "~/components/family-tree/drop-zone-node";
 import { PersonNode } from "~/components/family-tree/person-node";
 import { PlaceholderNode } from "~/components/family-tree/placeholder-node";
-import { DropZoneNode } from "~/components/family-tree/drop-zone-node";
-import { computeFamilyTreeLayout } from "~/lib/family-tree-layout";
 import { requireCollectionId } from "~/lib/auth.server";
 import {
   getFamilyTree,
@@ -24,6 +22,7 @@ import {
   getPersonPartnerships,
   getPersonsForCollection,
 } from "~/lib/db.server";
+import { computeFamilyTreeLayout } from "~/lib/family-tree-layout";
 import type { Route } from "./+types/person.$id.family-tree";
 
 export function meta({ data }: Route.MetaArgs) {
@@ -65,7 +64,6 @@ function FamilyTreeCanvas({ loaderData }: Route.ComponentProps) {
   const { person, familyMembers, parents, partnerships, persons } = loaderData;
   const navigate = useNavigate();
   const fetcher = useFetcher();
-  const { fitView } = useReactFlow();
   const [searchQuery, setSearchQuery] = useState("");
 
   const handleRecenter = useCallback(
@@ -84,10 +82,7 @@ function FamilyTreeCanvas({ loaderData }: Route.ComponentProps) {
             ? `/api/person/${targetPersonId}/add-child`
             : `/api/person/${targetPersonId}/add-partner`;
 
-      fetcher.submit(
-        { relatedPersonId: String(droppedPersonId), role: relationshipType },
-        { method: "post", action },
-      );
+      fetcher.submit({ relatedPersonId: String(droppedPersonId), role: relationshipType }, { method: "post", action });
     },
     [fetcher],
   );
@@ -115,9 +110,7 @@ function FamilyTreeCanvas({ loaderData }: Route.ComponentProps) {
 
   const filteredPersons = useMemo(() => {
     const q = searchQuery.toLowerCase();
-    return persons.filter(
-      (p: (typeof persons)[number]) => p.person_name?.toLowerCase().includes(q),
-    );
+    return persons.filter((p: (typeof persons)[number]) => p.person_name?.toLowerCase().includes(q));
   }, [persons, searchQuery]);
 
   return (
@@ -187,9 +180,9 @@ function FamilyTreeCanvas({ loaderData }: Route.ComponentProps) {
             </div>
           </div>
 
-          <div className="flex-1 overflow-y-auto px-4 pb-4 space-y-1">
+          <ul className="flex-1 overflow-y-auto px-4 pb-4 space-y-1 list-none">
             {filteredPersons.map((p) => (
-              <div
+              <li
                 key={p.id}
                 draggable
                 onDragStart={(e) => {
@@ -207,21 +200,16 @@ function FamilyTreeCanvas({ loaderData }: Route.ComponentProps) {
                 ) : (
                   <div className="w-8 h-8 rounded-full bg-gray-300 shrink-0" />
                 )}
-                <span className="text-sm font-medium text-gray-900 truncate">
-                  {p.person_name}
-                </span>
-              </div>
+                <span className="text-sm font-medium text-gray-900 truncate">{p.person_name}</span>
+              </li>
             ))}
-          </div>
+          </ul>
 
           <div className="p-4 pt-2 border-t border-gray-200">
             <button
               type="button"
               onClick={() => {
-                fetcher.submit(
-                  { name: "", gender: "U" },
-                  { method: "post", action: "/api/person/create-placeholder" },
-                );
+                fetcher.submit({ name: "", gender: "U" }, { method: "post", action: "/api/person/create-placeholder" });
               }}
               className="w-full py-2 text-sm font-medium text-gray-500 border border-dashed border-gray-300 rounded-lg hover:border-gray-400 hover:text-gray-700 transition-colors"
             >

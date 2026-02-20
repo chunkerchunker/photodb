@@ -1,12 +1,12 @@
 import { EyeOff, Link2, Loader2, Pencil, Search, Sparkles, Star, Trash2, Unlink, User, Users } from "lucide-react";
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { Link, useFetcher, useLocation, useNavigate, useRevalidator } from "react-router";
 import { Breadcrumb } from "~/components/breadcrumb";
 import { ClusterLinkDialog } from "~/components/cluster-merge-dialog";
-import { SearchBox } from "~/components/search-box";
 import { DeletePersonDialog } from "~/components/delete-person-dialog";
 import { Layout } from "~/components/layout";
 import { RenamePersonDialog } from "~/components/rename-person-dialog";
+import { SearchBox } from "~/components/search-box";
 import { SecondaryControls } from "~/components/secondary-controls";
 import { Badge } from "~/components/ui/badge";
 import { Button } from "~/components/ui/button";
@@ -92,13 +92,13 @@ export default function PersonDetailView({ loaderData }: Route.ComponentProps) {
   const location = useLocation();
 
   // Navigate away from deleted person: go back if there's history, else to people index
-  const navigateAway = () => {
+  const navigateAway = useCallback(() => {
     if (location.key !== "default") {
       navigate(-1);
     } else {
       navigate("/people", { replace: true });
     }
-  };
+  }, [location.key, navigate]);
 
   const hideFetcher = useFetcher();
   const searchFetcher = useFetcher();
@@ -137,7 +137,7 @@ export default function PersonDetailView({ loaderData }: Route.ComponentProps) {
       setClusters((prev) => prev.filter((c) => c.id.toString() !== pendingUnlinkClusterId));
       setPendingUnlinkClusterId(null);
     }
-  }, [unlinkFetcher.data, pendingUnlinkClusterId, navigate]);
+  }, [unlinkFetcher.data, pendingUnlinkClusterId, navigateAway]);
 
   // Revalidate after representative change
   useEffect(() => {
@@ -151,9 +151,10 @@ export default function PersonDetailView({ loaderData }: Route.ComponentProps) {
     if (deletePersonFetcher.data?.success) {
       navigateAway();
     }
-  }, [deletePersonFetcher.data, navigate]);
+  }, [deletePersonFetcher.data, navigateAway]);
 
   // Debounced server-side search
+  // biome-ignore lint/correctness/useExhaustiveDependencies: intentionally omit searchFetcher.load to avoid re-trigger loop in debounced search
   useEffect(() => {
     const trimmed = searchQuery.trim();
     if (!trimmed) return;
@@ -161,7 +162,6 @@ export default function PersonDetailView({ loaderData }: Route.ComponentProps) {
       searchFetcher.load(`/clusters/grid?search=${encodeURIComponent(trimmed)}`);
     }, 300);
     return () => clearTimeout(timer);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [searchQuery]);
 
   const isSearching = searchQuery.trim().length > 0;

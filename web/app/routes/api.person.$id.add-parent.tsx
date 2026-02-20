@@ -18,10 +18,7 @@ export async function action({ request, params }: Route.ActionArgs) {
   const role = (formData.get("role") as string) || "parent";
 
   if (!relatedPersonId) {
-    return Response.json(
-      { success: false, message: "Related person ID required" },
-      { status: 400 },
-    );
+    return Response.json({ success: false, message: "Related person ID required" }, { status: 400 });
   }
 
   const result = await addPersonParent(collectionId, personId, relatedPersonId, role);

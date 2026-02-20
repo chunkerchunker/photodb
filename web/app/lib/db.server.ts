@@ -1015,7 +1015,7 @@ export async function unlinkClusterFromPerson(collectionId: number, clusterId: s
       personId,
       collectionId,
     ]);
-    if (parseInt(remaining.rows[0].count) === 0) {
+    if (parseInt(remaining.rows[0].count, 10) === 0) {
       const personRow = await client.query(`SELECT auto_created FROM person WHERE id = $1 AND collection_id = $2`, [
         personId,
         collectionId,
@@ -2048,7 +2048,7 @@ export async function reassignCluster(
         oldPersonId,
         collectionId,
       ]);
-      if (parseInt(remaining.rows[0].count) === 0) {
+      if (parseInt(remaining.rows[0].count, 10) === 0) {
         const oldPerson = await client.query(`SELECT auto_created FROM person WHERE id = $1 AND collection_id = $2`, [
           oldPersonId,
           collectionId,
@@ -2920,7 +2920,6 @@ export interface FamilyMember {
 }
 
 export interface PersonParentRow {
-  id: number;
   person_id: number;
   parent_id: number;
   parent_role: string;
@@ -2958,12 +2957,9 @@ export async function getFamilyTree(
   return result.rows;
 }
 
-export async function getPersonParents(
-  collectionId: number,
-  personId: string,
-): Promise<PersonParentRow[]> {
+export async function getPersonParents(collectionId: number, personId: string): Promise<PersonParentRow[]> {
   const result = await pool.query(
-    `SELECT pp.id, pp.person_id, pp.parent_id, pp.parent_role, pp.is_biological
+    `SELECT pp.person_id, pp.parent_id, pp.parent_role, pp.is_biological
      FROM person_parent pp
      JOIN person p ON p.id = pp.parent_id
      WHERE pp.person_id = $2 AND (p.collection_id = $1 OR p.is_placeholder = true)
@@ -2973,10 +2969,7 @@ export async function getPersonParents(
   return result.rows;
 }
 
-export async function getPersonPartnerships(
-  collectionId: number,
-  personId: string,
-): Promise<PersonPartnershipRow[]> {
+export async function getPersonPartnerships(collectionId: number, personId: string): Promise<PersonPartnershipRow[]> {
   const result = await pool.query(
     `SELECT pp.id, pp.person1_id, pp.person2_id, pp.partnership_type, pp.start_year, pp.end_year, pp.is_current
      FROM person_partnership pp
@@ -2988,7 +2981,7 @@ export async function getPersonPartnerships(
 }
 
 export async function addPersonParent(
-  collectionId: number,
+  _collectionId: number,
   personId: string,
   parentId: string,
   parentRole: string = "parent",
@@ -3003,14 +2996,8 @@ export async function addPersonParent(
   return { success: true };
 }
 
-export async function removePersonParent(
-  personId: string,
-  parentId: string,
-): Promise<{ success: boolean }> {
-  await pool.query(
-    `DELETE FROM person_parent WHERE person_id = $1::int AND parent_id = $2::int`,
-    [personId, parentId],
-  );
+export async function removePersonParent(personId: string, parentId: string): Promise<{ success: boolean }> {
+  await pool.query(`DELETE FROM person_parent WHERE person_id = $1::int AND parent_id = $2::int`, [personId, parentId]);
   await pool.query(`SELECT refresh_genealogy_closures()`);
   return { success: true };
 }
@@ -3032,16 +3019,10 @@ export async function addPersonPartnership(
   return { success: true };
 }
 
-export async function removePersonPartnership(
-  personId: string,
-  partnerId: string,
-): Promise<{ success: boolean }> {
+export async function removePersonPartnership(personId: string, partnerId: string): Promise<{ success: boolean }> {
   const p1 = Math.min(Number(personId), Number(partnerId));
   const p2 = Math.max(Number(personId), Number(partnerId));
-  await pool.query(
-    `DELETE FROM person_partnership WHERE person1_id = $1 AND person2_id = $2`,
-    [p1, p2],
-  );
+  await pool.query(`DELETE FROM person_partnership WHERE person1_id = $1 AND person2_id = $2`, [p1, p2]);
   await pool.query(`SELECT refresh_genealogy_closures()`);
   return { success: true };
 }

@@ -137,6 +137,7 @@ export default function ClustersView({ loaderData }: Route.ComponentProps) {
   }, [fetcher.data]);
 
   // Debounced server-side search
+  // biome-ignore lint/correctness/useExhaustiveDependencies: intentionally omit searchFetcher.load to avoid re-trigger loop in debounced search
   useEffect(() => {
     const trimmed = searchQuery.trim();
     if (!trimmed) return;
@@ -144,7 +145,6 @@ export default function ClustersView({ loaderData }: Route.ComponentProps) {
       searchFetcher.load(`/clusters/grid?search=${encodeURIComponent(trimmed)}`);
     }, 300);
     return () => clearTimeout(timer);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [searchQuery]);
 
   const loadMore = useCallback(() => {

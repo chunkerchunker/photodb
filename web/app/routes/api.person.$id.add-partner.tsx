@@ -17,10 +17,7 @@ export async function action({ request, params }: Route.ActionArgs) {
   const relatedPersonId = formData.get("relatedPersonId") as string;
 
   if (!relatedPersonId) {
-    return Response.json(
-      { success: false, message: "Related person ID required" },
-      { status: 400 },
-    );
+    return Response.json({ success: false, message: "Related person ID required" }, { status: 400 });
   }
 
   const result = await addPersonPartnership(personId, relatedPersonId);

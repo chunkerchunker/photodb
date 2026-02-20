@@ -1099,30 +1099,54 @@ class MaintenanceUtilities:
             resulting_pid = pid
 
         else:
-            # Multiple person_ids — merge into the best one
-            # Priority: verified clusters > most clusters > highest person ID
-            def _person_priority(pid: int) -> tuple:
-                clusters_for_pid = person_ids[pid]
-                has_verified = any(
-                    cluster_map.get(c, {}).get("verified", False) for c in clusters_for_pid
+            # Multiple person_ids — only merge auto_created persons.
+            # Never merge two non-auto_created (user-created) persons,
+            # and never merge an auto_created person into a non-auto_created one
+            # or vice versa.
+            auto_pids = []
+            non_auto_pids = []
+            for pid in person_ids:
+                # Check auto_created from any cluster linked to this person
+                is_auto = any(
+                    cluster_map.get(c, {}).get("person_auto_created", False)
+                    for c in person_ids[pid]
                 )
-                return (has_verified, len(clusters_for_pid), pid)
+                if is_auto:
+                    auto_pids.append(pid)
+                else:
+                    non_auto_pids.append(pid)
 
-            sorted_pids = sorted(person_ids.keys(), key=_person_priority, reverse=True)
-            keep_pid = sorted_pids[0]
-
-            for remove_pid in sorted_pids[1:]:
-                moved = self.repo.merge_persons(keep_pid, remove_pid, collection_id)
-                results["persons_merged"] += 1
+            if non_auto_pids:
+                # Any non-auto_created person involved — never auto-merge.
+                # This covers: multiple non-auto persons, and mixed auto + non-auto.
                 logger.info(
-                    f"Merged person {remove_pid} into {keep_pid} ({moved} clusters moved)"
+                    f"Skipping group {group}: non-auto_created person(s) "
+                    f"{non_auto_pids} cannot be auto-merged"
                 )
-                # merge_persons deletes remove_pid and moves ALL its clusters
-                # in the DB. Update cluster_map globally so later groups don't
-                # reference a deleted person.
-                for info in cluster_map.values():
-                    if info["person_id"] == remove_pid:
-                        info["person_id"] = keep_pid
+                return None
+
+            # All auto_created — merge into the best one
+            if auto_pids:
+                def _person_priority(pid: int) -> tuple:
+                    clusters_for_pid = person_ids[pid]
+                    has_verified = any(
+                        cluster_map.get(c, {}).get("verified", False) for c in clusters_for_pid
+                    )
+                    return (has_verified, len(clusters_for_pid), pid)
+
+                sorted_pids = sorted(auto_pids, key=_person_priority, reverse=True)
+                keep_pid = sorted_pids[0]
+
+                for remove_pid in sorted_pids[1:]:
+                    moved = self.repo.merge_persons(keep_pid, remove_pid, collection_id)
+                    results["persons_merged"] += 1
+                    logger.info(
+                        f"Merged auto_created person {remove_pid} into "
+                        f"auto_created person {keep_pid} ({moved} clusters moved)"
+                    )
+                    for info in cluster_map.values():
+                        if info["person_id"] == remove_pid:
+                            info["person_id"] = keep_pid
 
             if unlinked:
                 linked = self.repo.link_clusters_to_person(unlinked, keep_pid, collection_id)

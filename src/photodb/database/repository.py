@@ -618,18 +618,21 @@ class PhotoRepository:
 
         Returns:
             List of dicts with id, person_id, verified, face_count,
-            representative_detection_id
+            representative_detection_id, person_auto_created
         """
         collection_id = self._resolve_collection_id(collection_id)
         with self.pool.get_connection() as conn:
             with conn.cursor(row_factory=dict_row) as cursor:
                 cursor.execute(
                     """
-                    SELECT id, person_id, verified, face_count, representative_detection_id
-                    FROM cluster
-                    WHERE collection_id = %s
-                      AND NOT hidden
-                      AND centroid IS NOT NULL
+                    SELECT c.id, c.person_id, c.verified, c.face_count,
+                           c.representative_detection_id,
+                           p.auto_created AS person_auto_created
+                    FROM cluster c
+                    LEFT JOIN person p ON c.person_id = p.id
+                    WHERE c.collection_id = %s
+                      AND NOT c.hidden
+                      AND c.centroid IS NOT NULL
                     """,
                     (collection_id,),
                 )

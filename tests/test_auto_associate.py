@@ -22,13 +22,14 @@ def maintenance(mock_pool):
     return m
 
 
-def _make_cluster(cid, person_id=None, verified=False, face_count=5):
+def _make_cluster(cid, person_id=None, verified=False, face_count=5, person_auto_created=None):
     return {
         "id": cid,
         "person_id": person_id,
         "verified": verified,
         "face_count": face_count,
         "representative_detection_id": cid * 10,
+        "person_auto_created": person_auto_created,
     }
 
 
@@ -88,14 +89,48 @@ class TestAutoAssociateClusters:
             [2], 100, 1
         )
 
-    def test_different_persons_merges_into_verified(self, maintenance):
-        """Verified cluster's person wins the merge."""
+    def test_different_non_auto_persons_skips_merge(self, maintenance):
+        """Two non-auto_created persons are never merged automatically."""
         maintenance.repo.find_similar_cluster_pairs.return_value = [
             {"cluster_id_1": 1, "cluster_id_2": 2, "cosine_distance": 0.35},
         ]
         maintenance.repo.get_clusters_for_association.return_value = [
             _make_cluster(1, person_id=100, verified=False, face_count=10),
             _make_cluster(2, person_id=200, verified=True, face_count=3),
+        ]
+
+        result = maintenance.auto_associate_clusters(threshold=0.55)
+
+        assert result["persons_merged"] == 0
+        assert result["groups_found"] == 1
+        maintenance.repo.merge_persons.assert_not_called()
+
+    def test_mixed_auto_and_non_auto_persons_skips_merge(self, maintenance):
+        """auto_created + non-auto_created persons are never merged."""
+        maintenance.repo.find_similar_cluster_pairs.return_value = [
+            {"cluster_id_1": 1, "cluster_id_2": 2, "cosine_distance": 0.35},
+        ]
+        maintenance.repo.get_clusters_for_association.return_value = [
+            _make_cluster(1, person_id=100, person_auto_created=True),
+            _make_cluster(2, person_id=200, person_auto_created=False),
+        ]
+
+        result = maintenance.auto_associate_clusters(threshold=0.55)
+
+        assert result["persons_merged"] == 0
+        assert result["groups_found"] == 1
+        maintenance.repo.merge_persons.assert_not_called()
+
+    def test_auto_created_persons_can_merge(self, maintenance):
+        """Two auto_created persons are merged (verified wins)."""
+        maintenance.repo.find_similar_cluster_pairs.return_value = [
+            {"cluster_id_1": 1, "cluster_id_2": 2, "cosine_distance": 0.35},
+        ]
+        maintenance.repo.get_clusters_for_association.return_value = [
+            _make_cluster(1, person_id=100, verified=False, face_count=10,
+                          person_auto_created=True),
+            _make_cluster(2, person_id=200, verified=True, face_count=3,
+                          person_auto_created=True),
         ]
         maintenance.repo.merge_persons.return_value = 1
 

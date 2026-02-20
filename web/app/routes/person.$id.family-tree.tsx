@@ -1,13 +1,11 @@
 import {
   Background,
   Controls,
-  Panel,
   ReactFlow,
   ReactFlowProvider,
   useEdgesState,
   useNodesState,
   useReactFlow,
-  useViewport,
 } from "@xyflow/react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useFetcher, useNavigate, useRevalidator } from "react-router";
@@ -15,6 +13,7 @@ import "@xyflow/react/dist/style.css";
 import { ChevronRight, Search } from "lucide-react";
 import { ConnectorNode } from "~/components/family-tree/connector-node";
 import { DropZoneNode } from "~/components/family-tree/drop-zone-node";
+import { GenerationLabelNode } from "~/components/family-tree/generation-label-node";
 import { PersonNode } from "~/components/family-tree/person-node";
 import { PlaceholderNode } from "~/components/family-tree/placeholder-node";
 import { Header } from "~/components/header";
@@ -28,7 +27,7 @@ import {
   getPersonPartnerships,
   getPersonsForCollection,
 } from "~/lib/db.server";
-import { computeFamilyTreeLayout, type GenerationInfo, H_GAP, NODE_H, NODE_W, V_GAP } from "~/lib/family-tree-layout";
+import { computeFamilyTreeLayout, H_GAP, NODE_H, NODE_W, V_GAP } from "~/lib/family-tree-layout";
 import { subsequenceMatch } from "~/lib/utils";
 import type { Route } from "./+types/person.$id.family-tree";
 
@@ -66,30 +65,12 @@ export async function loader({ request, params }: Route.LoaderArgs) {
   return { person, familyMembers, centerParents, allParentLinks, partnerships, persons };
 }
 
-function GenerationLabels({ generations }: { generations: GenerationInfo[] }) {
-  const { y: vy, zoom } = useViewport();
-  return (
-    <Panel position="top-left" className="pointer-events-none !m-0 !p-0" style={{ zIndex: 1 }}>
-      <div className="relative">
-        {generations.map((g) => (
-          <div
-            key={g.gen}
-            className="absolute left-3 text-xs font-medium text-gray-500 whitespace-nowrap select-none"
-            style={{ top: g.y * zoom + vy - 20 * zoom }}
-          >
-            {g.label}
-          </div>
-        ))}
-      </div>
-    </Panel>
-  );
-}
-
 const nodeTypes = {
   person: PersonNode,
   placeholder: PlaceholderNode,
   dropZone: DropZoneNode,
   connector: ConnectorNode,
+  generationLabel: GenerationLabelNode,
 };
 
 function FamilyTreeCanvas({ loaderData }: Route.ComponentProps) {
@@ -99,7 +80,19 @@ function FamilyTreeCanvas({ loaderData }: Route.ComponentProps) {
   const fetcher = useFetcher();
   const revalidator = useRevalidator();
   const [searchQuery, setSearchQuery] = useState("");
-  const [sidebarOpen, setSidebarOpen] = useState(true);
+  const [sidebarOpen, setSidebarOpen] = useState(false);
+  const [sidebarReady, setSidebarReady] = useState(false);
+  useEffect(() => {
+    if (localStorage.getItem("familyTree.sidebarOpen") !== "false") {
+      setSidebarOpen(true);
+    }
+    // Delay enabling transitions until after the initial state snap
+    requestAnimationFrame(() => setSidebarReady(true));
+  }, []);
+  const toggleSidebar = useCallback((open: boolean) => {
+    setSidebarOpen(open);
+    localStorage.setItem("familyTree.sidebarOpen", String(open));
+  }, []);
 
   // Revalidate loader data after mutation completes
   const prevFetcherData = useRef(fetcher.data);
@@ -160,11 +153,7 @@ function FamilyTreeCanvas({ loaderData }: Route.ComponentProps) {
     [fetcher, person.id],
   );
 
-  const {
-    nodes: layoutNodes,
-    edges: layoutEdges,
-    generations,
-  } = useMemo(() => {
+  const { nodes: layoutNodes, edges: layoutEdges } = useMemo(() => {
     const layout = computeFamilyTreeLayout({
       centerId: Number(person.id),
       centerName: person.person_name || `Person ${person.id}`,
@@ -202,6 +191,12 @@ function FamilyTreeCanvas({ loaderData }: Route.ComponentProps) {
   // Separate drop zone nodes/edges — hidden until a drag starts
   const regularNodes = useMemo(() => layoutNodes.filter((n) => n.type !== "dropZone"), [layoutNodes]);
   const regularEdges = useMemo(() => layoutEdges.filter((e) => !e.id.startsWith("drop-edge-")), [layoutEdges]);
+
+  // Exclude generation labels from fitView so they don't expand the bounding box
+  const fitViewNodes = useMemo(
+    () => regularNodes.filter((n) => n.type !== "generationLabel").map((n) => ({ id: n.id })),
+    [regularNodes],
+  );
   const dropZoneNodesRef = useRef(layoutNodes.filter((n) => n.type === "dropZone"));
   const dropZoneEdgesRef = useRef(layoutEdges.filter((e) => e.id.startsWith("drop-edge-")));
   useEffect(() => {
@@ -220,8 +215,15 @@ function FamilyTreeCanvas({ loaderData }: Route.ComponentProps) {
     dragCounterRef.current = 0;
   }, [regularNodes, regularEdges, setNodes, setEdges]);
 
-  // Dynamic drop zones: appear when dragging over parent row (2+ parents) or partner area (1+ partners)
+  // Re-fit after sidebar state is determined so nodes aren't covered by the panel
   const reactFlow = useReactFlow();
+  useEffect(() => {
+    if (sidebarReady) {
+      reactFlow.fitView({ padding: 0.3, nodes: fitViewNodes });
+    }
+  }, [sidebarReady, reactFlow, fitViewNodes]);
+
+  // Dynamic drop zones: appear when dragging over parent row (2+ parents) or partner area (1+ partners)
   const extraParentDropRef = useRef(false);
   const extraPartnerDropRef = useRef(false);
   const centerParentCount = centerParents.length;
@@ -412,7 +414,7 @@ function FamilyTreeCanvas({ loaderData }: Route.ComponentProps) {
             onEdgesChange={onEdgesChange}
             nodeTypes={nodeTypes}
             fitView
-            fitViewOptions={{ padding: 0.3 }}
+            fitViewOptions={{ padding: 0.3, nodes: fitViewNodes }}
             zoomOnDoubleClick={false}
             nodesDraggable={false}
             nodesConnectable={false}
@@ -420,15 +422,14 @@ function FamilyTreeCanvas({ loaderData }: Route.ComponentProps) {
           >
             <Controls className="!bg-gray-800 !border-gray-700 !text-gray-300" showInteractive={false} />
             <Background color="#333" gap={32} />
-            <GenerationLabels generations={generations} />
           </ReactFlow>
         </div>
 
         {/* Right Sidebar Toggle (visible when collapsed) */}
         <button
           type="button"
-          onClick={() => setSidebarOpen(true)}
-          className={`absolute right-0 top-1/2 -translate-y-1/2 z-10 bg-gray-50 border border-r-0 border-gray-200 rounded-l-lg p-1.5 hover:bg-gray-100 transition-all duration-300 ${
+          onClick={() => toggleSidebar(true)}
+          className={`absolute right-0 top-1/2 -translate-y-1/2 z-10 bg-gray-50 border border-r-0 border-gray-200 rounded-l-lg p-1.5 hover:bg-gray-100 ${sidebarReady ? "transition-all duration-300" : ""} ${
             sidebarOpen ? "opacity-0 pointer-events-none translate-x-2" : "opacity-100 translate-x-0"
           }`}
         >
@@ -437,7 +438,7 @@ function FamilyTreeCanvas({ loaderData }: Route.ComponentProps) {
 
         {/* Right Sidebar */}
         <div
-          className={`bg-gray-50 flex flex-col shrink-0 border-l border-gray-200 overflow-hidden transition-all duration-300 ease-in-out ${
+          className={`bg-gray-50 flex flex-col shrink-0 border-l border-gray-200 overflow-hidden ${sidebarReady ? "transition-all duration-300 ease-in-out" : ""} ${
             sidebarOpen ? "w-70" : "w-0 border-l-0"
           }`}
         >
@@ -447,7 +448,7 @@ function FamilyTreeCanvas({ loaderData }: Route.ComponentProps) {
                 <h2 className="text-sm font-semibold text-gray-900">People</h2>
                 <button
                   type="button"
-                  onClick={() => setSidebarOpen(false)}
+                  onClick={() => toggleSidebar(false)}
                   className="p-0.5 rounded hover:bg-gray-200 transition-colors"
                 >
                   <ChevronRight className="h-4 w-4 text-gray-400" />

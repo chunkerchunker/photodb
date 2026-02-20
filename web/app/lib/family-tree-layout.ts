@@ -651,5 +651,20 @@ export function computeFamilyTreeLayout(input: LayoutInput): {
     },
   });
 
+  // Add generation labels as flow nodes behind other nodes (zIndex: -1).
+  // The x position is overridden by the component to stick to the viewport left edge.
+  for (const g of generations) {
+    nodes.push({
+      id: `gen-label-${g.gen}`,
+      type: "generationLabel",
+      position: { x: 0, y: g.y },
+      data: { label: g.label },
+      selectable: false,
+      focusable: false,
+      draggable: false,
+      zIndex: -1,
+    });
+  }
+
   return { nodes, edges, generations };
 }

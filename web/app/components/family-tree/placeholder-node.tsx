@@ -36,7 +36,7 @@ export function PlaceholderNode({ data }: NodeProps) {
             if (e.key === "Enter") d.onRecenter(d.personId);
           }}
         >
-          <div className="w-9 h-9 rounded-full bg-gray-600/60" />
+          <div className="w-9 h-9 rounded-md bg-gray-600/60" />
           <span className="text-xs mt-1 text-gray-400 text-center truncate max-w-[120px] italic">{d.name}</span>
           <InvisibleHandles />
         </div>

@@ -40,9 +40,9 @@ export function PersonNode({ data }: NodeProps) {
           }}
         >
           {d.detectionId ? (
-            <img src={`/api/face/${d.detectionId}`} alt={d.name} className="w-9 h-9 rounded-full object-cover pointer-events-none" />
+            <img src={`/api/face/${d.detectionId}`} alt={d.name} className="w-9 h-9 rounded-md object-cover pointer-events-none" />
           ) : (
-            <div className="w-9 h-9 rounded-full bg-gray-600" />
+            <div className="w-9 h-9 rounded-md bg-gray-600" />
           )}
           <span
             className={`text-xs mt-1 text-gray-200 text-center truncate max-w-[120px] ${

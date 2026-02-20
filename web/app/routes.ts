@@ -88,6 +88,12 @@ export default [
   route("api/person/:id/hide", "routes/api.person.$id.hide.tsx"),
   route("api/person/:id/representative", "routes/api.person.$id.representative.tsx"),
   route("api/person/:id/delete", "routes/api.person.$id.delete.tsx"),
+  route("api/person/create-placeholder", "routes/api.person.create-placeholder.tsx"),
   route("api/person/merge-preview", "routes/api.person.merge-preview.tsx"),
   route("api/person/merge", "routes/api.person.merge.tsx"),
+  route("api/person/:id/add-parent", "routes/api.person.$id.add-parent.tsx"),
+  route("api/person/:id/add-child", "routes/api.person.$id.add-child.tsx"),
+  route("api/person/:id/add-partner", "routes/api.person.$id.add-partner.tsx"),
+  route("api/person/:id/remove-parent", "routes/api.person.$id.remove-parent.tsx"),
+  route("api/person/:id/remove-partner", "routes/api.person.$id.remove-partner.tsx"),
 ] satisfies RouteConfig;

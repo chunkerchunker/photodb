@@ -30,7 +30,7 @@ export function PlaceholderNode({ data }: NodeProps) {
         <div
           role="button"
           tabIndex={0}
-          className="flex flex-col items-center justify-center w-[140px] h-[80px] rounded-xl border border-dashed border-gray-500 bg-gray-800/80 cursor-pointer"
+          className="flex flex-col items-center justify-center w-[140px] h-[80px] rounded-xl border border-dashed border-gray-500 bg-gray-800 cursor-pointer"
           onDoubleClick={() => d.onRecenter(d.personId)}
           onKeyDown={(e) => {
             if (e.key === "Enter") d.onRecenter(d.personId);

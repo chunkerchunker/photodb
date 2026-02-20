@@ -93,6 +93,34 @@ export function computeFamilyTreeLayout(input: LayoutInput): {
   // Track positioned x for each person_id (center of node = x + NODE_W/2)
   const positionOf = new Map<number, number>();
 
+  // Build partnership map: person → partner (first partnership wins per person)
+  const partnerOf = new Map<number, number>();
+  for (const p of partnerships) {
+    const p1 = Number(p.person1_id);
+    const p2 = Number(p.person2_id);
+    if (memberIds.has(p1) && memberIds.has(p2)) {
+      if (!partnerOf.has(p1)) partnerOf.set(p1, p2);
+      if (!partnerOf.has(p2)) partnerOf.set(p2, p1);
+    }
+  }
+
+  // Helper to create a person/placeholder node and record its position
+  function createPersonNode(fm: FamilyMember, x: number, y: number) {
+    nodes.push({
+      id: `person-${fm.person_id}`,
+      type: fm.is_placeholder ? "placeholder" : "person",
+      position: { x, y },
+      data: {
+        name: fm.display_name,
+        detectionId: fm.detection_id,
+        isCenter: fm.person_id === centerId,
+        relation: fm.relation,
+        personId: fm.person_id,
+      },
+    });
+    positionOf.set(Number(fm.person_id), x);
+  }
+
   // Compute the horizontal width a person's subtree needs (memoized)
   const subtreeCache = new Map<string, number>();
   function getSubtreeWidth(personId: number, direction: "down" | "up"): number {
@@ -127,72 +155,44 @@ export function computeFamilyTreeLayout(input: LayoutInput): {
   const gen0Y = 0;
 
   const center = gen0Members.find((fm) => Number(fm.person_id) === centerId);
-  const partnerIds = new Set(
+  const centerPartnerIds = new Set(
     partnerships.flatMap((p) => {
       if (Number(p.person1_id) === centerId) return [Number(p.person2_id)];
       if (Number(p.person2_id) === centerId) return [Number(p.person1_id)];
       return [];
     }),
   );
-  const gen0Partners = gen0Members.filter((fm) => partnerIds.has(Number(fm.person_id)));
-  const gen0Siblings = gen0Members.filter(
-    (fm) => Number(fm.person_id) !== centerId && !partnerIds.has(Number(fm.person_id)),
-  );
+  const gen0CenterPartners = gen0Members.filter((fm) => centerPartnerIds.has(Number(fm.person_id)));
 
   // Center person at x = -NODE_W/2 (visual center at 0)
   if (center) {
-    const x = -NODE_W / 2;
-    nodes.push({
-      id: `person-${center.person_id}`,
-      type: center.is_placeholder ? "placeholder" : "person",
-      position: { x, y: gen0Y },
-      data: {
-        name: center.display_name,
-        detectionId: center.detection_id,
-        isCenter: true,
-        relation: center.relation,
-        personId: center.person_id,
-      },
-    });
-    positionOf.set(centerId, x);
+    createPersonNode(center, -NODE_W / 2, gen0Y);
   }
 
-  // Partners to the right of center person
-  for (let i = 0; i < gen0Partners.length; i++) {
-    const fm = gen0Partners[i];
-    const x = -NODE_W / 2 + (i + 1) * (NODE_W + H_GAP);
-    nodes.push({
-      id: `person-${fm.person_id}`,
-      type: fm.is_placeholder ? "placeholder" : "person",
-      position: { x, y: gen0Y },
-      data: {
-        name: fm.display_name,
-        detectionId: fm.detection_id,
-        isCenter: false,
-        relation: fm.relation,
-        personId: fm.person_id,
-      },
-    });
-    positionOf.set(Number(fm.person_id), x);
+  // Center's partners to the right
+  for (let i = 0; i < gen0CenterPartners.length; i++) {
+    createPersonNode(gen0CenterPartners[i], -NODE_W / 2 + (i + 1) * (NODE_W + H_GAP), gen0Y);
   }
 
-  // Siblings to the left of center person
-  for (let i = 0; i < gen0Siblings.length; i++) {
-    const fm = gen0Siblings[i];
-    const x = -NODE_W / 2 - (i + 1) * (NODE_W + H_GAP);
-    nodes.push({
-      id: `person-${fm.person_id}`,
-      type: fm.is_placeholder ? "placeholder" : "person",
-      position: { x, y: gen0Y },
-      data: {
-        name: fm.display_name,
-        detectionId: fm.detection_id,
-        isCenter: false,
-        relation: fm.relation,
-        personId: fm.person_id,
-      },
-    });
-    positionOf.set(Number(fm.person_id), x);
+  // Remaining gen-0 members (siblings + their partners) to the left
+  const gen0Remaining = gen0Members.filter((fm) => !positionOf.has(Number(fm.person_id)));
+  let sibCursor = positionOf.get(centerId) ?? -NODE_W / 2;
+  for (const fm of gen0Remaining) {
+    const pid = Number(fm.person_id);
+    if (positionOf.has(pid)) continue; // already placed as someone's partner
+
+    sibCursor -= NODE_W + H_GAP;
+    createPersonNode(fm, sibCursor, gen0Y);
+
+    // Place this sibling's partner further left
+    const ptnrId = partnerOf.get(pid);
+    if (ptnrId !== undefined && !positionOf.has(ptnrId)) {
+      const ptnr = gen0Members.find((m) => Number(m.person_id) === ptnrId);
+      if (ptnr) {
+        sibCursor -= NODE_W + H_GAP;
+        createPersonNode(ptnr, sibCursor, gen0Y);
+      }
+    }
   }
 
   // Gen 0 label — use center person's first/preferred name
@@ -207,19 +207,28 @@ export function computeFamilyTreeLayout(input: LayoutInput): {
     const y = gen * (NODE_H + V_GAP);
     const isDescendant = gen > adjacentGen; // walking down (children)
 
+    // Build partner map scoped to this generation
+    const genMemberIds = new Set(genMembers.map((m) => Number(m.person_id)));
+    const genPartnerOf = new Map<number, number>();
+    for (const p of partnerships) {
+      const p1 = Number(p.person1_id);
+      const p2 = Number(p.person2_id);
+      if (genMemberIds.has(p1) && genMemberIds.has(p2) && !genPartnerOf.has(p1) && !genPartnerOf.has(p2)) {
+        genPartnerOf.set(p1, p2);
+        genPartnerOf.set(p2, p1);
+      }
+    }
+
     // Group members by their connection key (sorted parent/child ids in adjacent gen)
     const groups = new Map<string, FamilyMember[]>();
     const ungrouped: FamilyMember[] = [];
 
     for (const fm of genMembers) {
       const pid = Number(fm.person_id);
-      // Find connected person(s) in the adjacent generation
       let connectedIds: number[];
       if (isDescendant) {
-        // This person's parents should be in adjacentGen
         connectedIds = (parentsOf.get(pid) ?? []).filter((id) => positionOf.has(id));
       } else {
-        // This person's children should be in adjacentGen
         connectedIds = (childrenOf.get(pid) ?? []).filter((id) => positionOf.has(id));
       }
 
@@ -232,6 +241,20 @@ export function computeFamilyTreeLayout(input: LayoutInput): {
       }
     }
 
+    // Move ungrouped partners into their partner's group
+    for (let i = ungrouped.length - 1; i >= 0; i--) {
+      const pid = Number(ungrouped[i].person_id);
+      const partnerId = genPartnerOf.get(pid);
+      if (partnerId === undefined) continue;
+      for (const [, members] of groups) {
+        if (members.some((m) => Number(m.person_id) === partnerId)) {
+          members.push(ungrouped[i]);
+          ungrouped.splice(i, 1);
+          break;
+        }
+      }
+    }
+
     // Compute target x for each group (average x of connected persons)
     const groupEntries: { key: string; members: FamilyMember[]; targetX: number }[] = [];
     for (const [key, members] of groups) {
@@ -241,42 +264,85 @@ export function computeFamilyTreeLayout(input: LayoutInput): {
       groupEntries.push({ key, members, targetX: avgX });
     }
 
-    // Sort groups by their target x position
     groupEntries.sort((a, b) => a.targetX - b.targetX);
 
-    // Add ungrouped members as a separate group centered at x=0
     if (ungrouped.length > 0) {
       groupEntries.push({ key: "ungrouped", members: ungrouped, targetX: 0 });
       groupEntries.sort((a, b) => a.targetX - b.targetX);
     }
 
-    // Position each group centered at its target x, using subtree widths for spacing
+    // Position each group using units (partner pairs or singles)
     const subtreeDir = isDescendant ? "down" : "up";
+    const PAIR_W = NODE_W * 2 + H_GAP;
     interface PlacedGroup {
       members: FamilyMember[];
-      positions: number[]; // x positions for each member
-      allocLeft: number; // leftmost subtree allocation boundary
-      allocRight: number; // rightmost subtree allocation boundary
+      positions: number[];
+      allocLeft: number;
+      allocRight: number;
     }
     const placedGroups: PlacedGroup[] = [];
 
     for (const group of groupEntries) {
-      const n = group.members.length;
-      const memberWidths = group.members.map((fm) => getSubtreeWidth(Number(fm.person_id), subtreeDir));
-      const groupWidth = memberWidths.reduce((sum, w) => sum + w, 0) + (n - 1) * H_GAP;
+      // Build positioning units: partner pairs and singles
+      const handled = new Set<number>();
+      const units: { primary: FamilyMember; partner?: FamilyMember }[] = [];
+
+      for (const fm of group.members) {
+        const pid = Number(fm.person_id);
+        if (handled.has(pid)) continue;
+        handled.add(pid);
+
+        const partnerId = genPartnerOf.get(pid);
+        if (partnerId !== undefined && !handled.has(partnerId)) {
+          const partner = group.members.find((m) => Number(m.person_id) === partnerId);
+          if (partner) {
+            handled.add(partnerId);
+            // Primary = connected to adjacent gen (positioned left), partner = right
+            const pidConnected = isDescendant
+              ? (parentsOf.get(pid) ?? []).some((id) => positionOf.has(id))
+              : (childrenOf.get(pid) ?? []).some((id) => positionOf.has(id));
+            units.push(pidConnected ? { primary: fm, partner } : { primary: partner, partner: fm });
+            continue;
+          }
+        }
+        units.push({ primary: fm });
+      }
+
+      const unitWidths = units.map((u) =>
+        u.partner
+          ? Math.max(getSubtreeWidth(Number(u.primary.person_id), subtreeDir), PAIR_W)
+          : getSubtreeWidth(Number(u.primary.person_id), subtreeDir),
+      );
+      const groupWidth = unitWidths.reduce((sum, w) => sum + w, 0) + (units.length - 1) * H_GAP;
       const startX = group.targetX - groupWidth / 2;
 
-      // Center each node within its subtree-width allocation
-      const positions: number[] = [];
+      const allMembers: FamilyMember[] = [];
+      const allPositions: number[] = [];
       let x = startX;
-      for (let i = 0; i < n; i++) {
-        positions.push(x + memberWidths[i] / 2 - NODE_W / 2);
-        x += memberWidths[i] + H_GAP;
+      for (let i = 0; i < units.length; i++) {
+        const u = units[i];
+        const allocCenter = x + unitWidths[i] / 2;
+        if (u.partner) {
+          allMembers.push(u.primary);
+          allPositions.push(allocCenter - NODE_W - H_GAP / 2);
+          allMembers.push(u.partner);
+          allPositions.push(allocCenter + H_GAP / 2);
+        } else {
+          allMembers.push(u.primary);
+          allPositions.push(allocCenter - NODE_W / 2);
+        }
+        x += unitWidths[i] + H_GAP;
       }
-      placedGroups.push({ members: group.members, positions, allocLeft: startX, allocRight: startX + groupWidth });
+
+      placedGroups.push({
+        members: allMembers,
+        positions: allPositions,
+        allocLeft: startX,
+        allocRight: startX + groupWidth,
+      });
     }
 
-    // Resolve overlaps between adjacent groups using allocation boundaries
+    // Resolve overlaps between adjacent groups
     for (let i = 1; i < placedGroups.length; i++) {
       const prev = placedGroups[i - 1];
       const curr = placedGroups[i];
@@ -293,21 +359,7 @@ export function computeFamilyTreeLayout(input: LayoutInput): {
     // Create nodes and record positions
     for (const group of placedGroups) {
       for (let i = 0; i < group.members.length; i++) {
-        const fm = group.members[i];
-        const x = group.positions[i];
-        nodes.push({
-          id: `person-${fm.person_id}`,
-          type: fm.is_placeholder ? "placeholder" : "person",
-          position: { x, y },
-          data: {
-            name: fm.display_name,
-            detectionId: fm.detection_id,
-            isCenter: fm.person_id === centerId,
-            relation: fm.relation,
-            personId: fm.person_id,
-          },
-        });
-        positionOf.set(Number(fm.person_id), x);
+        createPersonNode(group.members[i], group.positions[i], y);
       }
     }
   }

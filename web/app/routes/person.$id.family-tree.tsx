@@ -21,10 +21,10 @@ import { useRootData } from "~/hooks/use-root-data";
 import { requireCollectionId } from "~/lib/auth.server";
 import {
   getFamilyParentLinks,
+  getFamilyPartnerships,
   getFamilyTree,
   getPersonById,
   getPersonParents,
-  getPersonPartnerships,
   getPersonsForCollection,
 } from "~/lib/db.server";
 import { computeFamilyTreeLayout, H_GAP, NODE_H, NODE_W, V_GAP } from "~/lib/family-tree-layout";
@@ -50,19 +50,65 @@ export async function loader({ request, params }: Route.LoaderArgs) {
     throw new Response("Person not found", { status: 404 });
   }
 
-  const [familyMembers, centerParents, partnerships, persons] = await Promise.all([
+  const [familyMembers, centerParents, persons] = await Promise.all([
     getFamilyTree(collectionId, personId, 3),
     getPersonParents(collectionId, personId),
-    getPersonPartnerships(collectionId, personId),
     getPersonsForCollection(collectionId),
   ]);
 
-  // Get all parent-child links among family members for edge drawing
   const familyIds = familyMembers.map((fm) => Number(fm.person_id));
   if (!familyIds.includes(Number(personId))) familyIds.push(Number(personId));
-  const allParentLinks = await getFamilyParentLinks(familyIds);
 
-  return { person, familyMembers, centerParents, allParentLinks, partnerships, persons };
+  // Fetch parent links and ALL partnerships for family members in parallel
+  const [allParentLinks, allPartnerships] = await Promise.all([
+    getFamilyParentLinks(familyIds),
+    getFamilyPartnerships(familyIds),
+  ]);
+
+  // Add partners not already in the tree as family members at their partner's generation
+  const familyIdSet = new Set(familyIds);
+  const personsMap = new Map(persons.map((p) => [Number(p.id), p]));
+  const memberGenMap = new Map(familyMembers.map((fm) => [Number(fm.person_id), fm.generation_offset]));
+  const augmentedMembers = [...familyMembers];
+  const missingPartnerIds: number[] = [];
+
+  for (const p of allPartnerships) {
+    for (const pid of [Number(p.person1_id), Number(p.person2_id)]) {
+      if (familyIdSet.has(pid)) continue;
+      const inTreeId = pid === Number(p.person1_id) ? Number(p.person2_id) : Number(p.person1_id);
+      const gen = memberGenMap.get(inTreeId);
+      if (gen === undefined) continue;
+      const pd = personsMap.get(pid);
+      if (!pd) continue;
+      augmentedMembers.push({
+        person_id: pid,
+        display_name: pd.person_name || `Person ${pid}`,
+        relation: "partner",
+        generation_offset: gen,
+        is_placeholder: false,
+        detection_id: pd.detection_id ?? null,
+      });
+      familyIdSet.add(pid);
+      missingPartnerIds.push(pid);
+    }
+  }
+
+  // Fetch parent links for newly added partners (needed for shared-children detection)
+  if (missingPartnerIds.length > 0) {
+    const extraLinks = await getFamilyParentLinks([...familyIdSet]);
+    // Replace with the full set to capture cross-links
+    allParentLinks.length = 0;
+    allParentLinks.push(...extraLinks);
+  }
+
+  return {
+    person,
+    familyMembers: augmentedMembers,
+    centerParents,
+    allParentLinks,
+    partnerships: allPartnerships,
+    persons,
+  };
 }
 
 const nodeTypes = {

@@ -2998,6 +2998,19 @@ export async function getPersonPartnerships(_collectionId: number, personId: str
   return result.rows;
 }
 
+/** Fetch all partnerships involving any of the given person IDs. */
+export async function getFamilyPartnerships(personIds: number[]): Promise<PersonPartnershipRow[]> {
+  if (personIds.length === 0) return [];
+  const result = await pool.query(
+    `SELECT DISTINCT ON (pp.id) pp.id, pp.person1_id, pp.person2_id, pp.partnership_type, pp.start_year, pp.end_year, pp.is_current
+     FROM person_partnership pp
+     WHERE pp.person1_id = ANY($1::int[]) OR pp.person2_id = ANY($1::int[])
+     ORDER BY pp.id`,
+    [personIds],
+  );
+  return result.rows;
+}
+
 const VALID_PARENT_ROLES = new Set(["mother", "father", "parent"]);
 function sanitizeParentRole(role: string): string {
   return VALID_PARENT_ROLES.has(role) ? role : "parent";

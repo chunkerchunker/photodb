@@ -1341,6 +1341,40 @@ class PhotoRepository:
 
         return deleted_cluster_id
 
+    def get_cluster_detection_age_gender(self, cluster_id: int) -> List[Dict[str, Any]]:
+        """Get age/gender data for all detections in a cluster."""
+        with self.pool.get_connection() as conn:
+            with conn.cursor(row_factory=dict_row) as cursor:
+                cursor.execute(
+                    """SELECT age_estimate, gender, gender_confidence
+                       FROM person_detection
+                       WHERE cluster_id = %s AND age_estimate IS NOT NULL""",
+                    (cluster_id,),
+                )
+                return [dict(row) for row in cursor.fetchall()]
+
+    def update_cluster_age_gender(
+        self,
+        cluster_id: int,
+        age_estimate: Optional[float],
+        age_estimate_stddev: Optional[float],
+        gender: Optional[str],
+        gender_confidence: Optional[float],
+        sample_count: int,
+    ) -> None:
+        """Update cluster age/gender aggregates."""
+        with self.pool.transaction() as conn:
+            with conn.cursor() as cursor:
+                cursor.execute(
+                    """UPDATE cluster
+                       SET age_estimate = %s, age_estimate_stddev = %s,
+                           gender = %s, gender_confidence = %s,
+                           age_gender_sample_count = %s,
+                           age_gender_updated_at = NOW(), updated_at = NOW()
+                       WHERE id = %s""",
+                    (age_estimate, age_estimate_stddev, gender, gender_confidence, sample_count, cluster_id),
+                )
+
     def update_detection_cluster_status(self, detection_id: int, cluster_status: str) -> None:
         """Update only the cluster status for a detection."""
         with self.pool.transaction() as conn:

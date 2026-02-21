@@ -377,6 +377,13 @@ CREATE TABLE IF NOT EXISTS "cluster"(
     -- HDBSCAN clustering fields
     epsilon real,  -- Per-cluster distance threshold derived from core point distances
     core_count integer DEFAULT 0,  -- Number of core points in this cluster
+    -- Age/gender aggregates from member detections
+    age_estimate real,
+    age_estimate_stddev real,
+    gender char(1) CHECK (gender IN ('M', 'F', 'U')),
+    gender_confidence real,
+    age_gender_sample_count integer DEFAULT 0,
+    age_gender_updated_at timestamptz,
     -- Hidden clusters (ignored people)
     hidden boolean DEFAULT false,
     created_at timestamptz DEFAULT now(),

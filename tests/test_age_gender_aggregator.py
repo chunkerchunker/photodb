@@ -1,7 +1,7 @@
 """Tests for age/gender aggregation utility."""
 
 import pytest
-from src.photodb.utils.age_gender_aggregator import compute_person_age_gender
+from src.photodb.utils.age_gender_aggregator import compute_cluster_age_gender, compute_person_age_gender
 
 
 class TestComputePersonAgeGender:
@@ -264,3 +264,138 @@ class TestComputePersonAgeGender:
         # But gender can still be computed
         assert result["gender"] == "male"  # Higher confidence
         assert result["sample_count"] == 2
+
+
+class TestComputeClusterAgeGender:
+    """Tests for compute_cluster_age_gender function."""
+
+    def test_empty_detections(self):
+        result = compute_cluster_age_gender([])
+
+        assert result["age_estimate"] is None
+        assert result["age_estimate_stddev"] is None
+        assert result["gender"] is None
+        assert result["gender_confidence"] is None
+        assert result["sample_count"] == 0
+
+    def test_single_detection(self):
+        detections = [{"age_estimate": 25.3, "gender": "M", "gender_confidence": 0.92}]
+
+        result = compute_cluster_age_gender(detections)
+
+        assert result["age_estimate"] == 25.3
+        assert result["age_estimate_stddev"] is None  # Single sample
+        assert result["gender"] == "M"
+        assert result["gender_confidence"] == 1.0
+        assert result["sample_count"] == 1
+
+    def test_multiple_detections_median_age(self):
+        detections = [
+            {"age_estimate": 24.0, "gender": "F", "gender_confidence": 0.90},
+            {"age_estimate": 26.0, "gender": "F", "gender_confidence": 0.85},
+            {"age_estimate": 30.0, "gender": "F", "gender_confidence": 0.88},
+        ]
+
+        result = compute_cluster_age_gender(detections)
+
+        # Median of [24.0, 26.0, 30.0] = 26.0
+        assert result["age_estimate"] == 26.0
+        assert result["age_estimate_stddev"] is not None
+        assert result["age_estimate_stddev"] > 0
+        assert result["gender"] == "F"
+        assert result["sample_count"] == 3
+
+    def test_even_count_median(self):
+        detections = [
+            {"age_estimate": 20.0, "gender": "M", "gender_confidence": 0.80},
+            {"age_estimate": 30.0, "gender": "M", "gender_confidence": 0.85},
+        ]
+
+        result = compute_cluster_age_gender(detections)
+
+        # Median of [20.0, 30.0] = 25.0
+        assert result["age_estimate"] == 25.0
+        assert result["age_estimate_stddev"] is not None
+        assert result["sample_count"] == 2
+
+    def test_gender_weighted_majority(self):
+        detections = [
+            {"age_estimate": 25.0, "gender": "M", "gender_confidence": 0.90},
+            {"age_estimate": 26.0, "gender": "M", "gender_confidence": 0.85},
+            {"age_estimate": 24.0, "gender": "F", "gender_confidence": 0.60},
+        ]
+
+        result = compute_cluster_age_gender(detections)
+
+        # M: 0.90 + 0.85 = 1.75, F: 0.60
+        assert result["gender"] == "M"
+        assert result["gender_confidence"] == pytest.approx(1.75 / 2.35, rel=0.01)
+
+    def test_null_age_estimates_skipped(self):
+        detections = [
+            {"age_estimate": None, "gender": "M", "gender_confidence": 0.90},
+            {"age_estimate": 30.0, "gender": "M", "gender_confidence": 0.85},
+            {"age_estimate": 32.0, "gender": "M", "gender_confidence": 0.88},
+        ]
+
+        result = compute_cluster_age_gender(detections)
+
+        # Only 2 valid ages: median of [30.0, 32.0] = 31.0
+        assert result["age_estimate"] == 31.0
+        assert result["sample_count"] == 2
+
+    def test_all_null_ages(self):
+        detections = [
+            {"age_estimate": None, "gender": "F", "gender_confidence": 0.90},
+            {"age_estimate": None, "gender": "F", "gender_confidence": 0.85},
+        ]
+
+        result = compute_cluster_age_gender(detections)
+
+        assert result["age_estimate"] is None
+        assert result["age_estimate_stddev"] is None
+        assert result["gender"] == "F"
+        assert result["sample_count"] == 0
+
+    def test_none_gender_treated_as_unknown(self):
+        detections = [
+            {"age_estimate": 25.0, "gender": None, "gender_confidence": None},
+            {"age_estimate": 26.0, "gender": "M", "gender_confidence": 0.85},
+        ]
+
+        result = compute_cluster_age_gender(detections)
+
+        # M: 0.85, U: 0.0 → M wins
+        assert result["gender"] == "M"
+
+    def test_zero_age(self):
+        detections = [{"age_estimate": 0.0, "gender": "F", "gender_confidence": 0.70}]
+
+        result = compute_cluster_age_gender(detections)
+
+        assert result["age_estimate"] == 0.0
+        assert result["sample_count"] == 1
+
+    def test_negative_age_ignored(self):
+        detections = [
+            {"age_estimate": -5.0, "gender": "M", "gender_confidence": 0.90},
+            {"age_estimate": 30.0, "gender": "M", "gender_confidence": 0.85},
+        ]
+
+        result = compute_cluster_age_gender(detections)
+
+        assert result["age_estimate"] == 30.0
+        assert result["sample_count"] == 1
+
+    def test_stddev_identical_ages(self):
+        detections = [
+            {"age_estimate": 25.0, "gender": "F", "gender_confidence": 0.90},
+            {"age_estimate": 25.0, "gender": "F", "gender_confidence": 0.85},
+            {"age_estimate": 25.0, "gender": "F", "gender_confidence": 0.88},
+        ]
+
+        result = compute_cluster_age_gender(detections)
+
+        assert result["age_estimate"] == 25.0
+        assert result["age_estimate_stddev"] == 0.0
+        assert result["sample_count"] == 3

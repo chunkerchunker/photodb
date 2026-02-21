@@ -18,6 +18,7 @@ from .. import config as defaults
 from ..database.connection import ConnectionPool
 from ..database.models import Person
 from ..database.repository import PhotoRepository, MIN_FACE_SIZE_PX, MIN_FACE_CONFIDENCE
+from .age_gender_aggregator import compute_cluster_age_gender
 from .hdbscan_config import (
     create_hdbscan_clusterer,
     extract_cluster_lambda_births,
@@ -103,6 +104,41 @@ class MaintenanceUtilities:
                         updated_count += 1
 
         logger.info(f"Recomputed centroids for {updated_count} clusters")
+        return updated_count
+
+    def _recompute_cluster_age_gender(self, cluster_id: int) -> None:
+        """Recompute age/gender aggregates for a single cluster."""
+        detections = self.repo.get_cluster_detection_age_gender(cluster_id)
+        result = compute_cluster_age_gender(detections)
+        self.repo.update_cluster_age_gender(
+            cluster_id=cluster_id,
+            age_estimate=result["age_estimate"],
+            age_estimate_stddev=result["age_estimate_stddev"],
+            gender=result["gender"],
+            gender_confidence=result["gender_confidence"],
+            sample_count=result["sample_count"],
+        )
+
+    def recompute_all_cluster_age_gender(self) -> int:
+        """
+        Recompute age/gender aggregates for all clusters.
+
+        Returns:
+            Number of clusters updated
+        """
+        logger.info("Starting age/gender recomputation for all clusters")
+        updated_count = 0
+
+        with self.pool.get_connection() as conn:
+            with conn.cursor() as cursor:
+                cursor.execute("SELECT id FROM cluster WHERE id > 0")
+                cluster_ids = [row[0] for row in cursor.fetchall()]
+
+        for cluster_id in cluster_ids:
+            self._recompute_cluster_age_gender(cluster_id)
+            updated_count += 1
+
+        logger.info(f"Recomputed age/gender for {updated_count} clusters")
         return updated_count
 
     def update_all_medoids(self) -> int:
@@ -488,6 +524,7 @@ class MaintenanceUtilities:
                 ):
                     self.repo.update_cluster_face_count(cluster_id, 1)
                     self.repo.clear_detection_unassigned(detection_id)
+                    self._recompute_cluster_age_gender(cluster_id)
                     created += 1
                     logger.debug(
                         f"Created singleton cluster {cluster_id} for detection {detection_id}"
@@ -715,6 +752,7 @@ class MaintenanceUtilities:
                     outlier_score=float(outlier_scores[idx]),
                 )
 
+            self._recompute_cluster_age_gender(cluster_id)
             clusters_created += 1
 
         logger.info(f"Created {clusters_created} clusters from unassigned pool")
@@ -1190,6 +1228,12 @@ class MaintenanceUtilities:
         except Exception as e:
             logger.error(f"Failed to check constraint violations: {e}")
             results["constraint_violations"] = -1
+
+        try:
+            results["cluster_age_gender_recomputed"] = self.recompute_all_cluster_age_gender()
+        except Exception as e:
+            logger.error(f"Failed to recompute cluster age/gender: {e}")
+            results["cluster_age_gender_recomputed"] = 0
 
         logger.info(f"Daily maintenance completed: {results}")
         return results

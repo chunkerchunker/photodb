@@ -1,7 +1,7 @@
-"""Age/gender aggregation utility for person-level statistics.
+"""Age/gender aggregation utility for person-level and cluster-level statistics.
 
 This module provides functions to aggregate age and gender data from
-individual detections into person-level statistics.
+individual detections into person-level and cluster-level statistics.
 """
 
 import statistics
@@ -94,4 +94,86 @@ def compute_person_age_gender(detections: List[Dict[str, Any]]) -> Dict[str, Any
         "gender": gender,
         "gender_confidence": gender_confidence,
         "sample_count": len(detections),
+    }
+
+
+def compute_cluster_age_gender(detections: List[Dict[str, Any]]) -> Dict[str, Any]:
+    """
+    Aggregate age/gender from detections within a single cluster.
+
+    Since all detections in a cluster are the same person at roughly
+    the same age, we take the median age_estimate directly (no birth
+    year conversion).
+
+    Args:
+        detections: List of dicts with 'age_estimate', 'gender', 'gender_confidence'
+
+    Returns:
+        Dict with:
+            - age_estimate: Median of age_estimate values, or None if no valid data
+            - age_estimate_stddev: Standard deviation if >1 valid sample, else None
+            - gender: Weighted majority gender ('M', 'F', or 'U')
+            - gender_confidence: Proportion of total confidence for winning gender
+            - sample_count: Number of detections with valid age_estimate
+    """
+    if not detections:
+        return {
+            "age_estimate": None,
+            "age_estimate_stddev": None,
+            "gender": None,
+            "gender_confidence": None,
+            "sample_count": 0,
+        }
+
+    # Collect valid age estimates
+    ages: List[float] = []
+    for detection in detections:
+        age = detection.get("age_estimate")
+        if age is not None and isinstance(age, (int, float)) and age >= 0:
+            ages.append(float(age))
+
+    # Compute age statistics
+    age_estimate: Optional[float] = None
+    age_estimate_stddev: Optional[float] = None
+
+    if ages:
+        age_estimate = statistics.median(ages)
+        if len(ages) > 1:
+            age_estimate_stddev = statistics.stdev(ages)
+
+    # Compute gender by weighted majority (same logic as person-level)
+    gender_weights: Dict[str, float] = {}
+    for detection in detections:
+        g = detection.get("gender")
+        confidence = detection.get("gender_confidence")
+
+        if g is None:
+            g = "U"
+        if confidence is None:
+            confidence = 0.0
+
+        if g not in gender_weights:
+            gender_weights[g] = 0.0
+        gender_weights[g] += confidence
+
+    # Determine winning gender
+    gender: Optional[str] = None
+    gender_confidence: Optional[float] = None
+
+    if gender_weights:
+        total_weight = sum(gender_weights.values())
+        winning_gender = max(gender_weights.keys(), key=lambda k: gender_weights[k])
+        gender = winning_gender
+
+        if total_weight > 0:
+            gender_confidence = gender_weights[winning_gender] / total_weight
+        else:
+            gender_confidence = 0.0
+
+    return {
+        "age_estimate": age_estimate,
+        "age_estimate_stddev": age_estimate_stddev,
+        "gender": gender,
+        "gender_confidence": gender_confidence,
+        "sample_count": len(ages),
     }

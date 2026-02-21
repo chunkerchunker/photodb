@@ -8,6 +8,7 @@ from decimal import Decimal
 from .base import BaseStage
 from .. import config as defaults
 from ..database.models import Photo
+from ..utils.age_gender_aggregator import compute_cluster_age_gender
 from ..utils.hdbscan_config import (
     create_hdbscan_clusterer,
     lambda_to_epsilon,
@@ -93,6 +94,19 @@ class ClusteringStage(BaseStage):
             f"k_neighbors={self.k_neighbors}, unassigned_threshold={self.unassigned_threshold}, "
             f"medoid_recompute_threshold={self.medoid_recompute_threshold}, "
             f"min_cluster_size={self.min_cluster_size}, min_samples={self.min_samples}"
+        )
+
+    def _recompute_cluster_age_gender(self, cluster_id: int) -> None:
+        """Recompute age/gender aggregates for a cluster from its member detections."""
+        detections = self.repository.get_cluster_detection_age_gender(cluster_id)
+        result = compute_cluster_age_gender(detections)
+        self.repository.update_cluster_age_gender(
+            cluster_id=cluster_id,
+            age_estimate=result["age_estimate"],
+            age_estimate_stddev=result["age_estimate_stddev"],
+            gender=result["gender"],
+            gender_confidence=result["gender_confidence"],
+            sample_count=result["sample_count"],
         )
 
     def should_process(self, file_path: Path, force: bool = False) -> bool:
@@ -594,6 +608,7 @@ class ClusteringStage(BaseStage):
         )
         if assigned_count > 0:
             self.repository.update_cluster_face_count(cluster_id, assigned_count)
+            self._recompute_cluster_age_gender(cluster_id)
             return cluster_id
         else:
             # No detections were assigned (all taken by other workers), delete empty cluster
@@ -630,6 +645,7 @@ class ClusteringStage(BaseStage):
             )
 
         logger.debug(f"Created new cluster {cluster_id} for detection {detection_id}")
+        self._recompute_cluster_age_gender(cluster_id)
 
     def _assign_to_cluster(
         self,
@@ -640,6 +656,9 @@ class ClusteringStage(BaseStage):
         status: str = "auto",
     ) -> None:
         """Assign detection to an existing cluster and update centroid."""
+        # Track old cluster for age/gender recomputation after transaction
+        old_cluster_survived = None
+
         # Use transaction to ensure consistency (auto-commits on successful exit)
         with self.repository.pool.transaction() as conn:
             with conn.cursor() as cur:
@@ -674,6 +693,8 @@ class ClusteringStage(BaseStage):
                     if count_row and count_row[0] == 0:
                         cur.execute("DELETE FROM cluster WHERE id = %s", (old_cluster_id,))
                         logger.info(f"Deleted empty cluster {old_cluster_id}")
+                    else:
+                        old_cluster_survived = old_cluster_id
 
                 # Lock new cluster row
                 cur.execute(
@@ -724,6 +745,10 @@ class ClusteringStage(BaseStage):
                     f"Assigned detection {detection_id} to cluster {cluster_id} "
                     f"with confidence {confidence:.3f} (status={status})"
                 )
+
+        self._recompute_cluster_age_gender(cluster_id)
+        if old_cluster_survived is not None:
+            self._recompute_cluster_age_gender(old_cluster_survived)
 
     def _mark_for_review(
         self, detection_id: int, cluster_ids: List[int], cluster_distances: Dict[int, float]
@@ -1151,6 +1176,8 @@ class ClusteringStage(BaseStage):
             # Mark core points
             if core_detection_ids:
                 self.repository.mark_detections_as_core(core_detection_ids)
+
+            self._recompute_cluster_age_gender(cluster_id)
 
         # --- Persist hierarchy data ---
 

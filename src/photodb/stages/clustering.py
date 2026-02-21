@@ -637,15 +637,14 @@ class ClusteringStage(BaseStage):
             cluster_status="auto",
         ):
             self.repository.update_cluster_face_count(cluster_id, 1)
+            logger.debug(f"Created new cluster {cluster_id} for detection {detection_id}")
+            self._recompute_cluster_age_gender(cluster_id)
         else:
             # Detection was taken by another worker, delete empty cluster
             self.repository.delete_cluster(cluster_id)
             logger.debug(
                 f"Detection {detection_id} already assigned, deleted empty cluster {cluster_id}"
             )
-
-        logger.debug(f"Created new cluster {cluster_id} for detection {detection_id}")
-        self._recompute_cluster_age_gender(cluster_id)
 
     def _assign_to_cluster(
         self,

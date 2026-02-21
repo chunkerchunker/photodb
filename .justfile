@@ -4,6 +4,9 @@
 @cloc:
   cloc . --exclude-dir=node_modules,.venv,__pycache__,.worktrees,build --include-ext=py,ts
 
+@maintenance *args:
+  uv run photodb-maintenance {{args}}
+
 @daily *args:
   uv run photodb-maintenance daily {{args}}
 
@@ -18,6 +21,9 @@
 
 @group-clusters collection_id *args:
   uv run photodb-maintenance auto-associate --collection-id {{collection_id}} {{args}}
+
+@cluster-age-gender collection_id *args:
+  uv run photodb-maintenance recompute-cluster-age-gender --collection-id {{collection_id}} {{args}}
 
 @reset-clusters collection_id *args:
   uv run python scripts/reset_clustering.py --collection-id {{collection_id}} {{args}}

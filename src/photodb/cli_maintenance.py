@@ -100,6 +100,7 @@ def run_daily(args):
         print(f"  - Statistics updated: {results.get('statistics_updated', 0)}")
         print(f"  - Epsilons calculated: {results.get('epsilons_calculated', 0)}")
         print(f"  - Constraint violations: {results.get('constraint_violations', 0)}")
+        print(f"  - Cluster age/gender recomputed: {results.get('cluster_age_gender_recomputed', 0)}")
 
         if args.json:
             print("\nJSON output:")
@@ -157,6 +158,20 @@ def recompute_centroids(args):
         return 0
 
     return run_maintenance_command(operation, "Failed to recompute centroids", args.collection_id)
+
+
+def recompute_cluster_age_gender(args):
+    """Recompute age/gender aggregates for all clusters."""
+    logger.info("Recomputing cluster age/gender estimates...")
+
+    def operation(maintenance: MaintenanceUtilities) -> int:
+        count = maintenance.recompute_all_cluster_age_gender()
+        print(f"Recomputed age/gender for {count} clusters")
+        return 0
+
+    return run_maintenance_command(
+        operation, "Failed to recompute cluster age/gender", args.collection_id
+    )
 
 
 def update_medoids(args):
@@ -443,6 +458,13 @@ Examples:
         "recompute-centroids", parents=[common], help="Recompute all cluster centroids"
     )
     centroids_parser.set_defaults(func=recompute_centroids)
+
+    age_gender_parser = subparsers.add_parser(
+        "recompute-cluster-age-gender",
+        parents=[common],
+        help="Recompute age/gender aggregates for all clusters",
+    )
+    age_gender_parser.set_defaults(func=recompute_cluster_age_gender)
 
     medoids_parser = subparsers.add_parser(
         "update-medoids", parents=[common], help="Update medoids for all clusters"

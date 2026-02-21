@@ -1,5 +1,21 @@
-import { EyeOff, GitFork, Link2, Loader2, Pencil, Search, Sparkles, Star, Trash2, Unlink, User, Users } from "lucide-react";
-import { useCallback, useEffect, useState } from "react";
+import {
+  ArrowDown,
+  ArrowUp,
+  Calendar,
+  EyeOff,
+  GitFork,
+  Link2,
+  Loader2,
+  Pencil,
+  Search,
+  Sparkles,
+  Star,
+  Trash2,
+  Unlink,
+  User,
+  Users,
+} from "lucide-react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { Link, useFetcher, useLocation, useNavigate, useRevalidator } from "react-router";
 import { Breadcrumb } from "~/components/breadcrumb";
 import { ClusterLinkDialog } from "~/components/cluster-merge-dialog";
@@ -20,6 +36,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from "~/components/ui/dialog";
+import { cn } from "~/lib/utils";
 import { requireCollectionId } from "~/lib/auth.server";
 import { dataWithViewMode } from "~/lib/cookies.server";
 import { deletePersonRow, getClustersByPerson, getPersonById, unlinkClusterFromPerson } from "~/lib/db.server";
@@ -76,9 +93,121 @@ export async function action({ request, params }: Route.ActionArgs) {
 
 type Cluster = Awaited<ReturnType<typeof getClustersByPerson>>[number];
 
+type SortType = "photos" | "age";
+type SortDirection = "asc" | "desc";
+
+/**
+ * Sort toggle for clusters - by photo count or age estimate
+ */
+function ClusterSortToggle({
+  sort,
+  direction,
+  onSortChange,
+}: {
+  sort: SortType;
+  direction: SortDirection;
+  onSortChange: (sort: SortType, direction: SortDirection) => void;
+}) {
+  const handleClick = (newSort: SortType) => {
+    if (newSort === sort) {
+      // Toggle direction if clicking the same sort
+      onSortChange(sort, direction === "desc" ? "asc" : "desc");
+    } else {
+      // Default to desc when switching sort types
+      onSortChange(newSort, "desc");
+    }
+  };
+
+  const DirectionIcon = direction === "desc" ? ArrowDown : ArrowUp;
+
+  return (
+    <div className="flex items-center rounded-lg border bg-gray-50 p-1" title="Sort clusters">
+      <button
+        type="button"
+        onClick={() => handleClick("photos")}
+        className={cn(
+          "flex items-center gap-1.5 px-3 py-1.5 rounded-md text-sm font-medium transition-colors",
+          sort === "photos" ? "bg-white text-gray-900 shadow-sm" : "text-gray-500 hover:text-gray-700",
+        )}
+        title="Sort by photo count"
+      >
+        <Users className="h-4 w-4" />
+        {sort === "photos" && <DirectionIcon className="h-3 w-3" />}
+      </button>
+      <button
+        type="button"
+        onClick={() => handleClick("age")}
+        className={cn(
+          "flex items-center gap-1.5 px-3 py-1.5 rounded-md text-sm font-medium transition-colors",
+          sort === "age" ? "bg-white text-gray-900 shadow-sm" : "text-gray-500 hover:text-gray-700",
+        )}
+        title="Sort by age"
+      >
+        <Calendar className="h-4 w-4" />
+        {sort === "age" && <DirectionIcon className="h-3 w-3" />}
+      </button>
+    </div>
+  );
+}
+
 export default function PersonDetailView({ loaderData }: Route.ComponentProps) {
   const { person, clusters: initialClusters } = loaderData;
   const [clusters, setClusters] = useState<Cluster[]>(initialClusters);
+
+  // Sort state - load from localStorage or default to age descending
+  const [sortType, setSortType] = useState<SortType>(() => {
+    if (typeof window !== "undefined") {
+      const saved = localStorage.getItem("personClustersSort");
+      if (saved) {
+        try {
+          const { type } = JSON.parse(saved);
+          return type === "photos" || type === "age" ? type : "age";
+        } catch {
+          return "age";
+        }
+      }
+    }
+    return "age";
+  });
+  const [sortDirection, setSortDirection] = useState<SortDirection>(() => {
+    if (typeof window !== "undefined") {
+      const saved = localStorage.getItem("personClustersSort");
+      if (saved) {
+        try {
+          const { direction } = JSON.parse(saved);
+          return direction === "asc" || direction === "desc" ? direction : "desc";
+        } catch {
+          return "desc";
+        }
+      }
+    }
+    return "desc";
+  });
+
+  // Apply sorting to clusters
+  const sortedClusters = useMemo(() => {
+    const sorted = [...clusters].sort((a, b) => {
+      let comparison = 0;
+
+      if (sortType === "photos") {
+        comparison = (a.face_count || 0) - (b.face_count || 0);
+      } else if (sortType === "age") {
+        // Handle null/undefined age estimates - put them at the end
+        const aAge = a.age_estimate ?? Number.POSITIVE_INFINITY;
+        const bAge = b.age_estimate ?? Number.POSITIVE_INFINITY;
+        comparison = aAge - bAge;
+      }
+
+      return sortDirection === "desc" ? -comparison : comparison;
+    });
+
+    return sorted;
+  }, [clusters, sortType, sortDirection]);
+
+  const handleSortChange = (newSort: SortType, newDirection: SortDirection) => {
+    setSortType(newSort);
+    setSortDirection(newDirection);
+  };
 
   // Dialog state
   const [renameDialogOpen, setRenameDialogOpen] = useState(false);
@@ -117,6 +246,13 @@ export default function PersonDetailView({ loaderData }: Route.ComponentProps) {
   useEffect(() => {
     setClusters(initialClusters);
   }, [initialClusters]);
+
+  // Persist sort preferences to localStorage
+  useEffect(() => {
+    if (typeof window !== "undefined") {
+      localStorage.setItem("personClustersSort", JSON.stringify({ type: sortType, direction: sortDirection }));
+    }
+  }, [sortType, sortDirection]);
 
   // Revalidate after hide completes
   useEffect(() => {
@@ -190,8 +326,8 @@ export default function PersonDetailView({ loaderData }: Route.ComponentProps) {
     representativeFetcher.submit({ clusterId }, { method: "post", action: `/api/person/${person.id}/representative` });
   };
 
-  const visibleClusters = clusters.filter((c) => !c.hidden);
-  const hiddenClusters = clusters.filter((c) => c.hidden);
+  const visibleClusters = sortedClusters.filter((c) => !c.hidden);
+  const hiddenClusters = sortedClusters.filter((c) => c.hidden);
   const totalFaces = clusters.reduce((sum, c) => sum + (c.face_count || 0), 0);
 
   return (
@@ -246,6 +382,7 @@ export default function PersonDetailView({ loaderData }: Route.ComponentProps) {
           </div>
 
           <SecondaryControls variant="grid">
+            <ClusterSortToggle sort={sortType} direction={sortDirection} onSortChange={handleSortChange} />
             {!person.auto_created && (
               <Button variant="outline" size="sm" asChild>
                 <Link to={`/person/${person.id}/family-tree`}>
@@ -424,6 +561,14 @@ export default function PersonDetailView({ loaderData }: Route.ComponentProps) {
                                     <div className="text-sm text-gray-600">
                                       {cluster.face_count} photo{cluster.face_count !== 1 ? "s" : ""}
                                     </div>
+                                    {cluster.age_estimate !== null && cluster.age_estimate !== undefined && (
+                                      <div className="text-xs text-gray-500">
+                                        Age: {cluster.age_estimate.toFixed(1)}
+                                        {cluster.age_estimate_stddev !== null &&
+                                          cluster.age_estimate_stddev !== undefined &&
+                                          ` ±${cluster.age_estimate_stddev.toFixed(1)}`}
+                                      </div>
+                                    )}
                                     {cluster.verified && <Badge variant="secondary">Verified</Badge>}
                                   </div>
                                 </div>
@@ -473,8 +618,18 @@ export default function PersonDetailView({ loaderData }: Route.ComponentProps) {
                               </div>
                             )}
 
-                            <div className="text-sm text-gray-500">
-                              {cluster.face_count} photo{cluster.face_count !== 1 ? "s" : ""}
+                            <div className="space-y-1">
+                              <div className="text-sm text-gray-500">
+                                {cluster.face_count} photo{cluster.face_count !== 1 ? "s" : ""}
+                              </div>
+                              {cluster.age_estimate !== null && cluster.age_estimate !== undefined && (
+                                <div className="text-xs text-gray-400">
+                                  Age: {cluster.age_estimate.toFixed(1)}
+                                  {cluster.age_estimate_stddev !== null &&
+                                    cluster.age_estimate_stddev !== undefined &&
+                                    ` ±${cluster.age_estimate_stddev.toFixed(1)}`}
+                                </div>
+                              )}
                             </div>
                           </div>
                         </CardContent>

@@ -897,6 +897,7 @@ export async function getPersonById(collectionId: number, personId: string) {
 export async function getClustersByPerson(collectionId: number, personId: string) {
   const query = `
     SELECT c.id, c.face_count::integer as face_count, c.representative_detection_id, c.hidden, c.verified,
+           c.age_estimate, c.age_estimate_stddev,
            pd.face_path, pd.id as detection_id
     FROM cluster c
     LEFT JOIN person_detection pd ON c.representative_detection_id = pd.id
